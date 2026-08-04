@@ -1,120 +1,396 @@
 @import 'tailwindcss';
 
-/* ------------------------------------------------------------------ *
- * Design tokens — INRP2P
- * Premium Indian fintech: warm neutral ground, deep ink, restrained
- * orange energy reserved for the primary conversion action.
- * No glassmorphism. No neon. No decorative gradients.
- * ------------------------------------------------------------------ */
+/* ==================================================================== *
+ * INRP2P DESIGN SYSTEM
+ *
+ * Visual grammar: THE RAIL.
+ * Every screen expresses one idea — value moving along a settlement rail
+ * from an origin to a destination, arriving with finality. The rail is a
+ * hairline with two square terminals and a travelling marker. It is the
+ * exchange divider, the deal progress track, and the link lifecycle.
+ * Drawn in CSS and SVG; never bitmap art.
+ *
+ * Surfaces separate by LINE and TONE, not by float. Radii are small,
+ * shadows near-absent. The page reads as printed matter carrying one
+ * live action colour, so the action is unmistakable.
+ * ==================================================================== */
 
 @theme {
-  /* Neutrals — warm stone, not blue-grey */
-  --color-ink: #0c0a09;
-  --color-ink-soft: #292524;
-  --color-muted: #57534e;
-  --color-faint: #a8a29e;
-  --color-line: #e7e5e4;
-  --color-line-strong: #d6d3d1;
-  --color-surface: #ffffff;
-  --color-surface-sunken: #fafaf9;
-  --color-surface-raised: #ffffff;
+  /* ---- Canvas & ink -------------------------------------------------
+     Warm mineral white, not blue-white. Ink is near-black with a trace
+     of warmth so it sits on ivory without the cold clash of pure black. */
+  --color-canvas: #fbfaf8;
+  --color-paper: #ffffff;
+  --color-sunken: #f4f2ee;
+  --color-ink: #141210;
+  --color-ink-2: #3d3833;
+  --color-ink-3: #6b635b;
+  --color-ink-4: #9a918a;
 
-  /* Brand — used sparingly, primarily on MOVE */
-  --color-brand: #ea580c;
-  --color-brand-hover: #c2410c;
-  --color-brand-press: #9a3412;
-  --color-brand-tint: #fff7ed;
-  --color-brand-line: #fed7aa;
+  /* Hairlines. `line` is the default rule, `rule` a structural division,
+     `edge` the strongest — used for rail terminals. */
+  --color-line: #e8e4dd;
+  --color-rule: #d8d2c8;
+  --color-edge: #b9b1a4;
 
-  /* Semantic */
-  --color-success: #15803d;
-  --color-success-tint: #f0fdf4;
-  --color-warning: #b45309;
-  --color-warning-tint: #fffbeb;
-  --color-danger: #b91c1c;
-  --color-danger-tint: #fef2f2;
-  --color-info: #1d4ed8;
-  --color-info-tint: #eff6ff;
+  /* ---- Action ------------------------------------------------------
+     One saffron. Primary action, live rail marker, nothing else.
+     Scarcity is what makes it legible as "act here". */
+  --color-action: #e4610f;
+  --color-action-hover: #c44f0a;
+  --color-action-press: #a34108;
+  --color-action-tint: #fdf1e7;
+  --color-action-line: #f3cfae;
 
-  /* Typography */
+  /* ---- Status ------------------------------------------------------
+     Green ONLY for verified completion. Red ONLY for blocking risk.
+     Everything intermediate is graphite, so colour never cries wolf. */
+  --color-final: #1a7346;
+  --color-final-tint: #eef6f1;
+  --color-final-line: #b8ddc9;
+  --color-risk: #a81f1f;
+  --color-risk-tint: #fbeeee;
+  --color-risk-line: #e8bebe;
+  --color-hold: #8a6a1f;
+  --color-hold-tint: #fbf5e6;
+  --color-hold-line: #e5d5a8;
+  --color-idle: #6b635b;
+  --color-idle-tint: #f2f0ec;
+  --color-idle-line: #ddd8cf;
+
+  /* ---- Type --------------------------------------------------------
+     System stack: zero webfont weight, instant first paint on a slow
+     Android. Monetary numerals are tabular everywhere. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     'Noto Sans', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 
-  /* Radii — modest, product-like */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  /* Restrained scale. Money takes the top sizes; nothing else does. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 3rem;
+  --text-5xl: 3.75rem;
 
-  /* Elevation — soft and low; never floaty */
-  --shadow-card: 0 1px 2px rgb(12 10 9 / 0.04), 0 1px 3px rgb(12 10 9 / 0.06);
-  --shadow-raised: 0 4px 12px rgb(12 10 9 / 0.08), 0 1px 3px rgb(12 10 9 / 0.06);
-  --shadow-focus: 0 0 0 3px rgb(234 88 12 / 0.28);
+  /* ---- Geometry ---------------------------------------------------- */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* Depth is nearly absent by design. `lift` is for genuinely floating
+     surfaces only — sheets and menus — never for ordinary content. */
+  --shadow-lift: 0 1px 2px rgb(20 18 16 / 0.05), 0 8px 24px -8px rgb(20 18 16 / 0.12);
+  --shadow-sheet: 0 -1px 3px rgb(20 18 16 / 0.06), 0 -12px 32px -12px rgb(20 18 16 / 0.18);
+
+  /* ---- Motion — 150–220ms, nothing bounces. ------------------------ */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 150ms;
+  --dur-base: 190ms;
+  --dur-slow: 260ms;
+
+  /* ---- Layout ------------------------------------------------------- */
+  --w-prose: 34rem;
+  --w-form: 27rem;
+  --w-content: 60rem;
+  --w-wide: 78rem;
+  --w-ops: 96rem;
+
+  /* Touch: 44px floor, every control, every pointer. */
+  --tap: 44px;
 }
 
-/* Dark scheme overrides the token values as plain custom properties.
-   `@theme` may not be nested inside a media query in Tailwind v4. */
+/* Dark scheme. Tailwind v4 forbids @theme inside a media query, so the
+   tokens are restated as plain custom properties. The rail carries over
+   unchanged; only ground and ink invert. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-ink: #fafaf9;
-    --color-ink-soft: #e7e5e4;
-    --color-muted: #a8a29e;
-    --color-faint: #78716c;
-    --color-line: #292524;
-    --color-line-strong: #44403c;
-    --color-surface: #171514;
-    --color-surface-sunken: #0c0a09;
-    --color-surface-raised: #1c1917;
-    --color-brand-tint: #2a1409;
-    --color-brand-line: #7c2d12;
-    --color-success-tint: #0b1f13;
-    --color-warning-tint: #241804;
-    --color-danger-tint: #2a0f0f;
-    --color-info-tint: #0d1631;
+    --color-canvas: #12100e;
+    --color-paper: #1a1714;
+    --color-sunken: #0c0a09;
+    --color-ink: #f7f4ef;
+    --color-ink-2: #ddd7ce;
+    --color-ink-3: #a49b90;
+    --color-ink-4: #766d63;
+    --color-line: #2b2621;
+    --color-rule: #3a342d;
+    --color-edge: #554d43;
+    --color-action: #f2751f;
+    --color-action-hover: #ff8a3d;
+    --color-action-press: #d8600f;
+    --color-action-tint: #2a1608;
+    --color-action-line: #6b3410;
+    --color-final: #4cbb85;
+    --color-final-tint: #0d2117;
+    --color-final-line: #1f4a34;
+    --color-risk: #f0706e;
+    --color-risk-tint: #2a1111;
+    --color-risk-line: #5c2424;
+    --color-hold: #d9b04f;
+    --color-hold-tint: #241d0b;
+    --color-hold-line: #4f4020;
+    --color-idle: #a49b90;
+    --color-idle-tint: #201c18;
+    --color-idle-line: #35302a;
   }
 }
 
-/* ------------------------------------------------------------------ *
+/* ==================================================================== *
  * Base
- * ------------------------------------------------------------------ */
+ * ==================================================================== */
 
 @layer base {
-  * {
-    border-color: var(--color-line);
-  }
-
   html {
     -webkit-text-size-adjust: 100%;
-    scroll-behavior: smooth;
   }
 
   body {
-    background: var(--color-surface-sunken);
+    background: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-feature-settings: 'cv11', 'ss01';
+    font-size: var(--text-base);
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
+    -moz-osx-font-smoothing: grayscale;
+    /* Stop a single wide child leaking into a page-level scrollbar. */
+    overflow-x: hidden;
   }
 
-  /* Money and any aligned figure column must not jitter between frames. */
-  .tnum {
-    font-variant-numeric: tabular-nums;
-    font-feature-settings: 'tnum';
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.018em;
+    line-height: 1.2;
+    text-wrap: balance;
   }
 
+  p {
+    text-wrap: pretty;
+  }
+
+  /* A solid ring in the action colour. Always visible, never removed. */
   :focus-visible {
-    outline: 2px solid var(--color-brand);
+    outline: 2px solid var(--color-action);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
   }
 
   ::selection {
-    background: var(--color-brand);
+    background: var(--color-action);
     color: #fff;
   }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* iOS zooms on focus below 16px. Raise it for coarse pointers only, so
+     desktop keeps the denser 15px scale. */
+  @media (pointer: coarse) {
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
 }
+
+/* ==================================================================== *
+ * Utilities
+ * ==================================================================== */
+
+@layer utilities {
+  /* Money and every aligned figure column. Tabular so digit widths never
+     shift between frames — a countdown must not make a total jitter. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+  .pt-safe {
+    padding-top: max(env(safe-area-inset-top), 0px);
+  }
+  .px-safe {
+    padding-left: max(env(safe-area-inset-left), 0px);
+    padding-right: max(env(safe-area-inset-right), 0px);
+  }
+
+  .tap {
+    min-height: var(--tap);
+    min-width: var(--tap);
+  }
+}
+
+/* ==================================================================== *
+ * THE RAIL — signature motif
+ * ==================================================================== */
+
+.rail {
+  position: relative;
+  height: 1px;
+  background: var(--color-rule);
+}
+
+/* Terminals are squares on their corner, not dots: a square reads as a
+   fixed endpoint (an account); a circle would read as decoration. */
+.rail::before,
+.rail::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translateY(-50%) rotate(45deg);
+  background: var(--color-edge);
+}
+.rail::before {
+  left: 0;
+}
+.rail::after {
+  right: 0;
+}
+
+/* Cap control. A rail segment shows only the terminals it actually owns,
+   so a split rail reads as one origin and one destination rather than as
+   a repeating motif. */
+.rail-cap-start::after {
+  display: none;
+}
+.rail-cap-end::before {
+  display: none;
+}
+.rail-cap-none::before,
+.rail-cap-none::after {
+  display: none;
+}
+
+/* Live rail: the destination terminal carries the action colour. */
+.rail-live::after {
+  background: var(--color-action);
+}
+
+/* Progress rail: a filled segment. Width is set inline from authoritative
+   server state — never from a client timer. */
+.rail-progress {
+  position: relative;
+  height: 2px;
+  background: var(--color-line);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.rail-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--color-ink);
+  border-radius: inherit;
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+.rail-progress[data-tone='final'] > span {
+  background: var(--color-final);
+}
+.rail-progress[data-tone='risk'] > span {
+  background: var(--color-risk);
+}
+
+/* ==================================================================== *
+ * Motion primitives
+ * ==================================================================== */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* One restrained completion moment: the seal draws itself, once. */
+@keyframes seal {
+  from {
+    stroke-dashoffset: 48;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+.animate-rise {
+  animation: rise var(--dur-base) var(--ease-out) both;
+}
+.animate-fade {
+  animation: fade var(--dur-base) var(--ease-out) both;
+}
+.animate-seal path {
+  stroke-dasharray: 48;
+  animation: seal 420ms var(--ease-out) 80ms both;
+}
+
+/* Skeletons sweep slowly rather than pulse: this says "loading", and
+   never implies progress that is not being made. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-sunken) 25%,
+    var(--color-line) 37%,
+    var(--color-sunken) 63%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* Tactile press. Transform only — never a layout property. */
+.press {
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.press:active {
+  transform: scale(0.985);
+}
+
+/* ==================================================================== *
+ * Reduced motion — the product is complete without animation.
+ * ==================================================================== */
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -125,19 +401,17 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-}
 
-/* Kinetic wheel — the single sanctioned brand motion. Slow, silent, optional. */
-@keyframes inrp2p-wheel {
-  from {
-    transform: rotate(0deg);
+  .skeleton {
+    animation: none;
+    background: var(--color-sunken);
   }
-  to {
-    transform: rotate(360deg);
-  }
-}
 
-.wheel-spin {
-  animation: inrp2p-wheel 34s linear infinite;
-  transform-origin: 50% 50%;
+  .animate-seal path {
+    stroke-dashoffset: 0;
+  }
+
+  .press:active {
+    transform: none;
+  }
 }

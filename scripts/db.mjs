@@ -33,7 +33,33 @@ const USER = 'inrp2p_sandbox';
 const PASSWORD = 'sandbox-local-only';
 const DB = 'inrp2p_sandbox';
 
-export const DATABASE_URL = `postgres://${USER}:${PASSWORD}@127.0.0.1:${PORT}/${DB}`;
+/** The embedded database this script can start and stop locally. */
+export const LOCAL_URL = `postgres://${USER}:${PASSWORD}@127.0.0.1:${PORT}/${DB}`;
+
+/**
+ * The database commands act on.
+ *
+ * `DATABASE_URL` wins when set, so `npm run db:migrate` can target a hosted
+ * PostgreSQL for a deployment. `start`/`stop`/`reset` only ever manage the
+ * LOCAL embedded server and refuse to touch a remote one.
+ */
+export const DATABASE_URL = process.env.DATABASE_URL || LOCAL_URL;
+
+function isRemote(url) {
+  try {
+    const h = new URL(url).hostname;
+    return !(h === 'localhost' || h === '127.0.0.1' || h === '::1');
+  } catch {
+    return false;
+  }
+}
+
+/** Hosted providers require TLS; the embedded local server does not offer it. */
+function clientConfig(url) {
+  return isRemote(url)
+    ? { connectionString: url, ssl: { rejectUnauthorized: false } }
+    : { connectionString: url };
+}
 
 const NATIVE = path.join(ROOT, 'node_modules', '@embedded-postgres', 'darwin-arm64', 'native');
 const BIN = path.join(NATIVE, 'bin');
@@ -53,7 +79,7 @@ function bin(name) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function isUp() {
-  const client = new pg.Client({ connectionString: DATABASE_URL, connectionTimeoutMillis: 1200 });
+  const client = new pg.Client({ ...clientConfig(LOCAL_URL), connectionTimeoutMillis: 1200 });
   try {
     await client.connect();
     await client.query('SELECT 1');
@@ -82,6 +108,14 @@ function initdb() {
 }
 
 async function start() {
+  if (isRemote(DATABASE_URL)) {
+    console.error(
+      `DATABASE_URL points at a remote host (${new URL(DATABASE_URL).host}).\n` +
+        'This command only manages the LOCAL embedded server. Use `db:migrate` to\n' +
+        'apply migrations to a hosted database.',
+    );
+    process.exit(2);
+  }
   if (await isUp()) {
     console.log(`sandbox database already running on port ${PORT}`);
     return;
@@ -133,6 +167,10 @@ async function ensureDatabase() {
 }
 
 function stop() {
+  if (isRemote(DATABASE_URL)) {
+    console.error('DATABASE_URL is remote; refusing to stop anything.');
+    process.exit(2);
+  }
   if (!existsSync(DATA_DIR)) {
     console.log('no data directory; nothing to stop');
     return;
@@ -147,7 +185,11 @@ async function migrate() {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  const client = new pg.Client({ connectionString: DATABASE_URL });
+  const target = DATABASE_URL;
+  if (isRemote(target)) {
+    console.log(`migrating REMOTE database: ${new URL(target).host}`);
+  }
+  const client = new pg.Client(clientConfig(target));
   await client.connect();
   try {
     await client.query(`
@@ -187,6 +229,10 @@ async function migrate() {
 }
 
 async function reset() {
+  if (isRemote(DATABASE_URL)) {
+    console.error('DATABASE_URL is remote; refusing to destroy a hosted database.');
+    process.exit(2);
+  }
   stop();
   rmSync(path.join(ROOT, '.sandbox-db'), { recursive: true, force: true });
   await start();

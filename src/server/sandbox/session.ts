@@ -18,8 +18,34 @@ import { getUser, type SessionUser } from './service';
 
 const COOKIE = 'inrp2p_sandbox_session';
 
+/**
+ * The cookie signing key.
+ *
+ * FAILS CLOSED IN PRODUCTION. The development fallback below is committed to
+ * a public repository, so anyone can read it. A deployment that signed
+ * cookies with it would let a visitor forge any session — including one
+ * carrying `isOperator` — simply by computing the HMAC themselves. That is
+ * not a weak default; it is no authentication at all.
+ *
+ * So production refuses to start rather than degrade quietly, exactly as the
+ * escrow adapter does. Development keeps the fallback because a local
+ * sandbox guards nothing.
+ */
 function secret(): string {
-  return process.env.SANDBOX_SESSION_SECRET ?? 'sandbox-development-secret-not-for-production';
+  const configured = process.env.SANDBOX_SESSION_SECRET;
+  if (configured && configured.length >= 16) return configured;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'SANDBOX_SESSION_SECRET is not set (or is shorter than 16 characters).\n' +
+        'Refusing to sign session cookies with the public development fallback: it is\n' +
+        'committed to this repository, so anyone could forge a session — including an\n' +
+        'operator one. Set it to a long random value, e.g.\n' +
+        '  openssl rand -base64 32',
+    );
+  }
+
+  return 'sandbox-development-secret-not-for-production';
 }
 
 function sign(userId: string): string {

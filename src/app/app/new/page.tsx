@@ -1,79 +1,88 @@
 import { createLinkAction } from '@/server/sandbox/actions';
 import { requireUser } from '@/server/sandbox/session';
-import { SandboxNote } from '@/components/sandbox/SandboxChrome';
+import { BottomNav } from '@/components/kit/AppChrome';
+import { NewDealForm } from '@/components/kit/NewDealForm';
+import { Label, Notice, Rail, SandboxLine, Shell } from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * Create a deal link.
  *
- * The rate is NOT carried here from the calculator. Whatever the visitor saw
- * before signing in was indicative and is not binding; the server issues a
- * fresh firm quote inside `createLinkAction` at the moment the link is made,
- * with its own server-controlled expiry.
+ * One dominant decision — the amount — with the consequences of that
+ * decision kept in view beside it. Direction is fixed for this sandbox
+ * (you supply USDT, they send INR), so it is stated as context rather
+ * than offered as a choice that has only one option.
+ *
+ * NO RATE IS CARRIED HERE. Whatever the visitor saw on the calculator was
+ * indicative; `createLinkAction` asks the server for a fresh firm quote
+ * with its own server-controlled expiry at the moment the link is made.
  */
 export default async function NewDealPage({
   searchParams,
 }: {
   searchParams: Promise<{ amount?: string; error?: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
   const { amount, error } = await searchParams;
 
   return (
-    <div className="mx-auto max-w-lg">
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <h1 className="text-lg font-semibold tracking-tight text-slate-900">Create a deal link</h1>
-        <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
-          You supply the USDT. Whoever opens the link sends you the INR. A firm rate is issued by
-          the server when the link is created — nothing you saw earlier is binding.
-        </p>
-
-        <SandboxNote className="mt-4" />
-
-        {error === 'amount' ? (
-          <div
-            role="alert"
-            className="mt-4 rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2.5"
-          >
-            <p className="text-sm font-semibold text-amber-900">That amount is not valid.</p>
-            <p className="mt-1 text-sm text-amber-900">
-              Enter a number of USDT with up to six decimal places, for example 500 or 12.5.
-            </p>
+    <>
+      <Shell width="content" className="py-6 sm:py-8">
+        <div className="mx-auto max-w-[46rem]">
+          <div className="flex items-center gap-3">
+            <h1 className="text-[length:var(--text-2xl)] font-semibold tracking-[-0.025em] text-[var(--color-ink)]">
+              Create a deal link
+            </h1>
+            <Rail className="flex-1" live />
           </div>
-        ) : null}
+          <p className="mt-1.5 max-w-[54ch] text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-3)]">
+            You supply the USDT. Whoever opens the link sends you the INR, and exactly one person
+            can take it.
+          </p>
 
-        <form action={createLinkAction} className="mt-5 space-y-4">
-          <label className="block">
-            <span className="text-xs font-medium text-slate-700">You supply</span>
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                name="usdt"
-                defaultValue={amount ?? '500'}
-                inputMode="decimal"
-                required
-                aria-label="USDT amount"
-                className="h-12 w-full rounded-lg border border-slate-300 px-3 text-lg tabular-nums"
-              />
-              <span className="shrink-0 rounded-lg bg-slate-100 px-3 py-3 text-sm font-medium text-slate-700">
-                USDT
-              </span>
-            </div>
-          </label>
+          {error === 'amount' ? (
+            <Notice
+              className="mt-5"
+              tone="risk"
+              title="That amount is not valid"
+              body="An amount must be a number of USDT with up to six decimal places."
+              reassurance="Nothing was created and no rate was requested."
+              nextStep="Enter something like 500 or 12.5, then create the link again."
+            />
+          ) : null}
 
-          <button
-            type="submit"
-            className="h-12 w-full rounded-lg bg-slate-900 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            Issue rate and create link
-          </button>
-        </form>
+          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start">
+            <NewDealForm action={createLinkAction} defaultAmount={amount ?? '500'} />
 
-        <p className="mt-4 text-xs leading-relaxed text-slate-500">
-          The link expires on a server-side deadline. Exactly one person can join it; if two people
-          open it at once, the database picks the winner and tells the other honestly.
-        </p>
-      </div>
-    </div>
+            {/* Context, not decoration: what happens after this button. */}
+            <aside className="rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] p-4">
+              <Label>What happens next</Label>
+              <ol className="mt-3 space-y-3">
+                {AFTER.map((s, i) => (
+                  <li key={s} className="flex gap-2.5">
+                    <span className="tnum mt-px text-[length:var(--text-2xs)] font-semibold text-[var(--color-ink-4)]">
+                      {i + 1}
+                    </span>
+                    <span className="text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-2)]">
+                      {s}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <SandboxLine className="mt-4" full />
+            </aside>
+          </div>
+        </div>
+      </Shell>
+      <BottomNav active="new" isOperator={user.isOperator} />
+    </>
   );
 }
+
+const AFTER = [
+  'The server issues a firm rate and fixes both amounts.',
+  'You get a link with its own expiry.',
+  'You share it — WhatsApp, Telegram, anywhere.',
+  'The first eligible person to open it takes the other side.',
+];

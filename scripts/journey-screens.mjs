@@ -17,6 +17,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import pg from 'pg';
 import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -38,12 +39,51 @@ const CHROME = [
   '/usr/bin/chromium',
 ].find((p) => existsSync(p));
 
+/**
+ * The product matrix. `full` viewports walk the entire journey; the rest
+ * capture the composition-critical screens, which is where a responsive
+ * failure actually shows.
+ */
 const VIEWPORTS = [
-  { name: 'desktop', width: 1440, height: 900, scale: 2, mobile: false },
-  { name: 'mobile', width: 390, height: 844, scale: 3, mobile: true },
+  { name: '360x800', width: 360, height: 800, scale: 3, mobile: true, full: false },
+  { name: '390x844', width: 390, height: 844, scale: 3, mobile: true, full: true },
+  { name: '430x932', width: 430, height: 932, scale: 3, mobile: true, full: false },
+  { name: '768x1024', width: 768, height: 1024, scale: 2, mobile: true, full: false },
+  { name: '1024x1366', width: 1024, height: 1366, scale: 2, mobile: true, full: false },
+  { name: '1280x800', width: 1280, height: 800, scale: 2, mobile: false, full: false },
+  { name: '1440x900', width: 1440, height: 900, scale: 2, mobile: false, full: true },
+  { name: '1728x1117', width: 1728, height: 1117, scale: 2, mobile: false, full: false },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Age a link past its deadline using the DATABASE clock.
+ *
+ * Only `expires_at` and `created_at` move. State, authorization, amounts
+ * and roles are untouched, so what the page then renders is the server's
+ * genuine EXPIRED verdict rather than a faked status.
+ */
+async function expireLink(publicId) {
+  const url = process.env.DATABASE_URL;
+  if (!url) return false;
+  const client = new pg.Client({ connectionString: url });
+  try {
+    await client.connect();
+    await client.query(
+      `UPDATE sandbox.deal_link
+          SET created_at = now() - interval '2 hours',
+              expires_at = now() - interval '1 minute'
+        WHERE public_id = $1`,
+      [publicId],
+    );
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
 
 /* ----------------------------- CDP ----------------------------------- */
 
@@ -109,7 +149,35 @@ class Page {
       if (Date.now() > deadline) throw new Error('load timeout');
       await sleep(120);
     }
-    await sleep(700);
+    /*
+     * Next streams dynamic routes: the shell — including `loading.tsx` —
+     * arrives first and `readyState` reaches "complete" while the real
+     * content is still in flight. Waiting on readyState alone therefore
+     * captures the skeleton. Wait for the route-level loading status to
+     * disappear before treating the page as settled.
+     */
+    /*
+     * Next streams dynamic routes, so `readyState` reaches "complete" while
+     * the real content is still arriving, and the `loading.tsx` fallback
+     * markup lingers in the streamed HTML alongside it. Neither is a
+     * reliable signal.
+     *
+     * Every real page in this product renders an <h1>; the skeleton renders
+     * none. Waiting for one is therefore an exact test for "content has
+     * arrived", independent of how Next chooses to stream it.
+     */
+    const streamDeadline = Date.now() + 20_000;
+    let previous = null;
+    for (;;) {
+      const current = await this.eval(
+        '(() => { const h = document.querySelector("h1"); return h ? h.textContent : null; })()',
+      );
+      if (current && current === previous) break;
+      previous = current;
+      if (Date.now() > streamDeadline) break; // the per-screen assert is the gate
+      await sleep(220);
+    }
+    await sleep(600);
   }
   async text() {
     return this.eval('document.body ? document.body.innerText : ""');
@@ -140,11 +208,13 @@ class Page {
     await sleep(150);
   }
   async click(selector) {
-    const ok = await this.eval(`(() => {
+    const r = await this.eval(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return false;
-      el.scrollIntoView({block:'center'}); el.click(); return true; })()`);
-    if (!ok) throw new Error(`no element ${selector}`);
+      if (!el) return 'missing';
+      if (el.disabled) return 'disabled';
+      el.scrollIntoView({block:'center'}); el.click(); return 'ok'; })()`);
+    if (r === 'missing') throw new Error(`no element ${selector}`);
+    if (r === 'disabled') throw new Error(`element ${selector} is disabled — its guard rejected the input`);
     await sleep(900);
   }
   async shot(file) {
@@ -260,7 +330,19 @@ async function main() {
       const buyer = `buyer-${stamp}-${vp.name}@sandbox.test`;
       const shots = [];
 
+      // Screens captured at every viewport: these are where a responsive
+      // failure actually shows. The rest need a full journey to reach.
+      const CORE = new Set([
+        '01-landing',
+        '02-login',
+        '05-link-open',
+        '08-deal-fiat-side',
+        '10-deal-completed-receipt',
+        '12-operator-queue',
+      ]);
+
       const capture = async (page, name, assertRe, refuteRe) => {
+        if (!vp.full && !CORE.has(name)) return;
         const text = await page.text();
         if (assertRe && !assertRe.test(text)) {
           throw new Error(`${name}: ${assertRe} not matched.\n--- page ---\n${text.slice(0, 800)}`);
@@ -268,12 +350,19 @@ async function main() {
         if (refuteRe && refuteRe.test(text)) {
           throw new Error(`${name}: ${refuteRe} unexpectedly matched`);
         }
-        if (!/Sandbox\./i.test(text) && !/No real funds/i.test(text)) {
+        if (!/Sandbox/i.test(text)) {
           throw new Error(`${name}: sandbox notice missing`);
         }
+        const overflow = await page.eval(
+          'document.documentElement.scrollWidth - document.documentElement.clientWidth',
+        );
+        if (overflow > 1) {
+          throw new Error(`${name}: horizontal overflow of ${overflow}px at ${vp.name}`);
+        }
+
         const file = path.join(OUT, `${name}.${vp.name}.png`);
         await page.shot(file);
-        shots.push({ name, file });
+        shots.push({ name, file, viewport: vp.name });
         console.log(`  ✓ ${name} @ ${vp.name}`);
       };
 
@@ -281,11 +370,22 @@ async function main() {
       const a = await newPage(vp);
       try {
         await a.page.goto(`${BASE}/`);
-        await capture(a.page, '01-landing-calculator', /You send|You receive/i);
+        await capture(a.page, '01-landing', /You send/i);
+
+        // Login carrying an amount, so the preserved-intent block renders.
+        await a.page.goto(`${BASE}/login?next=${encodeURIComponent('/app/new?amount=500')}`);
+        await capture(a.page, '02-login', /Sign in/i);
 
         // ---- 2. Seller signs in and creates a link ---------------------
         await a.page.signIn(seller);
         await a.page.goto(`${BASE}/app/new`);
+        // Transaction home — empty first, then populated later in the run.
+        await a.page.goto(`${BASE}/app`);
+        await capture(a.page, '03-home-empty', /Your deals/i);
+
+        await a.page.goto(`${BASE}/app/new`);
+        await capture(a.page, '04-new-deal', /Create a deal link/i);
+
         await sleep(700); // hydration gate before the server action
         await a.page.fill('main input[name="usdt"]', '500');
         await a.page.click('main form button[type="submit"]');
@@ -305,7 +405,7 @@ async function main() {
         const anon = await newPage(vp);
         try {
           await anon.page.goto(`${BASE}/d/${publicId}`);
-          await capture(anon.page, '02-deal-link-open', /Open/, /Expired/);
+          await capture(anon.page, '05-link-open', /\bOpen\b/, /Expired/);
         } finally {
           await cdp.send('Target.closeTarget', { targetId: anon.targetId }).catch(() => {});
           await cdp
@@ -321,9 +421,9 @@ async function main() {
           await sleep(700); // hydration gate
           await b.page.click('[data-testid="join-button"]');
           await b.page.settle();
-          await b.page.waitForText(/Where things stand/i);
+          await b.page.waitForText(/The record|Mark the INR sent/i);
           // Buyer is FIAT_SIDE: they owe the INR.
-          await capture(b.page, '04-deal-active-fiat-side', /Mark the INR sent/i);
+          await capture(b.page, '08-deal-fiat-side', /Mark the INR sent/i);
 
           // ---- 5. The now-consumed link, seen by a stranger ------------
           const anon2 = await newPage(vp);
@@ -331,9 +431,9 @@ async function main() {
             await anon2.page.goto(`${BASE}/d/${publicId}`);
             await capture(
               anon2.page,
-              '03-deal-link-consumed-lost-race',
-              /Someone else joined this deal first/i,
-              /Open/,
+              '06-link-consumed',
+              /Someone joined first/i,
+              /\bOpen\b/,
             );
           } finally {
             await cdp.send('Target.closeTarget', { targetId: anon2.targetId }).catch(() => {});
@@ -348,13 +448,17 @@ async function main() {
           await a.page.settle();
           await capture(
             a.page,
-            '05-deal-active-crypto-side',
+            '09-deal-crypto-side',
             /USDT supplier/i,
             /Mark the INR sent/i, // the crypto side is never offered the claim
           );
 
           // ---- 7. Buyer submits the payment claim with a UTR ----------
-          const utr = `${stamp}${vp.name === 'desktop' ? 'D' : 'M'}`.toUpperCase().slice(0, 12).padEnd(12, '0');
+          const utrAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+          const utr = Array.from(
+            { length: 12 },
+            () => utrAlphabet[Math.floor(Math.random() * utrAlphabet.length)],
+          ).join('');
           await sleep(500); // hydration gate
           await b.page.fill('main input[aria-label="UTR"]', utr);
           await b.page.click('[data-testid="claim-submit"]');
@@ -370,12 +474,36 @@ async function main() {
           await a.page.click('[data-testid="confirm-submit"]');
           await a.page.settle();
           await a.page.waitForText(/Completed/i);
-          await capture(a.page, '06-deal-completed', /Completed/i);
+          await capture(a.page, '10-deal-completed-receipt', /Completed/i);
 
           // ---- 9. Persistence: reload from scratch --------------------
           const dealUrl = await a.page.eval('location.href');
           await a.page.goto(dealUrl);
-          await capture(a.page, '07-deal-completed-after-reload', /Completed/i);
+          await capture(a.page, '11-completed-after-reload', /Completed/i);
+
+          await a.page.goto(`${BASE}/app`);
+          await capture(a.page, '14-home-populated', /Your deals/i);
+
+          // Expired link: a second link, aged past its deadline by the
+          // server clock. Reached through the product, not by faking state.
+          await a.page.goto(`${BASE}/app/new`);
+          await sleep(700);
+          await a.page.fill('main input[name="usdt"]', '250');
+          await a.page.click('main form button[type="submit"]');
+          await a.page.waitForPathAway(/^\/app\/new/);
+          const expiredId = await a.page.eval(
+            "(() => { const m = location.pathname.match(/INRP-[0-9A-HJ-NP-Z]{10}/); return m ? m[0] : null; })()",
+          );
+          if (expiredId && expireLink) {
+            await expireLink(expiredId);
+            await a.page.goto(`${BASE}/d/${expiredId}`);
+            await capture(a.page, '07-link-expired', /expired/i, /Take the other side/i);
+          }
+
+          // A recoverable error state: a deal id that is well-formed but
+          // belongs to nobody. The server refuses and the page explains.
+          await a.page.goto(`${BASE}/app/deal/00000000-0000-4000-8000-000000000000`);
+          await capture(a.page, '15-error-not-participant', /cannot open this deal/i);
         } finally {
           await cdp.send('Target.closeTarget', { targetId: b.targetId }).catch(() => {});
           await cdp
@@ -385,14 +513,14 @@ async function main() {
 
         // ---- 10. Operator access denied (non-operator) ----------------
         await a.page.goto(`${BASE}/app/ops`);
-        await capture(a.page, '09-operator-access-denied', /403|restricted to operators/i);
+        await capture(a.page, '13-operator-403', /403/);
 
         // ---- 11. Operator queue, as a separate identity ---------------
         const op = await newPage(vp);
         try {
           await op.page.signIn(`ops@sandbox.test`);
           await op.page.goto(`${BASE}/app/ops`);
-          await capture(op.page, '08-operator-queue', /Operator queue/i, /403/);
+          await capture(op.page, '12-operator-queue', /Queue/, /403/);
         } finally {
           await cdp.send('Target.closeTarget', { targetId: op.targetId }).catch(() => {});
           await cdp

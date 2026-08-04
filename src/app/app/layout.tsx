@@ -1,42 +1,47 @@
 import type { ReactNode } from 'react';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/server/sandbox/session';
 import { signOutAction } from '@/server/sandbox/actions';
-import { SandboxBanner } from '@/components/sandbox/SandboxChrome';
+import { TopBar } from '@/components/kit/AppChrome';
+import { SandboxChip } from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Authenticated shell.
+ *
+ * Redirects before rendering, so a signed-out visitor never receives app
+ * chrome or any hint of its contents. `pb-24 md:pb-0` reserves exactly the
+ * height of the fixed mobile bottom bar so it can never cover content.
+ */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await currentUser();
-  // Redirect before rendering, so signed-out visitors never receive app chrome.
   if (!user) redirect('/login?next=/app');
 
   return (
-    <div className="flex min-h-dvh flex-col bg-slate-50">
-      <SandboxBanner />
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link href="/app" className="text-sm font-semibold tracking-tight text-slate-900">
-            INRP2P <span className="font-normal text-slate-400">Sandbox</span>
-          </Link>
-          <div className="flex items-center gap-4 text-sm">
-            <span className="hidden text-slate-600 sm:inline">{user.displayName}</span>
-            {user.isOperator ? (
-              <Link href="/app/ops" className="font-medium text-slate-700 hover:text-slate-900">
-                Operator
-              </Link>
-            ) : null}
+    <div className="flex min-h-dvh flex-col">
+      <TopBar
+        href="/app"
+        suffix="Sandbox"
+        right={
+          <>
+            <SandboxChip />
+            <span className="hidden text-[length:var(--text-sm)] text-[var(--color-ink-3)] lg:inline">
+              {user.displayName}
+            </span>
             <form action={signOutAction}>
-              <button type="submit" className="font-medium text-slate-700 hover:text-slate-900">
+              <button
+                type="submit"
+                className="tap rounded-[var(--radius-sm)] px-2 text-[length:var(--text-sm)] font-medium text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+              >
                 Sign out
               </button>
             </form>
-          </div>
-        </div>
-      </header>
-      <main id="main" className="flex-1">
-        <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-10">{children}</div>
+          </>
+        }
+      />
+      <main id="main" className="flex-1 pb-24 md:pb-0">
+        {children}
       </main>
     </div>
   );

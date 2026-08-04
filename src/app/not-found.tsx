@@ -1,24 +1,21 @@
-import Link from 'next/link';
-import { SandboxBanner } from '@/components/sandbox/SandboxChrome';
+import { TopBar } from '@/components/kit/AppChrome';
+import { Notice, Shell } from '@/components/kit/primitives';
 
 export default function NotFound() {
   return (
-    <div className="flex min-h-dvh flex-col bg-slate-50">
-      <SandboxBanner />
-      <main id="main" className="flex flex-1 items-center">
-        <div className="mx-auto max-w-md px-4 py-16 text-center">
-          <p className="text-5xl font-semibold tracking-tight text-slate-300">404</p>
-          <h1 className="mt-3 text-xl font-semibold text-slate-900">That page does not exist</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            The address may be mistyped, or the deal link may have been reissued.
-          </p>
-          <Link
-            href="/"
-            className="mt-5 inline-flex h-10 items-center rounded-lg bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            Go to the calculator
-          </Link>
-        </div>
+    <div className="flex min-h-dvh flex-col">
+      <TopBar suffix="Sandbox" />
+      <main id="main" className="flex flex-1 items-center py-10">
+        <Shell width="prose">
+          <Notice
+            tone="idle"
+            title="That page does not exist"
+            body="The address may be mistyped, or a deal link may have been reissued under a new reference."
+            reassurance="Nothing was changed and no transaction was affected."
+            nextStep="Check the link you were sent, or start again from the calculator."
+            action={{ href: '/', label: 'Go to the calculator' }}
+          />
+        </Shell>
       </main>
     </div>
   );

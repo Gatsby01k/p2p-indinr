@@ -1,84 +1,105 @@
-import Link from 'next/link';
 import { signInAction } from '@/server/sandbox/actions';
-import { SandboxBanner } from '@/components/sandbox/SandboxChrome';
+import { TopBar } from '@/components/kit/AppChrome';
+import { ExchangeRail, Label, SandboxLine, Shell, buttonClass } from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Sandbox sign-in.
+ * Sign in — a continuation of an intention, not a portal door.
  *
- * No password is asked for, accepted or stored — this authenticates nobody in
- * the real world and must never be reused for anything that holds value. It
- * exists so the server has a real notion of "who is asking".
+ * INTENT: only the destination travels across authentication, and only as
+ * a same-origin relative path. No rate, quote id or expiry is preserved,
+ * because an indicative rate is not binding and restating one after sign-in
+ * would present a stale price as if it still held. The page says so.
  *
- * INTENT PRESERVATION: only the destination is carried across sign-in, via
- * `next`, and only when it is a same-origin relative path. No rate, no quote
- * id and no expiry is preserved, because an indicative rate is not binding and
- * re-showing one after sign-in would present a stale price as if it still held.
+ * ⚠ No password is asked for, accepted or stored. This authenticates
+ * nobody in the real world and must never be reused for anything holding
+ * value; it exists so the server has a real notion of who is asking.
  */
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; amount?: string }>;
 }) {
   const { next } = await searchParams;
   const dest = next && next.startsWith('/') && !next.startsWith('//') ? next : '/app';
 
-  return (
-    <div className="flex min-h-dvh flex-col bg-slate-50">
-      <SandboxBanner />
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex h-14 max-w-3xl items-center px-4 sm:px-6">
-          <Link href="/" className="text-sm font-semibold tracking-tight text-slate-900">
-            INRP2P <span className="font-normal text-slate-400">Sandbox</span>
-          </Link>
-        </div>
-      </header>
+  // Surface the carried intent so the person sees nothing was lost.
+  const amount = /\/app\/new\?amount=([0-9.]+)/.exec(dest)?.[1] ?? null;
 
-      <main id="main" className="flex flex-1 items-center">
-        <div className="mx-auto w-full max-w-sm px-4 py-10 sm:px-6">
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h1 className="text-lg font-semibold tracking-tight text-slate-900">Sign in</h1>
-            <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+  return (
+    <div className="flex min-h-dvh flex-col">
+      <TopBar suffix="Sandbox" />
+      <main id="main" className="flex flex-1 items-center py-8 sm:py-12">
+        <Shell width="form">
+          {amount ? (
+            <div className="mb-5 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] p-4">
+              <Label>Carried from the calculator</Label>
+              <p className="tnum mt-1.5 text-[length:var(--text-xl)] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
+                {amount}{' '}
+                <span className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink-3)]">
+                  USDT
+                </span>
+              </p>
+              <div className="my-3">
+                <ExchangeRail caption="rate set after sign-in" />
+              </div>
+              <p className="text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                Your amount is kept. The rate is not — the one you saw was indicative. The server
+                issues a fresh firm quote, with its own expiry, when you create the link.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="rounded-[var(--radius-lg)] border border-[var(--color-rule)] bg-[var(--color-paper)] p-5 sm:p-6">
+            <h1 className="text-[length:var(--text-xl)] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
+              {amount ? 'Sign in to continue' : 'Sign in'}
+            </h1>
+            <p className="mt-1.5 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
               Sandbox sign-in. Any address works and no password is stored.
             </p>
 
-            <form action={signInAction} className="mt-5 space-y-4">
+            <form action={signInAction} className="mt-5 space-y-3">
               <input type="hidden" name="next" value={dest} />
-              <label className="block">
-                <span className="text-xs font-medium text-slate-700">Email</span>
+              <div>
+                <label
+                  htmlFor="email"
+                  className="text-[length:var(--text-xs)] font-medium text-[var(--color-ink-2)]"
+                >
+                  Email
+                </label>
                 <input
+                  id="email"
                   name="email"
                   type="email"
                   required
                   autoComplete="email"
                   placeholder="you@example.in"
-                  aria-label="Email"
-                  className="mt-1 h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                  className="tap mt-1.5 w-full rounded-[var(--radius-md)] border border-[var(--color-rule)] bg-[var(--color-paper)] px-3 text-[length:var(--text-base)] text-[var(--color-ink)] placeholder:text-[var(--color-ink-4)]"
                 />
-              </label>
-              <button
-                type="submit"
-                className="h-11 w-full rounded-lg bg-slate-900 text-sm font-medium text-white hover:bg-slate-800"
-              >
+              </div>
+              <button type="submit" className={buttonClass('primary', 'lg', true)}>
                 Continue
               </button>
             </form>
 
-            <div className="mt-5 rounded-lg bg-slate-50 p-3">
-              <p className="text-xs font-medium text-slate-700">Sandbox accounts</p>
-              <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+            <div className="mt-5 border-t border-[var(--color-line)] pt-4">
+              <Label>Sandbox accounts</Label>
+              <ul className="mt-2 space-y-1 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
                 <li>
-                  <code className="text-slate-800">ops@…</code> — operator
+                  <code className="font-mono text-[var(--color-ink)]">ops@…</code> — operator
                 </li>
                 <li>
-                  <code className="text-slate-800">new@…</code> — unverified, cannot join
+                  <code className="font-mono text-[var(--color-ink)]">new@…</code> — unverified,
+                  cannot join
                 </li>
                 <li>anything else — a verified trader</li>
               </ul>
             </div>
           </div>
-        </div>
+
+          <SandboxLine className="mt-4" />
+        </Shell>
       </main>
     </div>
   );

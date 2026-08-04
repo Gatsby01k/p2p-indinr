@@ -1,101 +1,183 @@
 import Link from 'next/link';
-import { SandboxBanner } from '@/components/sandbox/SandboxChrome';
-import { Calculator } from '@/components/sandbox/Calculator';
+import { Calculator } from '@/components/kit/Calculator';
+import { TopBar } from '@/components/kit/AppChrome';
+import { Mark } from '@/components/kit/Brand';
+import { ActionLink, Label, SandboxChip, Shell } from '@/components/kit/primitives';
 
 /**
- * Landing.
+ * Landing — exchange-first.
  *
- * MOBILE: the calculator is the FIRST element in the document, so it lands
- * inside the first viewport without scrolling. The narrative sits beneath it —
- * someone who arrived to check a rate should not have to scroll past a pitch
- * to reach the one control they came for.
+ * MOBILE: the calculator is the first element after a two-line statement
+ * of what this is, so FROM / AMOUNT / TO / RESULT / MOVE all sit inside
+ * the first viewport on a 360×800 device without scrolling.
  *
- * DESKTOP: a two-column grid at `lg` with the calculator on the right (via
- * `order`), the copy given real width, a three-up feature row and a full-width
- * container — rather than one narrow card adrift in empty space.
+ * DESKTOP: an asymmetric two-column composition — the argument on the
+ * left with real width, the working product on the right. Not a narrow
+ * card adrift in empty canvas.
+ *
+ * Trust is shown through product behaviour that actually exists (one
+ * joiner, server-held terms, honest loss of a race). No invented volume,
+ * licences, user counts or success rates.
  */
-export default function HomePage() {
+export default function LandingPage() {
   return (
-    <div className="flex min-h-dvh flex-col bg-white">
-      <SandboxBanner />
+    <div className="flex min-h-dvh flex-col">
+      <TopBar
+        suffix="Sandbox"
+        right={
+          <>
+            <SandboxChip />
+            <ActionLink href="/login" variant="outline" size="sm">
+              Sign in
+            </ActionLink>
+          </>
+        }
+      />
 
-      <header className="border-b border-slate-200">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <span className="text-sm font-semibold tracking-tight text-slate-900">
-            INRP2P <span className="font-normal text-slate-400">Sandbox</span>
-          </span>
+      <main id="main" className="flex-1">
+        {/* ---- Above the fold ------------------------------------- */}
+        <Shell width="wide" className="py-4 sm:py-10 lg:py-16">
+          <div className="grid items-start gap-5 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_26rem] lg:gap-16 xl:grid-cols-[minmax(0,1fr)_28rem]">
+            {/* Statement — short on mobile so the calculator stays visible. */}
+            <div className="lg:pt-6">
+              <p className="flex items-center gap-2 text-[length:var(--text-xs)] font-medium text-[var(--color-ink-3)]">
+                <Mark className="text-[var(--color-action)]" />
+                INR ⇄ USDT settlement
+              </p>
+              <h1 className="mt-2.5 text-[length:var(--text-xl)] font-semibold leading-[1.12] tracking-[-0.03em] text-[var(--color-ink)] sm:mt-3 sm:text-[length:var(--text-3xl)] lg:text-[length:var(--text-4xl)]">
+                One link.
+                <br />
+                One counterparty.
+                <br />
+                <span className="text-[var(--color-ink-3)]">One settled amount.</span>
+              </h1>
+              <p className="mt-3 max-w-[38ch] text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)] sm:mt-4 sm:text-[length:var(--text-base)] lg:text-[length:var(--text-lg)]">
+                Fix the exact amounts, send the link into any chat, and settle with the one person
+                who opens it.
+                <span className="hidden sm:inline">
+                  {' '}
+                  No order book. No browsing. No strangers you did not choose.
+                </span>
+              </p>
+
+              {/* Desktop-only: the four-step model, given room to breathe. */}
+              <ol className="mt-10 hidden gap-px overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-line)] sm:grid sm:grid-cols-2 lg:mt-12 lg:grid-cols-4">
+                {STEPS.map((s, i) => (
+                  <li key={s.title} className="bg-[var(--color-canvas)] p-4">
+                    <span className="tnum text-[length:var(--text-2xs)] font-semibold text-[var(--color-action)]">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <h2 className="mt-1.5 text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                      {s.title}
+                    </h2>
+                    <p className="mt-1 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                      {s.body}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            {/* The product. */}
+            <div className="lg:sticky lg:top-20">
+              <Calculator />
+            </div>
+          </div>
+        </Shell>
+
+        {/* Mobile: the four steps, below the fold where they belong. */}
+        <Shell width="wide" className="pb-10 sm:hidden">
+          <ol className="grid gap-px overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-line)]">
+            {STEPS.map((s, i) => (
+              <li key={s.title} className="flex gap-3 bg-[var(--color-canvas)] p-4">
+                <span className="tnum mt-0.5 text-[length:var(--text-2xs)] font-semibold text-[var(--color-action)]">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div>
+                  <h2 className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                    {s.title}
+                  </h2>
+                  <p className="mt-0.5 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                    {s.body}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Shell>
+
+        {/* ---- What the product actually guarantees ---------------- */}
+        <section className="border-t border-[var(--color-line)] bg-[var(--color-paper)]">
+          <Shell width="wide" className="py-10 sm:py-14">
+            <Label>How it holds up</Label>
+            <div className="mt-5 grid gap-8 sm:grid-cols-2 lg:grid-cols-3 lg:gap-12">
+              {GUARANTEES.map((g) => (
+                <div key={g.title} className="border-t border-[var(--color-ink)] pt-4">
+                  <h3 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+                    {g.title}
+                  </h3>
+                  <p className="mt-1.5 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
+                    {g.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Shell>
+        </section>
+      </main>
+
+      <footer className="border-t border-[var(--color-line)]">
+        <Shell
+          width="wide"
+          className="flex flex-col gap-3 py-6 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p className="max-w-[62ch] text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+            Sandbox build. No funds are held or moved, and no bank or blockchain connection exists.
+            No regulatory registration, licence or partnership is claimed or implied, and nothing
+            here is an offer to trade.
+          </p>
           <Link
             href="/login"
-            className="inline-flex h-9 items-center rounded-lg bg-slate-900 px-3.5 text-sm font-medium text-white hover:bg-slate-800"
+            className="text-[length:var(--text-xs)] font-medium text-[var(--color-ink-2)] underline underline-offset-4"
           >
             Sign in
           </Link>
-        </div>
-      </header>
-
-      <main id="main" className="flex-1">
-        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10 lg:py-14">
-          <div className="grid items-start gap-8 lg:grid-cols-[1.05fr_minmax(360px,1fr)] lg:gap-14">
-            {/* First in DOM ⇒ first viewport on mobile; ordered right on desktop. */}
-            <div className="lg:order-2">
-              <Calculator />
-            </div>
-
-            <div className="lg:order-1 lg:pt-2">
-              <p className="text-sm font-medium text-slate-500">INR ⇄ USDT settlement</p>
-              <h1 className="mt-2 text-3xl font-semibold leading-tight tracking-tight text-slate-900 sm:text-4xl lg:text-5xl">
-                Send a link.
-                <br className="hidden sm:block" /> Settle the deal.
-              </h1>
-              <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                Every deal is a link you paste into any chat. The other side opens it, sees the
-                exact amounts, and joins. No order book, no browsing, no strangers you did not
-                choose.
-              </p>
-
-              <dl className="mt-8 grid gap-x-8 gap-y-6 sm:grid-cols-3">
-                <Feature
-                  term="Exact amounts"
-                  detail="You send and you receive. No fee line, because the desk pays it."
-                />
-                <Feature
-                  term="One winner, always"
-                  detail="Two people opening the same link cannot both join. The database decides, not a button."
-                />
-                <Feature
-                  term="A record every time"
-                  detail="Rate, counterparty and reference, stored server-side and kept after reload."
-                />
-              </dl>
-
-              <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm font-medium text-slate-900">This is a sandbox</p>
-                <p className="mt-1 text-sm leading-relaxed text-slate-600">
-                  The journey works end to end and persists — quote, link, join, payment claim,
-                  confirmation, completion. What is deliberately absent is money: there is no
-                  ledger, no custody, no blockchain and no bank connection anywhere in it.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      <footer className="border-t border-slate-200">
-        <div className="mx-auto max-w-6xl px-4 py-6 text-xs leading-relaxed text-slate-500 sm:px-6">
-          Sandbox build. No regulatory registrations, licences or partnerships are claimed or
-          implied. Nothing here is an offer to trade, and no funds are held.
-        </div>
+        </Shell>
       </footer>
     </div>
   );
 }
 
-function Feature({ term, detail }: { term: string; detail: string }) {
-  return (
-    <div>
-      <dt className="text-sm font-semibold text-slate-900">{term}</dt>
-      <dd className="mt-1 text-sm leading-relaxed text-slate-600">{detail}</dd>
-    </div>
-  );
-}
+const STEPS = [
+  { title: 'Create', body: 'Fix the amount and get a firm, server-issued rate.' },
+  { title: 'Share', body: 'Send the link through WhatsApp, Telegram or anywhere else.' },
+  { title: 'One joins', body: 'The first eligible person takes the other side. Only one can.' },
+  { title: 'Complete', body: 'Both sides track it to settlement in one deal room.' },
+];
+
+const GUARANTEES = [
+  {
+    title: 'Exactly one counterparty',
+    body: 'Two people opening the same link cannot both join. The database decides the winner, and the person who lost is told plainly that nothing was charged.',
+  },
+  {
+    title: 'The terms cannot drift',
+    body: 'Amounts and rate are frozen when the link is created and copied into the deal unchanged. No later step re-derives a figure from a rate.',
+  },
+  {
+    title: 'Nothing moves on a timer',
+    body: 'No countdown releases, refunds or completes anything. Every state change is a person acting, or an operator ruling.',
+  },
+  {
+    title: 'The link says what it is',
+    body: 'Open, taken, expired and withdrawn are visually distinct, and a link that cannot be joined never shows a live Join button.',
+  },
+  {
+    title: 'Private stays private',
+    body: 'A shared link carries the terms and nothing else — no names, bank details, wallet addresses or payment references, in the page or its preview.',
+  },
+  {
+    title: 'Only your side can act',
+    body: 'The server decides which of the two actions you are permitted, and refuses the other. The interface only ever shows what it already allowed.',
+  },
+];
