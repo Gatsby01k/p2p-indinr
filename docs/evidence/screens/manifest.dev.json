@@ -1,0 +1,21 @@
+{
+  "base": "http://localhost:3211",
+  "capturedAt": "2026-08-03T15:57:38.263Z",
+  "captured": [
+    {
+      "screen": "lost-race",
+      "route": "/d/[publicId] — Join lost to another participant",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/lost-race.desktop.dev.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "lost-race",
+      "route": "/d/[publicId] — Join lost to another participant",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/lost-race.mobile.dev.png",
+      "hasNotice": true
+    }
+  ],
+  "failures": []
+}

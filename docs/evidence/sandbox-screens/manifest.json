@@ -1,0 +1,79 @@
+{
+  "base": "http://localhost:3310",
+  "capturedAt": "2026-08-04T05:19:54.215Z",
+  "captured": [
+    {
+      "name": "01-landing-calculator",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/01-landing-calculator.desktop.png"
+    },
+    {
+      "name": "02-deal-link-open",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/02-deal-link-open.desktop.png"
+    },
+    {
+      "name": "04-deal-active-fiat-side",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/04-deal-active-fiat-side.desktop.png"
+    },
+    {
+      "name": "03-deal-link-consumed-lost-race",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/03-deal-link-consumed-lost-race.desktop.png"
+    },
+    {
+      "name": "05-deal-active-crypto-side",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/05-deal-active-crypto-side.desktop.png"
+    },
+    {
+      "name": "06-deal-completed",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/06-deal-completed.desktop.png"
+    },
+    {
+      "name": "07-deal-completed-after-reload",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/07-deal-completed-after-reload.desktop.png"
+    },
+    {
+      "name": "09-operator-access-denied",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/09-operator-access-denied.desktop.png"
+    },
+    {
+      "name": "08-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/08-operator-queue.desktop.png"
+    },
+    {
+      "name": "01-landing-calculator",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/01-landing-calculator.mobile.png"
+    },
+    {
+      "name": "02-deal-link-open",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/02-deal-link-open.mobile.png"
+    },
+    {
+      "name": "04-deal-active-fiat-side",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/04-deal-active-fiat-side.mobile.png"
+    },
+    {
+      "name": "03-deal-link-consumed-lost-race",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/03-deal-link-consumed-lost-race.mobile.png"
+    },
+    {
+      "name": "05-deal-active-crypto-side",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/05-deal-active-crypto-side.mobile.png"
+    },
+    {
+      "name": "06-deal-completed",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/06-deal-completed.mobile.png"
+    },
+    {
+      "name": "07-deal-completed-after-reload",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/07-deal-completed-after-reload.mobile.png"
+    },
+    {
+      "name": "09-operator-access-denied",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/09-operator-access-denied.mobile.png"
+    },
+    {
+      "name": "08-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/08-operator-queue.mobile.png"
+    }
+  ],
+  "failures": []
+}

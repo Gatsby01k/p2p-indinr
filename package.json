@@ -1,0 +1,68 @@
+{
+  "name": "inrp2p",
+  "version": "0.1.0",
+  "private": true,
+  "description": "INRP2P \u2014 link-driven INR \u21c4 USDT settlement network connecting users with approved liquidity desks.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "manifest:check": "node scripts/manifest-check.mjs",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run manifest:check && npm run test:integration && npm run build",
+    "db:start": "node scripts/db.mjs start",
+    "db:stop": "node scripts/db.mjs stop",
+    "db:migrate": "node scripts/db.mjs migrate",
+    "db:reset": "node scripts/db.mjs reset",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "screens:journey": "node scripts/journey-screens.mjs"
+  },
+  "comment:overrides": [
+    "@tailwindcss/postcss@4.0.0 declares '@tailwindcss/oxide': '^4.0.0' and",
+    "'@tailwindcss/node': '^4.0.0'. With no lockfile present those carets now",
+    "resolve to 4.3.x, whose Rust scanner requires a 'negated' field on",
+    "ScannerOptions.sources that the 4.0.0 plugin does not supply \u2014 the build",
+    "then fails with 'Missing field `negated` on ScannerOptions.sources'.",
+    "These overrides pin the transitive pair back to the 4.0.0 the pinned",
+    "plugin was built against. Remove them only when tailwindcss and",
+    "@tailwindcss/postcss are upgraded together."
+  ],
+  "overrides": {
+    "@tailwindcss/oxide": "4.0.0",
+    "@tailwindcss/node": "4.0.0"
+  },
+  "dependencies": {
+    "next": "15.1.6",
+    "pg": "8.13.1",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.0.0",
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.1.0",
+    "@testing-library/user-event": "14.5.2",
+    "@types/node": "22.10.5",
+    "@types/pg": "8.11.10",
+    "@types/react": "19.0.7",
+    "@types/react-dom": "19.0.3",
+    "@vitejs/plugin-react": "4.3.4",
+    "embedded-postgres": "18.4.0-beta.17",
+    "eslint": "9.18.0",
+    "eslint-config-next": "15.1.6",
+    "jsdom": "25.0.1",
+    "prettier": "3.4.2",
+    "tailwindcss": "4.0.0",
+    "typescript": "5.7.3",
+    "vitest": "2.1.8"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}

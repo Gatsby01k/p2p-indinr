@@ -1,0 +1,122 @@
+{
+  "base": "http://localhost:3210",
+  "capturedAt": "2026-08-03T15:30:24.099Z",
+  "captured": [
+    {
+      "screen": "home",
+      "route": "/",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/home.desktop.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "home",
+      "route": "/",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/home.mobile.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "public-deal-link",
+      "route": "/d/[publicId]",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/public-deal-link.desktop.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "public-deal-link",
+      "route": "/d/[publicId]",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/public-deal-link.mobile.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "app-new",
+      "route": "/app/new",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/app-new.desktop.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "app-new",
+      "route": "/app/new",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/app-new.mobile.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "deal-room-active",
+      "route": "/app/deal/deal_002 (FIAT_PENDING, FIAT_SIDE)",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/deal-room-active.desktop.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "deal-room-active",
+      "route": "/app/deal/deal_002 (FIAT_PENDING, FIAT_SIDE)",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/deal-room-active.mobile.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "deal-room-terminal",
+      "route": "/app/deal/deal_003 (COMPLETED — terminal)",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/deal-room-terminal.desktop.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "deal-room-terminal",
+      "route": "/app/deal/deal_003 (COMPLETED — terminal)",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/deal-room-terminal.mobile.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "deal-room-window-lapsed",
+      "route": "/app/deal/deal_005 (PAYMENT_WINDOW_LAPSED, CRYPTO_SIDE)",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/deal-room-window-lapsed.desktop.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "deal-room-window-lapsed",
+      "route": "/app/deal/deal_005 (PAYMENT_WINDOW_LAPSED, CRYPTO_SIDE)",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/deal-room-window-lapsed.mobile.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "ops-queue",
+      "route": "/app/ops (operator account)",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/ops-queue.desktop.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "ops-queue",
+      "route": "/app/ops (operator account)",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/ops-queue.mobile.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "ops-permission-denied",
+      "route": "/app/ops (non-operator account)",
+      "vp": "desktop",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/ops-permission-denied.desktop.png",
+      "hasNotice": true
+    },
+    {
+      "screen": "ops-permission-denied",
+      "route": "/app/ops (non-operator account)",
+      "vp": "mobile",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/screens/ops-permission-denied.mobile.png",
+      "hasNotice": true
+    }
+  ],
+  "failures": [
+    "lost-race @ desktop: text /Someone joined first/i not found within 20000ms.\n--- page text ---\nSkip to content\nPreview build — no real money, no escrow and no blockchain transfers. Amounts and deals shown here are fixtures.\nINRP2P\nArjun Mehta\nSign out\nDeals\nHistory\nAlerts\nProfile\nSell USDT\nAwaiting their payment\n\nThe other side has the payment details and the window is running.\n\nWindow 14:39\nYou send\n$560\nYou receive\n₹49,728.00\nCounterparty\nMeridian Settlement\nRate\n88.80 INR / USDT\nStarted\n3 Aug 2026, 18:29\nReference\nINRP-3ZZ9-conflict\nWhere things stand\nFUNDS\n\nThe USDT is held by INRP2P against this deal. It cannot move to either party except by your confirmation or an operator ruling.\n\nTHEY\n\nThey must send the INR and mark it paid.\n\nIF NOBODY ACTS\n\nIf the window passes with no payment marked, an operator resolves it. Nothing is released automatically.\n\nWaiting for payment\nCancel this deal\nProgress\n\nYou joined this deal\n\nRate and amounts locked from the link\n\njust now",
+    "lost-race @ mobile: text /Someone joined first/i not found within 20000ms.\n--- page text ---\nSkip to content\nPreview build — no real money, no escrow and no blockchain transfers. Amounts and deals shown here are fixtures.\nINRP2P\nSign out\nDeals\nHistory\nAlerts\nProfile\nSell USDT\nAwaiting their payment\n\nThe other side has the payment details and the window is running.\n\nWindow 14:39\nYou send\n$560\nYou receive\n₹49,728.00\nCounterparty\nMeridian Settlement\nRate\n88.80 INR / USDT\nStarted\n3 Aug 2026, 18:30\nReference\nINRP-3ZZ9-conflict\nWhere things stand\nFUNDS\n\nThe USDT is held by INRP2P against this deal. It cannot move to either party except by your confirmation or an operator ruling.\n\nTHEY\n\nThey must send the INR and mark it paid.\n\nIF NOBODY ACTS\n\nIf the window passes with no payment marked, an operator resolves it. Nothing is released automatically.\n\nWaiting for payment\nCancel this deal\nProgress\n\nYou joined this deal\n\nRate and amounts locked from the link\n\njust now"
+  ]
+}
