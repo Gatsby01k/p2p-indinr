@@ -54,6 +54,7 @@ function NavItem({
   return (
     <Link
       href={href}
+      prefetch={false}
       aria-current={active ? 'page' : undefined}
       className={cn(
         'tap flex flex-1 flex-col items-center justify-center gap-0.5 rounded-[var(--radius-sm)] py-1.5',
@@ -147,6 +148,7 @@ export function DeskNav({ active, isOperator }: { active: string; isOperator: bo
     <Link
       key={key}
       href={href}
+      prefetch={false}
       aria-current={active === key ? 'page' : undefined}
       className={cn(
         'rounded-[var(--radius-sm)] px-2.5 py-1.5 text-[length:var(--text-sm)] font-medium transition-colors',

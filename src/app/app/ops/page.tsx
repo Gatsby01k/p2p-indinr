@@ -3,6 +3,7 @@ import { currentUser } from '@/server/sandbox/session';
 import { formatMinor } from '@/lib/format';
 import { BottomNav, DeskNav } from '@/components/kit/AppChrome';
 import { ActionLink, Label, Notice, Shell, Status, type Tone } from '@/components/kit/primitives';
+import { QueueKeys } from '@/components/kit/QueueKeys';
 
 export const dynamic = 'force-dynamic';
 
@@ -127,6 +128,7 @@ export default async function OpsPage() {
                       <tr
                         key={r.publicId}
                         tabIndex={0}
+                        data-queue-row
                         className="outline-none transition-colors hover:bg-[var(--color-sunken)] focus-visible:bg-[var(--color-sunken)]"
                       >
                         <Td>
@@ -195,6 +197,7 @@ export default async function OpsPage() {
           </div>
         )}
 
+        {queue.length > 0 ? <QueueKeys /> : null}
         <p className="mt-4 max-w-[68ch] text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
           The queue deliberately carries no participant identities and no payment references. An
           operator triaging throughput does not need either, so the server does not send them.

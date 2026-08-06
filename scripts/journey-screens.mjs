@@ -141,6 +141,18 @@ class Page {
   async goto(url) {
     await this.call('Page.navigate', { url });
     await this.settle();
+
+    // A page still showing its skeleton after settling is stuck rather than
+    // slow — usually a navigation that raced an in-flight RSC transition.
+    // One clean reload resolves it. If it survives that, the per-screen
+    // assertion reports the real state rather than this masking it.
+    const stuck = await this.eval(
+      `/\\bloading( this deal)?$/i.test(((document.body && document.body.innerText) || '').replace(/\\s+/g,' ').trim())`,
+    );
+    if (stuck) {
+      await this.call('Page.navigate', { url });
+      await this.settle();
+    }
   }
   async settle() {
     const deadline = Date.now() + 30_000;
@@ -150,34 +162,41 @@ class Page {
       await sleep(120);
     }
     /*
-     * Next streams dynamic routes: the shell — including `loading.tsx` —
-     * arrives first and `readyState` reaches "complete" while the real
-     * content is still in flight. Waiting on readyState alone therefore
-     * captures the skeleton. Wait for the route-level loading status to
-     * disappear before treating the page as settled.
-     */
-    /*
      * Next streams dynamic routes, so `readyState` reaches "complete" while
-     * the real content is still arriving, and the `loading.tsx` fallback
-     * markup lingers in the streamed HTML alongside it. Neither is a
-     * reliable signal.
+     * content is still arriving and the `loading.tsx` fallback markup
+     * lingers in the streamed HTML beside it. Neither is a reliable signal,
+     * and neither is "an <h1> exists" — after a client transition the
+     * previous page's heading is still mounted.
      *
-     * Every real page in this product renders an <h1>; the skeleton renders
-     * none. Waiting for one is therefore an exact test for "content has
-     * arrived", independent of how Next chooses to stream it.
+     * Settle on QUIESCENCE instead: poll the rendered text until it stops
+     * changing. That is content-agnostic, so it holds for a static landing
+     * page, a streamed dynamic route and a client-side transition alike.
      */
-    const streamDeadline = Date.now() + 20_000;
     let previous = null;
+    let stableFor = 0;
+    const quietDeadline = Date.now() + 8_000;
     for (;;) {
-      const current = await this.eval(
-        '(() => { const h = document.querySelector("h1"); return h ? h.textContent : null; })()',
-      );
-      if (current && current === previous) break;
+      const current = await this.eval(`(() => {
+        const text = (document.body && document.body.innerText) || '';
+        // React streams content into the document and reveals it during
+        // hydration, so before hydration \`innerText\` can be nothing but the
+        // Suspense fallback. Treat a page that is still only a skeleton as
+        // not-yet-settled rather than as stable.
+        // The skeleton page is NOT bare "Loading" — the app shell renders
+        // above it, so the body reads "…Sign out Loading". Anchoring the
+        // match to the whole string therefore never fired, and a skeleton
+        // counted as settled. Match the trailing loading status instead.
+        const flat = text.replace(/\s+/g, ' ').trim();
+        const skeletonOnly = /\bloading( this deal)?$/i.test(flat);
+        return skeletonOnly ? null : text;
+      })()`);
+      stableFor = current !== null && current === previous && current.length > 0 ? stableFor + 1 : 0;
       previous = current;
-      if (Date.now() > streamDeadline) break; // the per-screen assert is the gate
+      if (stableFor >= 3) break;
+      if (Date.now() > quietDeadline) break; // the per-screen assert is the gate
       await sleep(220);
     }
-    await sleep(600);
+    await sleep(500);
   }
   async text() {
     return this.eval('document.body ? document.body.innerText : ""');
@@ -249,7 +268,11 @@ class Page {
     await this.fill('main input[name="email"]', email);
     await this.click('main form button[type="submit"]');
     await this.waitForPathAway(/^\/login/);
-    await sleep(600);
+    // The redirect is a client-side RSC transition. Navigating again while
+    // it is still in flight races it and can leave the next page stuck on
+    // its skeleton, so let it finish first.
+    await this.settle();
+    await sleep(400);
   }
 }
 
@@ -537,6 +560,12 @@ async function main() {
           .catch(() => {});
       }
       captured.push(...shots);
+      if (failures.length) {
+        await writeFile(
+          path.join(OUT, 'failures.txt'),
+          failures.join('\n\n========================================\n\n'),
+        );
+      }
     }
 
     await writeFile(

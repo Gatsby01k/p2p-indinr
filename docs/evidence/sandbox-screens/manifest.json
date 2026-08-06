@@ -1,6 +1,6 @@
 {
   "base": "http://localhost:3310",
-  "capturedAt": "2026-08-04T11:33:41.546Z",
+  "capturedAt": "2026-08-06T12:16:55.823Z",
   "captured": [
     {
       "name": "01-landing",
@@ -23,6 +23,16 @@
       "viewport": "360x800"
     },
     {
+      "name": "10-deal-completed-receipt",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/10-deal-completed-receipt.360x800.png",
+      "viewport": "360x800"
+    },
+    {
+      "name": "12-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/12-operator-queue.360x800.png",
+      "viewport": "360x800"
+    },
+    {
       "name": "01-landing",
       "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/01-landing.390x844.png",
       "viewport": "390x844"
@@ -30,6 +40,71 @@
     {
       "name": "02-login",
       "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/02-login.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "03-home-empty",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/03-home-empty.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "04-new-deal",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/04-new-deal.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "05-link-open",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/05-link-open.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "08-deal-fiat-side",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/08-deal-fiat-side.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "06-link-consumed",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/06-link-consumed.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "09-deal-crypto-side",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/09-deal-crypto-side.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "10-deal-completed-receipt",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/10-deal-completed-receipt.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "11-completed-after-reload",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/11-completed-after-reload.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "14-home-populated",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/14-home-populated.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "07-link-expired",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/07-link-expired.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "15-error-not-participant",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/15-error-not-participant.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "13-operator-403",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/13-operator-403.390x844.png",
+      "viewport": "390x844"
+    },
+    {
+      "name": "12-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/12-operator-queue.390x844.png",
       "viewport": "390x844"
     },
     {
@@ -53,6 +128,16 @@
       "viewport": "430x932"
     },
     {
+      "name": "10-deal-completed-receipt",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/10-deal-completed-receipt.430x932.png",
+      "viewport": "430x932"
+    },
+    {
+      "name": "12-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/12-operator-queue.430x932.png",
+      "viewport": "430x932"
+    },
+    {
       "name": "01-landing",
       "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/01-landing.768x1024.png",
       "viewport": "768x1024"
@@ -70,6 +155,16 @@
     {
       "name": "08-deal-fiat-side",
       "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/08-deal-fiat-side.768x1024.png",
+      "viewport": "768x1024"
+    },
+    {
+      "name": "10-deal-completed-receipt",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/10-deal-completed-receipt.768x1024.png",
+      "viewport": "768x1024"
+    },
+    {
+      "name": "12-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/12-operator-queue.768x1024.png",
       "viewport": "768x1024"
     },
     {
@@ -93,6 +188,16 @@
       "viewport": "1024x1366"
     },
     {
+      "name": "10-deal-completed-receipt",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/10-deal-completed-receipt.1024x1366.png",
+      "viewport": "1024x1366"
+    },
+    {
+      "name": "12-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/12-operator-queue.1024x1366.png",
+      "viewport": "1024x1366"
+    },
+    {
       "name": "01-landing",
       "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/01-landing.1280x800.png",
       "viewport": "1280x800"
@@ -113,6 +218,16 @@
       "viewport": "1280x800"
     },
     {
+      "name": "10-deal-completed-receipt",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/10-deal-completed-receipt.1280x800.png",
+      "viewport": "1280x800"
+    },
+    {
+      "name": "12-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/12-operator-queue.1280x800.png",
+      "viewport": "1280x800"
+    },
+    {
       "name": "01-landing",
       "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/01-landing.1440x900.png",
       "viewport": "1440x900"
@@ -120,6 +235,71 @@
     {
       "name": "02-login",
       "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/02-login.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "03-home-empty",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/03-home-empty.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "04-new-deal",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/04-new-deal.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "05-link-open",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/05-link-open.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "08-deal-fiat-side",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/08-deal-fiat-side.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "06-link-consumed",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/06-link-consumed.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "09-deal-crypto-side",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/09-deal-crypto-side.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "10-deal-completed-receipt",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/10-deal-completed-receipt.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "11-completed-after-reload",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/11-completed-after-reload.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "14-home-populated",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/14-home-populated.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "07-link-expired",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/07-link-expired.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "15-error-not-participant",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/15-error-not-participant.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "13-operator-403",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/13-operator-403.1440x900.png",
+      "viewport": "1440x900"
+    },
+    {
+      "name": "12-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/12-operator-queue.1440x900.png",
       "viewport": "1440x900"
     },
     {
@@ -141,16 +321,17 @@
       "name": "08-deal-fiat-side",
       "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/08-deal-fiat-side.1728x1117.png",
       "viewport": "1728x1117"
+    },
+    {
+      "name": "10-deal-completed-receipt",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/10-deal-completed-receipt.1728x1117.png",
+      "viewport": "1728x1117"
+    },
+    {
+      "name": "12-operator-queue",
+      "file": "/Users/mac/Documents/inrp2p #1 fintech india/docs/evidence/sandbox-screens/12-operator-queue.1728x1117.png",
+      "viewport": "1728x1117"
     }
   ],
-  "failures": [
-    "360x800: text /Confirm the INR arrived/i not found.\n--- page ---\nSkip to content\nINRP2PSandbox\n●\nSandbox\nSign out\nLoading",
-    "390x844: 03-home-empty: /Your deals/i not matched.\n--- page ---\nSkip to content\nINRP2PSandbox\n●\nSandbox\nSign out\nLoading",
-    "430x932: text /Awaiting confirmation/i not found.\n--- page ---\nSkip to content\nINRP2PSandbox\n●\nSandbox\nSign out\n←\nAll deals\nBuy USDT\n–\nAwaiting payment\nYou are the INR sender\nYOU SEND\n\n₹44,400.00\n44,400.00 rupees\n\n88.80 INR / USDT · locked\nYOU RECEIVE\n500\nUSDT\n\nJoined\n— done\n— current step\n\nINR sent\n\nConfirmed\n\nThe deal is live. The INR transfer is outstanding.\n\nYOUR MOVE\n\nSend the INR, then mark it with the bank reference.\n\nOperator review opens after 4 Aug 2026, 2:44 pm. Nothing is released, refunded or completed by that deadline on its own.\n\nMark the INR sent\n\nEnter the 12-character reference from your bank confirmation. It is checked against every other deal, so one transfer can only ever be claimed once.\n\nSandbox. No real funds are held or moved. No bank transfer, blockchain transaction or custody takes place. Do not send a real payment.\n\nBank reference (UTR)\n\n12 letters and digits.\n\nNote (optional)\n\nYou are declaring that you sent ₹44,400.00 t",
-    "768x1024: text /Confirm the INR arrived/i not found.\n--- page ---\nSkip to content\nINRP2PSandbox\n●\nSandbox\n· no real funds\nSign out\nLoading",
-    "1024x1366: text /Confirm the INR arrived/i not found.\n--- page ---\nSkip to content\nINRP2PSandbox\n●\nSandbox\n· no real funds\nseller msekqssz 1024x1366\nSign out\nLoading",
-    "1280x800: text /Confirm the INR arrived/i not found.\n--- page ---\nSkip to content\nINRP2PSandbox\n●\nSandbox\n· no real funds\nseller msekqssz 1280x800\nSign out\nLoading",
-    "1440x900: 03-home-empty: /Your deals/i not matched.\n--- page ---\nSkip to content\nINRP2PSandbox\n●\nSandbox\n· no real funds\nseller msekqssz 1440x900\nSign out\nLoading",
-    "1728x1117: text /Confirm the INR arrived/i not found.\n--- page ---\nSkip to content\nINRP2PSandbox\n●\nSandbox\n· no real funds\nseller msekqssz 1728x1117\nSign out\nLoading"
-  ]
+  "failures": []
 }

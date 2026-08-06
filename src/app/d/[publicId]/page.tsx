@@ -6,6 +6,7 @@ import { formatMinor } from '@/lib/format';
 import { TopBar } from '@/components/kit/AppChrome';
 import { JoinPanel } from '@/components/kit/JoinPanel';
 import { ShareLink } from '@/components/kit/ShareLink';
+import { Deadline } from '@/components/kit/Time';
 import {
   ExchangeRail,
   Label,
@@ -83,11 +84,8 @@ const STATUS_META: Record<PreviewStatus, { tone: Tone; label: string; term: stri
 
 export default async function DealLinkPage({ params }: Params) {
   const { publicId } = await params;
-  const [preview, viewer, h] = await Promise.all([
-    getLinkPreview(publicId),
-    currentUser(),
-    headers(),
-  ]);
+  const viewer = await currentUser();
+  const [preview, h] = await Promise.all([getLinkPreview(publicId, viewer), headers()]);
 
   if (!preview) {
     return (
@@ -105,7 +103,6 @@ export default async function DealLinkPage({ params }: Params) {
   }
 
   const meta = STATUS_META[preview.displayStatus];
-  const isCreator = false; // the preview deliberately carries no identity
   const host = h.get('host') ?? 'localhost';
   const proto = h.get('x-forwarded-proto') ?? 'http';
   const url = `${proto}://${host}/d/${preview.publicId}`;
@@ -166,11 +163,8 @@ export default async function DealLinkPage({ params }: Params) {
           </div>
           <div>
             <dt className="text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">{meta.term}</dt>
-            <dd className="tnum mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink)]">
-              {new Date(preview.expiresAt).toLocaleString('en-IN', {
-                dateStyle: 'medium',
-                timeStyle: 'short',
-              })}
+            <dd className="mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink)]">
+              <Deadline iso={preview.expiresAt} />
             </dd>
           </div>
           <div>
@@ -189,19 +183,32 @@ export default async function DealLinkPage({ params }: Params) {
 
         {/* The one action, or the reason there is none. */}
         <div className="border-t border-[var(--color-line)] bg-[var(--color-sunken)] px-5 py-5 sm:px-6">
-          <JoinPanel
-            publicId={preview.publicId}
-            joinable={preview.joinable}
-            status={preview.displayStatus}
-            signedIn={viewer !== null}
-            viewerWouldBe={preview.viewerWouldBe}
-          />
+          {preview.viewerIsCreator ? (
+            <div>
+              <p className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                This is your link — send it to your counterparty.
+              </p>
+              <p className="mt-1 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-3)]">
+                You already hold the {preview.viewerWouldBe === 'FIAT_SIDE' ? 'USDT' : 'INR'} side,
+                so you cannot also take the other one. The first eligible person to open this link
+                becomes your counterparty.
+              </p>
+            </div>
+          ) : (
+            <JoinPanel
+              publicId={preview.publicId}
+              joinable={preview.joinable}
+              status={preview.displayStatus}
+              signedIn={viewer !== null}
+              viewerWouldBe={preview.viewerWouldBe}
+            />
+          )}
         </div>
       </article>
 
-      {preview.joinable ? (
+      {preview.joinable && preview.viewerIsCreator ? (
         <div className="mt-4">
-          <ShareLink url={url} headline={headline} canJoin={!isCreator} />
+          <ShareLink url={url} headline={headline} canJoin />
         </div>
       ) : null}
 

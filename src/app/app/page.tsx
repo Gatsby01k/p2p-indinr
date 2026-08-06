@@ -135,6 +135,7 @@ function DealCard({ deal, muted }: { deal: DealView; muted?: boolean }) {
   return (
     <Link
       href={`/app/deal/${deal.dealId}`}
+      prefetch={false}
       className={`press block rounded-[var(--radius-lg)] border bg-[var(--color-paper)] p-4 transition-colors ${
         yours
           ? 'border-[var(--color-action-line)] hover:border-[var(--color-action)]'

@@ -6,6 +6,7 @@ import { claimAction, confirmAction } from '@/server/sandbox/actions';
 import { FAILURE_COPY, type DealView } from '@/lib/sandboxContract';
 import { formatMinor } from '@/lib/format';
 import { Seal } from './Brand';
+import { Ago, Deadline } from './Time';
 import {
   ExchangeRail,
   Label,
@@ -141,7 +142,7 @@ export function DealRoom({ deal }: { deal: DealView }) {
               <Seal />
             </div>
             <p className="mt-3 text-[length:var(--text-sm)] font-medium text-[var(--color-final)]">
-              Settled {deal.completedAt ? formatWhen(deal.completedAt) : ''}
+              Settled {deal.completedAt ? <Ago iso={deal.completedAt} /> : null}
             </p>
             <div className="mt-4 flex items-center justify-center gap-3 sm:gap-4">
               {isFiat ? (
@@ -270,8 +271,8 @@ export function DealRoom({ deal }: { deal: DealView }) {
           </p>
           {deal.actionDeadline ? (
             <p className="mt-2 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-              Operator review opens after {formatWhen(deal.actionDeadline)}. Nothing is released,
-              refunded or completed by that deadline on its own.
+              Operator review opens <Deadline iso={deal.actionDeadline} className="font-medium" />.
+              Nothing is released, refunded or completed by that deadline on its own.
             </p>
           ) : null}
         </section>
@@ -429,13 +430,15 @@ export function DealRoom({ deal }: { deal: DealView }) {
               {(Number(deal.rateNum) / Number(deal.rateDen)).toFixed(2)} INR / USDT
             </span>
           </Row>
-          <Row term="Started">{formatWhen(deal.createdAt)}</Row>
+          <Row term="Started">
+            <Ago iso={deal.createdAt} />
+          </Row>
           {deal.claim ? (
             <Row term="INR marked sent">
               <span className="tnum font-mono text-[length:var(--text-xs)]">{deal.claim.utr}</span>
               <span className="text-[var(--color-ink-3)]">
-                {' '}
-                · {formatWhen(deal.claim.submittedAt)}
+                {' · '}
+                <Ago iso={deal.claim.submittedAt} />
               </span>
               {deal.claim.note ? (
                 <span className="block text-[var(--color-ink-3)]">“{deal.claim.note}”</span>
@@ -445,7 +448,7 @@ export function DealRoom({ deal }: { deal: DealView }) {
           {deal.completedAt ? (
             <Row term="Confirmed">
               <span className="font-medium text-[var(--color-final)]">
-                {formatWhen(deal.completedAt)}
+                <Ago iso={deal.completedAt} />
               </span>
             </Row>
           ) : null}
@@ -489,8 +492,4 @@ function Row({
       </dd>
     </div>
   );
-}
-
-function formatWhen(iso: string): string {
-  return new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 }

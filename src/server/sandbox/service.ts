@@ -314,6 +314,7 @@ export async function createDealLink(user: SessionUser, quoteId: string): Promis
       joinable: true,
       expiresAt: (l.expires_at as Date).toISOString(),
       viewerWouldBe: creatorRole === 'CRYPTO_SIDE' ? 'FIAT_SIDE' : 'CRYPTO_SIDE',
+      viewerIsCreator: true,
       createdAtIso: (l.created_at as Date).toISOString(),
     };
   });
@@ -333,7 +334,10 @@ export async function createDealLink(user: SessionUser, quoteId: string): Promis
  * Deliberately returns NO identity: no creator name, no counterparty name,
  * no user id, no bank detail, no wallet, no UTR.
  */
-export async function getLinkPreview(publicId: string): Promise<LinkPreview | null> {
+export async function getLinkPreview(
+  publicId: string,
+  viewer?: SessionUser | null,
+): Promise<LinkPreview | null> {
   const { rows } = await getPool().query(
     `SELECT l.*, q.direction, q.usdt_minor, q.inr_minor, q.rate_num, q.rate_den,
             q.pricing_source, q.observed_at,
@@ -362,6 +366,8 @@ export async function getLinkPreview(publicId: string): Promise<LinkPreview | nu
     joinable: displayStatus === 'OPEN',
     expiresAt: (r.expires_at as Date).toISOString(),
     viewerWouldBe: r.creator_role === 'CRYPTO_SIDE' ? 'FIAT_SIDE' : 'CRYPTO_SIDE',
+    // Identity-derived, so it is false for every anonymous reader.
+    viewerIsCreator: viewer ? r.created_by === viewer.userId : false,
     createdAtIso: (r.created_at as Date).toISOString(),
   };
 }

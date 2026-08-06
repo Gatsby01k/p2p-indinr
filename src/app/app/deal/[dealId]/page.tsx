@@ -19,6 +19,7 @@ export default async function DealPage({ params }: { params: Promise<{ dealId: s
           <div className="mx-auto max-w-[44rem]">
             <Link
               href="/app"
+              prefetch={false}
               className="mb-4 inline-flex items-center gap-1.5 text-[length:var(--text-xs)] font-medium text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
             >
               <span aria-hidden>←</span> All deals

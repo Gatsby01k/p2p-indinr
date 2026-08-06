@@ -297,6 +297,7 @@ export function ActionLink({
   size = 'md',
   full,
   className,
+  prefetch = false,
 }: {
   href: string;
   children: ReactNode;
@@ -304,9 +305,20 @@ export function ActionLink({
   size?: keyof typeof BTN_SIZE;
   full?: boolean;
   className?: string;
+  prefetch?: boolean;
 }) {
+  /*
+   * Prefetch is OFF by default. Most destinations in this product are
+   * `force-dynamic` and per-user, so a prefetch cannot be cached or reused:
+   * it buys nothing and costs a full server render, a database round trip
+   * and one of the browser's six connections per origin.
+   */
   return (
-    <Link href={href} className={cn(buttonClass(variant, size, full), className)}>
+    <Link
+      href={href}
+      prefetch={prefetch}
+      className={cn(buttonClass(variant, size, full), className)}
+    >
       {children}
     </Link>
   );

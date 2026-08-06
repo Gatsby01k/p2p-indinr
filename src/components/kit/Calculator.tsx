@@ -24,13 +24,34 @@ export function Calculator({ autoFocus = false }: { autoFocus?: boolean }) {
   const router = useRouter();
   const [raw, setRaw] = useState('500');
 
-  const { usdt, inrMinor, valid } = useMemo(() => {
-    const m = /^(\d{1,12})(?:\.(\d{1,6}))?$/.exec(raw.trim());
-    if (!m) return { usdt: 0n, inrMinor: 0n, valid: false };
+  const { usdt, inrMinor, valid, problem } = useMemo(() => {
+    const text = raw.trim();
+    const none = { usdt: 0n, inrMinor: 0n, valid: false };
+    if (text === '') return { ...none, problem: null };
+    if (!/^[\d.]+$/.test(text)) {
+      return { ...none, problem: 'Digits only — no symbols, spaces or commas.' };
+    }
+    if ((text.match(/\./g) ?? []).length > 1) {
+      return { ...none, problem: 'That has more than one decimal point.' };
+    }
+    const m = /^(\d{1,12})(?:\.(\d{1,6}))?$/.exec(text);
+    if (!m) {
+      return {
+        ...none,
+        problem: text.includes('.')
+          ? 'USDT goes to six decimal places at most.'
+          : 'That amount is too large.',
+      };
+    }
     const micro = BigInt(m[1]!) * 1_000_000n + BigInt((m[2] ?? '').padEnd(6, '0'));
-    if (micro <= 0n) return { usdt: 0n, inrMinor: 0n, valid: false };
+    if (micro <= 0n) return { ...none, problem: 'Enter an amount greater than zero.' };
     // Identical exact-integer arithmetic to the server. No floating point.
-    return { usdt: micro, inrMinor: (micro * RATE_NUM) / (RATE_DEN * 10_000n), valid: true };
+    return {
+      usdt: micro,
+      inrMinor: (micro * RATE_NUM) / (RATE_DEN * 10_000n),
+      valid: true,
+      problem: null,
+    };
   }, [raw]);
 
   const go = () => {
@@ -66,7 +87,7 @@ export function Calculator({ autoFocus = false }: { autoFocus?: boolean }) {
               inputMode="decimal"
               autoComplete="off"
               autoFocus={autoFocus}
-              aria-describedby="calc-result calc-basis"
+              aria-describedby={problem ? 'calc-problem' : 'calc-result calc-basis'}
               aria-invalid={!valid || undefined}
               className="tnum w-full min-w-0 border-0 bg-transparent p-0 text-[length:var(--text-4xl)] font-semibold tracking-[-0.03em] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-4)]"
               placeholder="0"
@@ -76,6 +97,16 @@ export function Calculator({ autoFocus = false }: { autoFocus?: boolean }) {
             </span>
           </div>
         </div>
+
+        {problem ? (
+          <p
+            id="calc-problem"
+            role="alert"
+            className="px-5 pt-2 text-[length:var(--text-xs)] font-medium text-[var(--color-risk)] sm:px-6"
+          >
+            {problem}
+          </p>
+        ) : null}
 
         {/* The rail: direction made geometric. */}
         <div className="px-5 py-4 sm:px-6">

@@ -163,6 +163,16 @@ export interface LinkPreview extends Terms {
   readonly expiresAt: string;
   /** The seat the *viewer* would take if they joined. */
   readonly viewerWouldBe: Role;
+  /**
+   * True only when an authenticated viewer created this link.
+   *
+   * Computed per request from the session and deliberately absent for an
+   * anonymous reader — it is an identity fact, and the public preview and
+   * its Open Graph metadata carry no identity. It exists so the creator is
+   * offered "share this" and a joiner is offered "take the other side",
+   * rather than both being offered both.
+   */
+  readonly viewerIsCreator: boolean;
   readonly createdAtIso: string;
 }
 
