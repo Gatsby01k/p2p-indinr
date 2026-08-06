@@ -1,12 +1,6 @@
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
-import {
-  DEAL_STATE,
-  dealTitle,
-  legsFor,
-  roleLabel,
-  settlementLegs,
-} from '@/lib/dealPresenter';
+import { DEAL_STATE, dealTitle, legsFor, roleLabel, settlementLegs } from '@/lib/dealPresenter';
 import type { DealView } from '@/lib/sandboxContract';
 import { Avatar, Status } from '@/components/kit/primitives';
 import { Icon } from '@/components/kit/Icon';
@@ -72,9 +66,7 @@ export function DealCard({ deal, className }: { deal: DealView; className?: stri
           {deal.direction !== 'INR_TO_INR' ? (
             <p className="mt-0.5 flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
               <Icon name="swap" className="h-3.5 w-3.5" />
-              <span className="tnum">
-                {isFiat ? legs.receive.display : legs.send.display}
-              </span>
+              <span className="tnum">{isFiat ? legs.receive.display : legs.send.display}</span>
             </p>
           ) : null}
         </div>

@@ -34,8 +34,7 @@ const OUTCOMES: readonly {
   {
     key: 'RELEASED',
     label: 'Release to the receiver',
-    effect:
-      'The deal completes. Use this when the evidence shows the money arrived as agreed.',
+    effect: 'The deal completes. Use this when the evidence shows the money arrived as agreed.',
     icon: 'check-circle',
     tone: 'final',
   },
@@ -50,8 +49,7 @@ const OUTCOMES: readonly {
   {
     key: 'CANCELLED',
     label: 'Cancel the deal',
-    effect:
-      'The deal closes with no settlement either way. Use this when neither side performed.',
+    effect: 'The deal closes with no settlement either way. Use this when neither side performed.',
     icon: 'close',
     tone: 'idle',
   },
@@ -147,7 +145,8 @@ export function RulingPanel({ dealId, dealCode }: { dealId: string; dealCode: st
           htmlFor="ruling-reason"
           className="text-[length:var(--text-xs)] font-semibold text-[var(--color-ink-2)]"
         >
-          Reason <span className="font-normal text-[var(--color-ink-4)]">(shown to both sides)</span>
+          Reason{' '}
+          <span className="font-normal text-[var(--color-ink-4)]">(shown to both sides)</span>
         </label>
         <textarea
           id="ruling-reason"
@@ -225,7 +224,7 @@ export function RulingPanel({ dealId, dealCode }: { dealId: string; dealCode: st
         </div>
         <Callout tone="hold" icon="alert" className="mt-3">
           Recorded against your operator account in the audit trail, together with the outcome and
-          the deal's previous state.
+          the deal&rsquo;s previous state.
         </Callout>
       </Sheet>
     </Card>

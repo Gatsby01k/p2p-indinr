@@ -77,8 +77,8 @@ export function ChatPanel({
       >
         {messages.length === 0 ? (
           <p className="py-8 text-center text-[length:var(--text-sm)] text-[var(--color-ink-4)]">
-            No messages yet. Anything you write here stays between the two of you and is part of
-            the record if a problem is reported.
+            No messages yet. Anything you write here stays between the two of you and is part of the
+            record if a problem is reported.
           </p>
         ) : null}
 

@@ -12,12 +12,7 @@ import {
 import { Icon } from '@/components/kit/Icon';
 import { Sheet } from '@/components/kit/Sheet';
 import { EvidencePanel } from '@/components/deal/EvidencePanel';
-import {
-  Callout,
-  Card,
-  Notice,
-  buttonClass,
-} from '@/components/kit/primitives';
+import { Callout, Card, Notice, buttonClass } from '@/components/kit/primitives';
 
 /**
  * Report a problem.
@@ -40,14 +35,15 @@ const REASONS: readonly DisputeReason[] = [
   'OTHER',
 ];
 
-const REASON_ICON: Readonly<Record<DisputeReason, 'wallet' | 'rupee' | 'file' | 'package' | 'more'>> =
-  {
-    PAYMENT_NOT_RECEIVED: 'wallet',
-    WRONG_AMOUNT: 'rupee',
-    PROOF_MISMATCH: 'file',
-    NOT_AS_AGREED: 'package',
-    OTHER: 'more',
-  };
+const REASON_ICON: Readonly<
+  Record<DisputeReason, 'wallet' | 'rupee' | 'file' | 'package' | 'more'>
+> = {
+  PAYMENT_NOT_RECEIVED: 'wallet',
+  WRONG_AMOUNT: 'rupee',
+  PROOF_MISMATCH: 'file',
+  NOT_AS_AGREED: 'package',
+  OTHER: 'more',
+};
 
 export function DisputeForm({
   dealId,

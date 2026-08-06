@@ -21,7 +21,7 @@ import { cn } from '@/lib/cn';
 import { Celebration, Seal } from '@/components/kit/Brand';
 import { AssetMark, Icon } from '@/components/kit/Icon';
 import { Sheet } from '@/components/kit/Sheet';
-import { CopyButton, useToast } from '@/components/kit/Feedback';
+import { CopyButton } from '@/components/kit/Feedback';
 import { Ago, Deadline } from '@/components/kit/Time';
 import {
   ActionLink,
@@ -70,7 +70,6 @@ type Tab = 'overview' | 'chat' | 'proof';
 
 export function DealRoom({ deal }: { deal: DealView }) {
   const router = useRouter();
-  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [tab, setTab] = useState<Tab>('overview');
   const [confirming, setConfirming] = useState(false);
@@ -258,9 +257,7 @@ export function DealRoom({ deal }: { deal: DealView }) {
               <h2
                 className={cn(
                   'mt-1 text-[length:var(--text-lg)] font-semibold tracking-[-0.02em]',
-                  move.who === 'you'
-                    ? 'text-[var(--color-brand-ink)]'
-                    : 'text-[var(--color-ink)]',
+                  move.who === 'you' ? 'text-[var(--color-brand-ink)]' : 'text-[var(--color-ink)]',
                 )}
               >
                 {move.title}
@@ -337,7 +334,10 @@ export function DealRoom({ deal }: { deal: DealView }) {
                   Problem reported
                 </h2>
                 <p className="mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-                  by <span className="capitalize">{deal.dispute.raisedByViewer ? 'you' : deal.dispute.raisedByName}</span>{' '}
+                  by{' '}
+                  <span className="capitalize">
+                    {deal.dispute.raisedByViewer ? 'you' : deal.dispute.raisedByName}
+                  </span>{' '}
                   · <Ago iso={deal.dispute.raisedAt} />
                 </p>
               </div>
@@ -706,9 +706,7 @@ function Receipt({ deal }: { deal: DealView }) {
               <CopyButton value={deal.dealCode} announce="Deal code copied" />
             </span>
           </Fact>
-          <Fact term="Completed">
-            {deal.completedAt ? <Ago iso={deal.completedAt} /> : '—'}
-          </Fact>
+          <Fact term="Completed">{deal.completedAt ? <Ago iso={deal.completedAt} /> : '—'}</Fact>
           <Fact term="Counterparty">
             <span className="inline-flex items-center gap-1.5 capitalize">
               {deal.counterpartyName}
@@ -776,7 +774,12 @@ function Receipt({ deal }: { deal: DealView }) {
             Attached evidence
           </h3>
           <div className="mt-3">
-            <EvidencePanel dealId={deal.dealId} evidence={deal.evidence} canUpload={false} compact />
+            <EvidencePanel
+              dealId={deal.dealId}
+              evidence={deal.evidence}
+              canUpload={false}
+              compact
+            />
           </div>
         </Card>
       ) : null}

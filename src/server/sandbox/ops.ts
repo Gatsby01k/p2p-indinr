@@ -164,7 +164,11 @@ export interface OperatorCase {
   readonly createdAt: string;
   readonly actionDeadline: string | null;
   readonly parties: readonly CaseParty[];
-  readonly claim: { readonly utr: string; readonly submittedAt: string; readonly note: string | null } | null;
+  readonly claim: {
+    readonly utr: string;
+    readonly submittedAt: string;
+    readonly note: string | null;
+  } | null;
   readonly dispute: {
     readonly disputeId: string;
     readonly reason: DisputeReason;
@@ -195,10 +199,9 @@ export interface OperatorCase {
 export async function operatorCase(user: SessionUser, dealId: string): Promise<OperatorCase> {
   assertOperator(user);
 
-  const { rows } = await getPool().query(
-    `SELECT d.* FROM sandbox.deal d WHERE d.deal_id = $1`,
-    [dealId],
-  );
+  const { rows } = await getPool().query(`SELECT d.* FROM sandbox.deal d WHERE d.deal_id = $1`, [
+    dealId,
+  ]);
   const d = rows[0];
   if (!d) throw new SandboxFailure('NOT_FOUND', 'That deal does not exist.');
 
@@ -260,9 +263,10 @@ export async function operatorCase(user: SessionUser, dealId: string): Promise<O
               state: r[0].state as 'OPEN' | 'UNDER_REVIEW' | 'RESOLVED',
               raisedByName: r[0].display_name as string,
               raisedAt: (r[0].raised_at as Date).toISOString(),
-              resolution: (r[0].resolution as OperatorCase['dispute'] extends null
-                ? never
-                : 'RELEASED' | 'REFUNDED' | 'CANCELLED' | null) ?? null,
+              resolution:
+                (r[0].resolution as OperatorCase['dispute'] extends null
+                  ? never
+                  : 'RELEASED' | 'REFUNDED' | 'CANCELLED' | null) ?? null,
             }
           : null,
       ),
@@ -405,15 +409,26 @@ export async function ruleOnDispute(
     }
 
     const nextState = RULING_STATE[ruling];
+    /*
+     * `completing` is its own parameter rather than a comparison against
+     * `$2`. PostgreSQL deduces one type per placeholder, and using the same
+     * one as both a `sandbox.deal_state` and a text literal makes the
+     * statement unplannable ("inconsistent types deduced for parameter").
+     *
+     * `deal_completed_at` requires `completed_at` to be set for COMPLETED
+     * and null otherwise, so the two branches are not interchangeable —
+     * they are what keeps a refunded deal from carrying a completion time.
+     */
+    const completing = nextState === 'COMPLETED';
     await tx.query(
       `UPDATE sandbox.deal
-          SET state = $2,
-              completed_at = CASE WHEN $2 = 'COMPLETED' THEN now() ELSE completed_at END,
-              closed_at = CASE WHEN $2 <> 'COMPLETED' THEN now() ELSE closed_at END,
+          SET state = $2::sandbox.deal_state,
+              completed_at = CASE WHEN $3 THEN now() ELSE completed_at END,
+              closed_at    = CASE WHEN $3 THEN closed_at ELSE now() END,
               action_deadline = NULL,
               version = version + 1
         WHERE deal_id = $1`,
-      [dealId, nextState],
+      [dealId, nextState, completing],
     );
     await tx.query(
       `UPDATE sandbox.dispute

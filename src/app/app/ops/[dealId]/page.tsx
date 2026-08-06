@@ -69,11 +69,13 @@ export default async function OperatorCasePage({
   try {
     kase = await operatorCase(user, dealId);
   } catch (err) {
-    const message =
-      err instanceof SandboxFailure ? err.message : 'That case could not be opened.';
+    const message = err instanceof SandboxFailure ? err.message : 'That case could not be opened.';
     return (
       <>
-        <AppHeader title="Case unavailable" back={{ href: '/app/ops', label: 'Back to the desk' }} />
+        <AppHeader
+          title="Case unavailable"
+          back={{ href: '/app/ops', label: 'Back to the desk' }}
+        />
         <Shell width="prose" className="py-8">
           <Notice
             tone="idle"
@@ -188,8 +190,8 @@ export default async function OperatorCasePage({
                   {kase.claim.note ? <Fact term="Note">{kase.claim.note}</Fact> : null}
                 </Facts>
                 <Callout tone="info" icon="info" className="mt-3">
-                  A UTR is unique platform-wide, so this reference has never been claimed on
-                  another deal.
+                  A UTR is unique platform-wide, so this reference has never been claimed on another
+                  deal.
                 </Callout>
               </Card>
             ) : (
@@ -325,8 +327,8 @@ export default async function OperatorCasePage({
                   No ruling is possible
                 </h2>
                 <p className="mt-1.5 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
-                  This deal is not under dispute, so there is nothing for an operator to decide.
-                  It is here because it is waiting on one of its two sides.
+                  This deal is not under dispute, so there is nothing for an operator to decide. It
+                  is here because it is waiting on one of its two sides.
                 </p>
                 <Callout tone="info" icon="clock" className="mt-3">
                   Nothing on this desk resolves on a timer. If a deadline passes, the deal stays

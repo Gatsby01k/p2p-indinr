@@ -219,22 +219,78 @@ describe('terminal deals reject further mutation', () => {
 });
 
 describe('permitted actions are server-decided', () => {
+  /**
+   * Asserted as a WHOLE OBJECT, not with `toMatchObject`.
+   *
+   * The point of this test is that the server hands the UI a complete,
+   * closed set of permissions. A loose match would let a future permission
+   * appear — silently granted to the wrong seat — without failing anything.
+   */
   it('never grants FIAT_SIDE a confirm or CRYPTO_SIDE a claim', async () => {
     const dealId = await joinedDeal();
 
     const pendingBuyer = await getDeal(buyer, dealId);
-    expect(pendingBuyer.permitted).toEqual({ canClaim: true, canConfirm: false });
+    expect(pendingBuyer.permitted).toEqual({
+      canClaim: true,
+      canConfirm: false,
+      canDispute: true,
+      canMessage: true,
+      canUpload: true,
+      canCancel: true,
+    });
 
     const pendingSeller = await getDeal(seller, dealId);
-    expect(pendingSeller.permitted).toEqual({ canClaim: false, canConfirm: false });
+    expect(pendingSeller.permitted).toEqual({
+      canClaim: false,
+      canConfirm: false,
+      canDispute: true,
+      canMessage: true,
+      canUpload: true,
+      canCancel: true,
+    });
 
     await submitPaymentClaim(buyer, dealId, utr());
 
+    // Once a payment is claimed, cancelling would strand a real transfer,
+    // so it stops being permitted for either side. The route out is a
+    // dispute, which stays open to both.
     const claimedBuyer = await getDeal(buyer, dealId);
-    expect(claimedBuyer.permitted).toEqual({ canClaim: false, canConfirm: false });
+    expect(claimedBuyer.permitted).toEqual({
+      canClaim: false,
+      canConfirm: false,
+      canDispute: true,
+      canMessage: true,
+      canUpload: true,
+      canCancel: false,
+    });
 
     const claimedSeller = await getDeal(seller, dealId);
-    expect(claimedSeller.permitted).toEqual({ canClaim: false, canConfirm: true });
+    expect(claimedSeller.permitted).toEqual({
+      canClaim: false,
+      canConfirm: true,
+      canDispute: true,
+      canMessage: true,
+      canUpload: true,
+      canCancel: false,
+    });
+  });
+
+  it('closes every action once the deal is terminal', async () => {
+    const dealId = await joinedDeal();
+    await submitPaymentClaim(buyer, dealId, utr());
+    await confirmReceipt(seller, dealId);
+
+    for (const viewer of [buyer, seller]) {
+      const done = await getDeal(viewer, dealId);
+      expect(done.permitted).toEqual({
+        canClaim: false,
+        canConfirm: false,
+        canDispute: false,
+        canMessage: false,
+        canUpload: false,
+        canCancel: false,
+      });
+    }
   });
 });
 

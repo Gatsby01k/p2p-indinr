@@ -10,14 +10,7 @@ import { cn } from '@/lib/cn';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon } from '@/components/kit/Icon';
 import { QueueKeys } from '@/components/kit/QueueKeys';
-import {
-  Card,
-  EmptyState,
-  Notice,
-  Shell,
-  StatTile,
-  Status,
-} from '@/components/kit/primitives';
+import { Card, EmptyState, Notice, Shell, StatTile, Status } from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,8 +82,7 @@ export default async function OpsPage({
 
   const { unread } = await getChrome();
   const params = await searchParams;
-  const view: DeskFilter =
-    TABS.find((t) => t.key === params.view)?.key ?? 'ALL';
+  const view: DeskFilter = TABS.find((t) => t.key === params.view)?.key ?? 'ALL';
 
   const [all, rows] = await Promise.all([deskQueue(user, 'ALL'), deskQueue(user, view)]);
   const counts = countBy(all);

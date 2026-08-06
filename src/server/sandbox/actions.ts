@@ -122,7 +122,8 @@ export async function createDealAction(input: {
     let quoteId: string;
     if (input.scenario === 'INR_TO_INR') {
       const inr = parseInrToMinor(input.inrAmount ?? '');
-      if (inr === null) return { ok: false, code: 'AMOUNT_INVALID', message: 'Enter a valid amount.' };
+      if (inr === null)
+        return { ok: false, code: 'AMOUNT_INVALID', message: 'Enter a valid amount.' };
       const quote = await issueProtectedQuote(user, inr, {
         feeBearer: input.feeBearer,
         title: input.title ?? null,
@@ -130,7 +131,8 @@ export async function createDealAction(input: {
       quoteId = quote.quoteId;
     } else if (input.usdtAmount) {
       const usdt = parseUsdtToMicro(input.usdtAmount);
-      if (usdt === null) return { ok: false, code: 'AMOUNT_INVALID', message: 'Enter a valid amount.' };
+      if (usdt === null)
+        return { ok: false, code: 'AMOUNT_INVALID', message: 'Enter a valid amount.' };
       const quote = await issueFirmQuote(user, input.scenario, usdt, {
         feeBearer: input.feeBearer,
         title: input.title ?? null,
@@ -138,7 +140,8 @@ export async function createDealAction(input: {
       quoteId = quote.quoteId;
     } else {
       const inr = parseInrToMinor(input.inrAmount ?? '');
-      if (inr === null) return { ok: false, code: 'AMOUNT_INVALID', message: 'Enter a valid amount.' };
+      if (inr === null)
+        return { ok: false, code: 'AMOUNT_INVALID', message: 'Enter a valid amount.' };
       const quote = await issueExchangeQuoteFromInr(user, input.scenario, inr, {
         feeBearer: input.feeBearer,
         title: input.title ?? null,

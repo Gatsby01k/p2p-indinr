@@ -180,12 +180,17 @@ describe('atomic single-winner Join', () => {
     );
     const d = rows[0]!;
 
+    // Every OTHER column is supplied and valid, including `deal_code`, so
+    // the only thing this row can possibly violate is the uniqueness of
+    // `link_id`. Omitting a required column would make the test pass for
+    // the wrong reason — it would prove a NOT NULL constraint works, not
+    // the single-winner one.
     await expect(
       getPool().query(
         `INSERT INTO sandbox.deal
-           (public_id, link_id, quote_id, direction, usdt_minor, inr_minor,
+           (public_id, deal_code, link_id, quote_id, direction, usdt_minor, inr_minor,
             rate_num, rate_den, pricing_source, observed_at)
-         VALUES ('INRP-ZZZZZZZZZZ',$1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         VALUES ('INRP-ZZZZZZZZZZ','ZZZ-ZZZZ',$1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           d.link_id,
           d.quote_id,

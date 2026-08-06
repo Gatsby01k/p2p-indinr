@@ -103,9 +103,7 @@ export function CreateDealWizard({
         return;
       }
       const copy =
-        result.code && result.code !== 'UNKNOWN'
-          ? FAILURE_COPY[result.code as SandboxError]
-          : null;
+        result.code && result.code !== 'UNKNOWN' ? FAILURE_COPY[result.code as SandboxError] : null;
       setFailure(
         copy ?? {
           reason: result.message ?? 'That did not work.',
@@ -222,7 +220,8 @@ function useQuotePreview(draft: Draft): QuotePreview | null {
 
     if (amountAsset === 'USDT') {
       usdtMicro = parseUsdtToMicro(amount);
-      inrMinor = usdtMicro === null ? null : inrFromUsdt(usdtMicro, REFERENCE_RATE.num, REFERENCE_RATE.den);
+      inrMinor =
+        usdtMicro === null ? null : inrFromUsdt(usdtMicro, REFERENCE_RATE.num, REFERENCE_RATE.den);
     } else {
       inrMinor = parseInrToMinor(amount);
       if (inrMinor !== null && scenario !== 'INR_TO_INR') {
@@ -269,7 +268,11 @@ function StepRail({ step }: { step: Step }) {
                 state === 'todo' && 'bg-[var(--color-sunken)] text-[var(--color-ink-4)]',
               )}
             >
-              {state === 'done' ? <Icon name="check" className="h-2.5 w-2.5" strokeWidth={3.5} /> : i + 1}
+              {state === 'done' ? (
+                <Icon name="check" className="h-2.5 w-2.5" strokeWidth={3.5} />
+              ) : (
+                i + 1
+              )}
             </span>
             <span
               className={cn(
@@ -328,16 +331,10 @@ function TermsStep({
           Choose the deal type that fits. It decides who does what.
         </p>
 
-        <div
-          role="radiogroup"
-          aria-label="Deal type"
-          className="mt-4 space-y-2.5"
-        >
+        <div role="radiogroup" aria-label="Deal type" className="mt-4 space-y-2.5">
           <ScenarioOption
             selected={draft.scenario === 'INR_TO_INR' && draft.intent === 'PAY'}
-            onSelect={() =>
-              patch({ scenario: 'INR_TO_INR', intent: 'PAY', amountAsset: 'INR' })
-            }
+            onSelect={() => patch({ scenario: 'INR_TO_INR', intent: 'PAY', amountAsset: 'INR' })}
             from="INR"
             to="INR"
             title="Pay safely"
@@ -454,8 +451,8 @@ function TermsStep({
 
         {isExchange ? (
           <Callout tone="info" icon="info" className="mt-4">
-            The rate here is indicative. The server issues a firm rate with its own short
-            expiry on the next screen, and that is the one the deal locks.
+            The rate here is indicative. The server issues a firm rate with its own short expiry on
+            the next screen, and that is the one the deal locks.
           </Callout>
         ) : null}
       </Card>
@@ -681,10 +678,7 @@ function ReviewStep({
               <span className="tnum">{rateDisplay()} INR / USDT</span>
             </Fact>
           ) : null}
-          <Fact
-            term={quote.protectionLabel}
-            hint={quote.protectionBasis}
-          >
+          <Fact term={quote.protectionLabel} hint={quote.protectionBasis}>
             <span className="tnum">₹{formatMinor(quote.protectionMinor.toString(), 'INR')}</span>
           </Fact>
           {quote.networkMinor > 0n ? (

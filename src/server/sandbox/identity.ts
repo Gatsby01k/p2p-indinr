@@ -226,9 +226,7 @@ export async function markVerified(
 const UPI_PATTERN = /^[a-zA-Z0-9.\-_]{2,64}@[a-zA-Z]{2,32}$/;
 const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
-export async function listPaymentMethods(
-  user: SessionUser,
-): Promise<readonly PaymentMethodView[]> {
+export async function listPaymentMethods(user: SessionUser): Promise<readonly PaymentMethodView[]> {
   const { rows } = await getPool().query(
     `SELECT * FROM sandbox.payment_method
       WHERE user_id = $1 ORDER BY is_default DESC, created_at ASC`,
@@ -263,15 +261,15 @@ export interface NewPaymentMethod {
  * CVV or full card number is refused outright rather than stored — this
  * table addresses a transfer, it does not authorise one.
  */
-export async function addPaymentMethod(
-  user: SessionUser,
-  method: NewPaymentMethod,
-): Promise<void> {
+export async function addPaymentMethod(user: SessionUser, method: NewPaymentMethod): Promise<void> {
   const handle = method.handle.trim();
   const label = method.label.trim().slice(0, 60) || 'Payment method';
 
   if (method.kind === 'UPI' && !UPI_PATTERN.test(handle)) {
-    throw new SandboxFailure('NOT_FOUND', 'That is not a valid UPI ID — it should look like name@bank.');
+    throw new SandboxFailure(
+      'NOT_FOUND',
+      'That is not a valid UPI ID — it should look like name@bank.',
+    );
   }
   if (method.kind === 'BANK') {
     if (!/^\d{6,18}$/.test(handle.replace(/\s/g, ''))) {
@@ -286,10 +284,7 @@ export async function addPaymentMethod(
   }
 
   // Only the last four digits of a bank account are ever stored.
-  const stored =
-    method.kind === 'BANK'
-      ? `••••${handle.replace(/\s/g, '').slice(-4)}`
-      : handle;
+  const stored = method.kind === 'BANK' ? `••••${handle.replace(/\s/g, '').slice(-4)}` : handle;
 
   await withTransaction(async (tx) => {
     const { rows } = await tx.query(
@@ -341,10 +336,10 @@ export async function setDefaultPaymentMethod(user: SessionUser, methodId: strin
 
 export async function removePaymentMethod(user: SessionUser, methodId: string): Promise<void> {
   // Ownership is in the WHERE clause, so a crafted id deletes nothing.
-  await getPool().query(`DELETE FROM sandbox.payment_method WHERE method_id = $1 AND user_id = $2`, [
-    methodId,
-    user.userId,
-  ]);
+  await getPool().query(
+    `DELETE FROM sandbox.payment_method WHERE method_id = $1 AND user_id = $2`,
+    [methodId, user.userId],
+  );
 }
 
 /* ------------------------------------------------------------------ *

@@ -1,6 +1,14 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 import { Icon, type IconName } from './Icon';
@@ -123,9 +131,12 @@ export function useCopy(): {
   const timer = useRef<number | null>(null);
   const toast = useToast();
 
-  useEffect(() => () => {
-    if (timer.current) window.clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    },
+    [],
+  );
 
   const copy = useCallback(
     async (value: string, announce = 'Copied') => {

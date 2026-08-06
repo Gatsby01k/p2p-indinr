@@ -350,7 +350,8 @@ export function Chip({
 }) {
   const tones = {
     neutral: 'bg-[var(--color-sunken)] text-[var(--color-ink-2)] border-transparent',
-    brand: 'bg-[var(--color-brand-tint)] text-[var(--color-brand-ink)] border-[var(--color-brand-line)]',
+    brand:
+      'bg-[var(--color-brand-tint)] text-[var(--color-brand-ink)] border-[var(--color-brand-line)]',
     quiet: 'bg-transparent text-[var(--color-ink-3)] border-[var(--color-line)]',
   }[tone];
   return (
@@ -432,7 +433,11 @@ export function Avatar({
           aria-hidden
           className="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-[var(--color-paper)]"
         >
-          <Icon name="check-circle" className="h-3.5 w-3.5 text-[var(--color-final)]" strokeWidth={2} />
+          <Icon
+            name="check-circle"
+            className="h-3.5 w-3.5 text-[var(--color-final)]"
+            strokeWidth={2}
+          />
         </span>
       ) : null}
     </span>
@@ -710,7 +715,12 @@ export function ListRow({
   const inner = (
     <>
       {icon ? (
-        <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-sm)]', iconTone)}>
+        <span
+          className={cn(
+            'grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-sm)]',
+            iconTone,
+          )}
+        >
           <Icon name={icon} className="h-[18px] w-[18px]" />
         </span>
       ) : null}
@@ -855,7 +865,9 @@ export function StatTile({
   }[tone];
   return (
     <div className="min-w-0">
-      <p className={cn('tnum text-[length:var(--text-xl)] font-semibold tracking-[-0.02em]', tones)}>
+      <p
+        className={cn('tnum text-[length:var(--text-xl)] font-semibold tracking-[-0.02em]', tones)}
+      >
         {value}
       </p>
       <p className="mt-0.5 text-[length:var(--text-2xs)] leading-tight text-[var(--color-ink-3)]">

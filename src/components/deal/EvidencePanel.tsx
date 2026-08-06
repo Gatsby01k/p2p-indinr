@@ -59,7 +59,9 @@ export function EvidencePanel({
     setProblem(null);
 
     if (file.size > MAX_BYTES) {
-      setProblem(`${FAILURE_COPY.EVIDENCE_TOO_LARGE.reason} ${FAILURE_COPY.EVIDENCE_TOO_LARGE.nextStep}`);
+      setProblem(
+        `${FAILURE_COPY.EVIDENCE_TOO_LARGE.reason} ${FAILURE_COPY.EVIDENCE_TOO_LARGE.nextStep}`,
+      );
       return;
     }
     if (!ACCEPTED.includes(file.type as (typeof ACCEPTED)[number])) {
@@ -122,10 +124,7 @@ export function EvidencePanel({
                     · <Ago iso={file.uploadedAt} />
                   </span>
                 </span>
-                <Icon
-                  name="download"
-                  className="h-4 w-4 shrink-0 text-[var(--color-ink-4)]"
-                />
+                <Icon name="download" className="h-4 w-4 shrink-0 text-[var(--color-ink-4)]" />
               </a>
               {/* The hash is what makes this a trail rather than a folder.
                   Truncated for the eye, complete in the title attribute. */}
@@ -207,7 +206,13 @@ export function EvidencePanel({
 }
 
 /** The compact attach control, for use inside the pay screen. */
-export function AttachButton({ dealId, label = 'Upload payment proof' }: { dealId: string; label?: string }) {
+export function AttachButton({
+  dealId,
+  label = 'Upload payment proof',
+}: {
+  dealId: string;
+  label?: string;
+}) {
   const router = useRouter();
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
@@ -245,7 +250,11 @@ export function AttachButton({ dealId, label = 'Upload payment proof' }: { dealI
       />
       <label
         htmlFor={`attach-${dealId}`}
-        className={cn(buttonClass('outline', 'md', true), 'cursor-pointer', pending && 'opacity-60')}
+        className={cn(
+          buttonClass('outline', 'md', true),
+          'cursor-pointer',
+          pending && 'opacity-60',
+        )}
       >
         <Icon
           name={pending ? 'refresh' : 'upload'}

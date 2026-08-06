@@ -413,7 +413,8 @@ export async function issueProtectedQuote(
 }
 
 function assertInrRange(inrMinor: bigint): void {
-  if (inrMinor <= 0n) throw new SandboxFailure('AMOUNT_INVALID', FAILURE_COPY.AMOUNT_INVALID.reason);
+  if (inrMinor <= 0n)
+    throw new SandboxFailure('AMOUNT_INVALID', FAILURE_COPY.AMOUNT_INVALID.reason);
   if (inrMinor < MIN_INR_MINOR) {
     throw new SandboxFailure('AMOUNT_TOO_SMALL', FAILURE_COPY.AMOUNT_TOO_SMALL.reason);
   }
@@ -606,10 +607,7 @@ export async function getLinkPreview(
 }
 
 /** The deal a consumed link became — but only for one of its two seats. */
-export async function dealIdForLink(
-  user: SessionUser,
-  publicId: string,
-): Promise<string | null> {
+export async function dealIdForLink(user: SessionUser, publicId: string): Promise<string | null> {
   const { rows } = await getPool().query(
     `SELECT d.deal_id
        FROM sandbox.deal d
@@ -855,7 +853,8 @@ export async function getDeal(
       // Only the INR sender may claim, only before a claim exists, only while live.
       canClaim: !terminal && !disputed && viewerRole === 'FIAT_SIDE' && state === 'FIAT_PENDING',
       // Only the INR receiver may confirm, and only after a claim exists.
-      canConfirm: !terminal && !disputed && viewerRole === 'CRYPTO_SIDE' && state === 'FIAT_CLAIMED',
+      canConfirm:
+        !terminal && !disputed && viewerRole === 'CRYPTO_SIDE' && state === 'FIAT_CLAIMED',
       // A problem can be raised any time the deal is still live.
       canDispute: !terminal && !disputed,
       // The thread stays open on a disputed deal — that is when it matters
@@ -869,9 +868,7 @@ export async function getDeal(
   };
 }
 
-export async function listDealsForUser(
-  user: SessionUser,
-): Promise<readonly DealView[]> {
+export async function listDealsForUser(user: SessionUser): Promise<readonly DealView[]> {
   const { rows } = await getPool().query(
     `SELECT d.deal_id FROM sandbox.deal d
        JOIN sandbox.participant p ON p.deal_id = d.deal_id AND p.user_id = $1
@@ -1278,10 +1275,7 @@ export async function attachEvidence(
     throw new SandboxFailure('EVIDENCE_TOO_LARGE', FAILURE_COPY.EVIDENCE_TOO_LARGE.reason);
   }
   if (!EVIDENCE_TYPES.has(file.type)) {
-    throw new SandboxFailure(
-      'EVIDENCE_TYPE_REJECTED',
-      FAILURE_COPY.EVIDENCE_TYPE_REJECTED.reason,
-    );
+    throw new SandboxFailure('EVIDENCE_TYPE_REJECTED', FAILURE_COPY.EVIDENCE_TYPE_REJECTED.reason);
   }
 
   const sha256 = createHash('sha256').update(file.bytes).digest('hex');

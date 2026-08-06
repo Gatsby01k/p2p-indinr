@@ -261,11 +261,7 @@ export default async function DealLinkPage({ params }: Params) {
             {/* Who made this — a signed-in reader only. */}
             {preview.creatorName ? (
               <div className="mt-5 flex items-center justify-center gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-sunken)] px-3 py-2.5">
-                <Avatar
-                  name={preview.creatorName}
-                  size="sm"
-                  verified={preview.creatorVerified}
-                />
+                <Avatar name={preview.creatorName} size="sm" verified={preview.creatorVerified} />
                 <div className="min-w-0 text-left">
                   <p className="truncate text-[length:var(--text-sm)] font-semibold capitalize text-[var(--color-ink)]">
                     {preview.creatorName}

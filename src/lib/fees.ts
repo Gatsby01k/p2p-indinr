@@ -77,11 +77,7 @@ export function feesFor(scenario: Scenario, inrMinor: bigint): FeeBreakdown {
   }
 
   if (scenario === 'INR_TO_INR') {
-    const protection = clamp(
-      (inrMinor * PROTECTION_BPS) / BPS_DEN,
-      PROTECTION_MIN,
-      PROTECTION_MAX,
-    );
+    const protection = clamp((inrMinor * PROTECTION_BPS) / BPS_DEN, PROTECTION_MIN, PROTECTION_MAX);
     return {
       protectionMinor: protection,
       networkMinor: 0n,
@@ -118,11 +114,7 @@ export interface Settlement {
   readonly fees: FeeBreakdown;
 }
 
-export function settlementFor(
-  scenario: Scenario,
-  inrMinor: bigint,
-  bearer: FeeBearer,
-): Settlement {
+export function settlementFor(scenario: Scenario, inrMinor: bigint, bearer: FeeBearer): Settlement {
   const fees = feesFor(scenario, inrMinor);
   if (bearer === 'PAYER') {
     return {

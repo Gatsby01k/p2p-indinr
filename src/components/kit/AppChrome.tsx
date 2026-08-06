@@ -58,7 +58,10 @@ export function TopBar({
       )}
     >
       <div className="mx-auto flex h-[var(--h-topbar)] max-w-[var(--w-wide)] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-        <Link href={href} className="-ml-1 inline-flex items-center rounded-[var(--radius-sm)] px-1">
+        <Link
+          href={href}
+          className="-ml-1 inline-flex items-center rounded-[var(--radius-sm)] px-1"
+        >
           <Wordmark suffix={suffix} compact />
         </Link>
         <div className="flex items-center gap-2">{right}</div>

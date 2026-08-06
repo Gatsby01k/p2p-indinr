@@ -94,11 +94,7 @@ export default async function PayPage({ params }: { params: Promise<{ dealId: st
         {/* ---- Where the money goes ----------------------------- */}
         <Card>
           <div className="flex items-center gap-3">
-            <Avatar
-              name={deal.counterpartyName}
-              size="md"
-              verified={deal.counterpartyVerified}
-            />
+            <Avatar name={deal.counterpartyName} size="md" verified={deal.counterpartyVerified} />
             <div className="min-w-0 flex-1">
               <Label>Pay to</Label>
               <p className="truncate text-[length:var(--text-lg)] font-semibold capitalize text-[var(--color-ink)]">

@@ -8,7 +8,6 @@ import type { DealView } from '@/lib/sandboxContract';
 import { cn } from '@/lib/cn';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { DealCard, DealRow } from '@/components/deal/DealCard';
-import { Icon } from '@/components/kit/Icon';
 import {
   ActionLink,
   Card,
@@ -66,8 +65,7 @@ export default async function DealsPage({
   const { user, unread } = await getChrome();
   const [deals, params] = await Promise.all([listDealsForUser(user), searchParams]);
 
-  const filter: Filter =
-    FILTERS.find((f) => f.key === params.filter)?.key ?? 'all';
+  const filter: Filter = FILTERS.find((f) => f.key === params.filter)?.key ?? 'all';
   const shown = deals.filter((d) => matches(d, filter));
 
   const needsYou = deals.filter((d) => d.permitted.canClaim || d.permitted.canConfirm);
@@ -104,10 +102,7 @@ export default async function DealsPage({
               tone={needsYou.length > 0 ? 'brand' : 'ink'}
             />
             <StatTile value={completed.length} label="Completed" tone="final" />
-            <StatTile
-              value={`₹${formatMinor(volume.toString(), 'INR')}`}
-              label="Settled volume"
-            />
+            <StatTile value={`₹${formatMinor(volume.toString(), 'INR')}`} label="Settled volume" />
           </Card>
         ) : null}
 
@@ -242,17 +237,3 @@ const EMPTY: Readonly<Record<Filter, { title: string; body: string }>> = {
     body: 'Disputed, expired and refunded deals collect here. Yours is a clean sheet.',
   },
 };
-
-/** Used by the header on narrow screens where the button does not fit. */
-export function NewDealFab() {
-  return (
-    <Link
-      href="/app/new"
-      prefetch={false}
-      aria-label="Create a protected deal"
-      className="press grid h-10 w-10 place-items-center rounded-full bg-[var(--color-brand)] text-white shadow-[var(--shadow-brand)]"
-    >
-      <Icon name="plus" className="h-5 w-5" strokeWidth={2.2} />
-    </Link>
-  );
-}
