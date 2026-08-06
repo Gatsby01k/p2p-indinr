@@ -2,7 +2,7 @@
   "name": "inrp2p",
   "version": "0.1.0",
   "private": true,
-  "description": "INRP2P \u2014 link-driven INR \u21c4 USDT settlement network connecting users with approved liquidity desks.",
+  "description": "INRP2P — link-driven INR ⇄ USDT settlement network connecting users with approved liquidity desks.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -26,7 +26,7 @@
     "@tailwindcss/postcss@4.0.0 declares '@tailwindcss/oxide': '^4.0.0' and",
     "'@tailwindcss/node': '^4.0.0'. With no lockfile present those carets now",
     "resolve to 4.3.x, whose Rust scanner requires a 'negated' field on",
-    "ScannerOptions.sources that the 4.0.0 plugin does not supply \u2014 the build",
+    "ScannerOptions.sources that the 4.0.0 plugin does not supply — the build",
     "then fails with 'Missing field `negated` on ScannerOptions.sources'.",
     "These overrides pin the transitive pair back to the 4.0.0 the pinned",
     "plugin was built against. Remove them only when tailwindcss and",
@@ -39,6 +39,7 @@
   "dependencies": {
     "next": "15.5.22",
     "pg": "8.13.1",
+    "qrcode": "1.5.4",
     "react": "19.0.0",
     "react-dom": "19.0.0"
   },
@@ -50,6 +51,7 @@
     "@testing-library/user-event": "14.5.2",
     "@types/node": "22.10.5",
     "@types/pg": "8.11.10",
+    "@types/qrcode": "1.5.5",
     "@types/react": "19.0.7",
     "@types/react-dom": "19.0.3",
     "@vitejs/plugin-react": "4.3.4",

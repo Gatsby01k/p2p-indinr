@@ -1,191 +1,328 @@
 import Link from 'next/link';
-import { listDealsForUser, type DealView } from '@/server/sandbox/service';
-import { requireUser } from '@/server/sandbox/session';
+import { listDealsForUser } from '@/server/sandbox/service';
+import { getTrustProfile } from '@/server/sandbox/identity';
+import { getChrome } from '@/server/sandbox/chrome';
 import { formatMinor } from '@/lib/format';
-import { BottomNav, DeskNav } from '@/components/kit/AppChrome';
+import { DEAL_STATE, settlementLegs } from '@/lib/dealPresenter';
+import type { DealView } from '@/lib/sandboxContract';
+import { AppHeader } from '@/components/kit/AppChrome';
+import { DealCard, DealRow } from '@/components/deal/DealCard';
+import { Icon, type IconName } from '@/components/kit/Icon';
+import { Deadline } from '@/components/kit/Time';
 import {
   ActionLink,
-  Label,
-  Money,
-  Panel,
-  Rail,
+  Card,
+  Chip,
+  EmptyState,
+  SectionHead,
   Shell,
-  Status,
-  type Tone,
+  VerifiedTick,
 } from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Transaction home.
+ * Home.
  *
- * Organised by WHOSE MOVE IT IS, not by arbitrary KPI tiles. A person
- * opening this wants one question answered — is anything waiting on me —
- * so that section comes first and is the only one with the action colour.
+ * Answers one question first — *what are you doing today* — because this is
+ * a product people arrive at WITH an intention rather than one they browse.
+ * The three intents are the whole surface, so they come first and largest.
+ *
+ * Below them, and only when it has content, comes what needs the person.
+ * That section is the only one carrying the action colour, so a glance
+ * answers "is anything on me?" without reading a word.
  */
-export default async function DealsPage() {
-  const user = await requireUser();
-  const deals = await listDealsForUser(user);
+export default async function HomePage() {
+  const { user, unread } = await getChrome();
+  const [deals, profile] = await Promise.all([listDealsForUser(user), getTrustProfile(user)]);
 
   const needsYou = deals.filter((d) => d.permitted.canClaim || d.permitted.canConfirm);
-  const inFlight = deals.filter(
-    (d) => !needsYou.includes(d) && d.state !== 'COMPLETED' && d.state !== 'CANCELLED',
+  const live = deals.filter(
+    (d) =>
+      !DEAL_STATE[d.state].halted &&
+      d.state !== 'COMPLETED' &&
+      !d.permitted.canClaim &&
+      !d.permitted.canConfirm,
   );
-  const settled = deals.filter((d) => d.state === 'COMPLETED' || d.state === 'CANCELLED');
+  const recent = deals.slice(0, 6);
 
   return (
     <>
-      <Shell width="content" className="py-6 sm:py-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-[length:var(--text-2xl)] font-semibold tracking-[-0.025em] text-[var(--color-ink)]">
-              Your deals
-            </h1>
-            <p className="mt-1 text-[length:var(--text-sm)] text-[var(--color-ink-3)]">
-              Held on the server. These survive a reload and a restart.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <DeskNav active="deals" isOperator={user.isOperator} />
-            <ActionLink
-              href="/app/new"
-              variant="primary"
-              size="sm"
-              className="hidden md:inline-flex"
-            >
-              Create a deal link
-            </ActionLink>
-          </div>
-        </div>
+      <AppHeader
+        title={
+          <span className="flex items-center gap-2">
+            <span className="capitalize">Welcome back, {user.displayName.split(' ')[0]}</span>
+            {profile.identityVerified ? <VerifiedTick /> : null}
+          </span>
+        }
+        subtitle={`${profile.safePoints.toLocaleString('en-IN')} SafePoints · Level ${profile.level}`}
+        unread={unread}
+      />
 
-        {deals.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="mt-7 space-y-8">
-            {needsYou.length > 0 ? (
-              <Group title="Waiting on you" count={needsYou.length} accent deals={needsYou} />
-            ) : null}
-            {inFlight.length > 0 ? (
-              <Group title="In progress" count={inFlight.length} deals={inFlight} />
-            ) : null}
-            {settled.length > 0 ? (
-              <Group title="Settled" count={settled.length} deals={settled} muted />
-            ) : null}
-          </div>
-        )}
+      <Shell width="wide" className="py-5 sm:py-7">
+        {/* ---- The three intents ------------------------------------- */}
+        <section aria-labelledby="intents">
+          <h2
+            id="intents"
+            className="text-[length:var(--text-xl)] font-semibold tracking-[-0.028em] text-[var(--color-ink)] sm:text-[length:var(--text-2xl)]"
+          >
+            What are you doing today?
+          </h2>
+          <p className="mt-1 text-[length:var(--text-base)] text-[var(--color-ink-3)]">
+            Protected deals for payments, and for INR ⇄ USDT exchanges.
+          </p>
+
+          <ul className="stagger mt-4 grid gap-3 sm:grid-cols-3">
+            {INTENTS.map((intent) => (
+              <li key={intent.href}>
+                <IntentCard {...intent} />
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* ---- Waiting on you ---------------------------------------- */}
+        {needsYou.length > 0 ? (
+          <section className="mt-8">
+            <SectionHead title="Waiting on you" count={needsYou.length} accent />
+            <ul className="mt-3 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+              {needsYou.map((deal) => (
+                <li key={deal.dealId}>
+                  <AttentionCard deal={deal} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {/* ---- In progress ------------------------------------------- */}
+        {live.length > 0 ? (
+          <section className="mt-8">
+            <SectionHead title="In progress" count={live.length} />
+            <ul className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {live.map((deal) => (
+                <li key={deal.dealId}>
+                  <DealCard deal={deal} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {/* ---- The rail ---------------------------------------------- */}
+        <section className="mt-8">
+          <SectionHead
+            title="Deal rail"
+            action={deals.length > 0 ? { href: '/app/deals', label: 'View all' } : undefined}
+          />
+          {deals.length === 0 ? (
+            <EmptyState
+              className="mt-3"
+              icon="shield"
+              title="Your first protected deal starts with a link"
+              body="Fix the amount, protect it, and send the link to the person you are dealing with. Exactly one person can take it."
+              action={{ href: '/app/new', label: 'Create a protected deal' }}
+            />
+          ) : (
+            <Card className="mt-3" flush seam>
+              {recent.map((deal) => (
+                <DealRow key={deal.dealId} deal={deal} />
+              ))}
+            </Card>
+          )}
+        </section>
+
+        {/* ---- Trust and rewards, quietly ---------------------------- */}
+        <section className="mt-8 grid gap-3 sm:grid-cols-2">
+          <SummaryCard
+            href="/app/profile"
+            icon="shield-check"
+            tone="final"
+            title={`${profile.completedDeals} completed${
+              profile.completionRate !== null ? ` · ${profile.completionRate}% completion` : ''
+            }`}
+            body={
+              profile.openDisputes === 0
+                ? 'No unresolved disputes.'
+                : `${profile.openDisputes} case${profile.openDisputes === 1 ? '' : 's'} open.`
+            }
+            label="Open your trust profile"
+          />
+          <SummaryCard
+            href="/app/rewards"
+            icon="gift"
+            tone="brand"
+            title={`${profile.safePoints.toLocaleString('en-IN')} SafePoints`}
+            body={`₹${formatMinor(profile.feeCreditMinor, 'INR')} of fee credit available`}
+            label="Open rewards"
+          />
+        </section>
       </Shell>
-      <BottomNav active="deals" isOperator={user.isOperator} />
     </>
   );
 }
 
-function Group({
-  title,
-  count,
-  deals,
-  accent = false,
-  muted = false,
-}: {
-  title: string;
-  count: number;
-  deals: readonly DealView[];
-  accent?: boolean;
-  muted?: boolean;
-}) {
-  return (
-    <section>
-      <div className="flex items-center gap-3">
-        <h2
-          className={`text-[length:var(--text-sm)] font-semibold ${
-            accent ? 'text-[var(--color-action)]' : 'text-[var(--color-ink)]'
-          }`}
-        >
-          {title}
-        </h2>
-        <span className="tnum text-[length:var(--text-xs)] text-[var(--color-ink-4)]">{count}</span>
-        <Rail live={accent} className="flex-1" />
-      </div>
-      <ul className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {deals.map((d) => (
-          <li key={d.dealId}>
-            <DealCard deal={d} muted={muted} />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+/* ------------------------------------------------------------------ *
+ * The three intents
+ * ------------------------------------------------------------------ */
+
+interface Intent {
+  readonly href: string;
+  readonly title: string;
+  readonly body: string;
+  readonly icon: IconName;
+  readonly tone: 'brand' | 'final' | 'info';
 }
 
-const STATE_TONE: Record<DealView['state'], Tone> = {
-  FIAT_PENDING: 'idle',
-  FIAT_CLAIMED: 'hold',
-  COMPLETED: 'final',
-  CANCELLED: 'idle',
-};
+const INTENTS: readonly Intent[] = [
+  {
+    href: '/app/new?intent=pay',
+    title: 'Pay safely',
+    body: 'Pay for work or goods. The money stays protected until you confirm.',
+    icon: 'arrow-right',
+    tone: 'brand',
+  },
+  {
+    href: '/app/new?intent=receive',
+    title: 'Get paid',
+    body: 'Send a request. Your client protects the money before you start.',
+    icon: 'arrow-down',
+    tone: 'final',
+  },
+  {
+    href: '/app/new?scenario=INR_TO_USDT',
+    title: 'Exchange',
+    body: 'INR ⇄ USDT at a firm rate, with one verified counterparty.',
+    icon: 'swap',
+    tone: 'info',
+  },
+];
 
-const STATE_LABEL: Record<DealView['state'], string> = {
-  FIAT_PENDING: 'Awaiting payment',
-  FIAT_CLAIMED: 'Awaiting confirmation',
-  COMPLETED: 'Completed',
-  CANCELLED: 'Cancelled',
-};
+const TONE_BUBBLE = {
+  brand: 'bg-[var(--color-brand-tint)] text-[var(--color-brand)]',
+  final: 'bg-[var(--color-final-tint)] text-[var(--color-final)]',
+  info: 'bg-[var(--color-info-tint)] text-[var(--color-info)]',
+} as const;
 
-function DealCard({ deal, muted }: { deal: DealView; muted?: boolean }) {
-  const yours = deal.permitted.canClaim || deal.permitted.canConfirm;
+function IntentCard({ href, title, body, icon, tone }: Intent) {
   return (
     <Link
-      href={`/app/deal/${deal.dealId}`}
+      href={href}
       prefetch={false}
-      className={`press block rounded-[var(--radius-lg)] border bg-[var(--color-paper)] p-4 transition-colors ${
-        yours
-          ? 'border-[var(--color-action-line)] hover:border-[var(--color-action)]'
-          : 'border-[var(--color-line)] hover:border-[var(--color-edge)]'
-      } ${muted ? 'opacity-90' : ''}`}
+      className="lift group flex h-full items-center gap-3.5 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] p-4 shadow-[var(--shadow-card)] sm:flex-col sm:items-start sm:gap-3 sm:p-5"
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="font-mono text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">
-          {deal.publicId}
+      <span
+        className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${TONE_BUBBLE[tone]}`}
+      >
+        <Icon name={icon} className="h-5 w-5" strokeWidth={2} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[length:var(--text-lg)] font-semibold text-[var(--color-ink)]">
+          {title}
         </span>
-        <Status tone={STATE_TONE[deal.state]}>{STATE_LABEL[deal.state]}</Status>
-      </div>
-
-      <div className="mt-3">
-        <Money value={formatMinor(deal.usdtMinor, 'USDT')} unit="USDT" size="md" />
-      </div>
-      <div className="my-2">
-        <Rail live={yours} />
-      </div>
-      <p className="tnum text-[length:var(--text-base)] font-medium text-[var(--color-ink-2)]">
-        ₹{formatMinor(deal.inrMinor, 'INR')}
-      </p>
-
-      <p className="mt-3 border-t border-[var(--color-line)] pt-2.5 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-        {yours ? (
-          <span className="font-medium text-[var(--color-action)]">
-            {deal.permitted.canClaim ? 'Mark your INR payment' : 'Confirm the INR arrived'}
-          </span>
-        ) : (
-          <>You are the {deal.viewerRole === 'FIAT_SIDE' ? 'INR sender' : 'USDT supplier'}</>
-        )}
-      </p>
+        <span className="mt-1 block text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-3)]">
+          {body}
+        </span>
+      </span>
+      <Icon
+        name="chevron-right"
+        className="h-4 w-4 shrink-0 text-[var(--color-ink-4)] transition-transform duration-[var(--dur-fast)] group-hover:translate-x-0.5 sm:hidden"
+      />
     </Link>
   );
 }
 
-function EmptyState() {
+function SummaryCard({
+  href,
+  icon,
+  tone,
+  title,
+  body,
+  label,
+}: {
+  href: string;
+  icon: IconName;
+  tone: 'brand' | 'final' | 'info';
+  title: string;
+  body: string;
+  label: string;
+}) {
   return (
-    <Panel className="mt-7 p-8 text-center sm:p-12">
-      <Label>Nothing here yet</Label>
-      <h2 className="mt-2 text-[length:var(--text-xl)] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
-        Your first deal starts with a link
-      </h2>
-      <p className="mx-auto mt-2 max-w-[46ch] text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
-        Fix an amount, get a firm rate from the server, and send the link to the person you want to
-        trade with. Exactly one of them can take it.
+    <Link
+      href={href}
+      prefetch={false}
+      aria-label={label}
+      className="lift flex items-center gap-4 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] p-4 shadow-[var(--shadow-card)]"
+    >
+      <span
+        className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${TONE_BUBBLE[tone]}`}
+      >
+        <Icon name={icon} className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="tnum block truncate text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+          {title}
+        </span>
+        <span className="mt-0.5 block truncate text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
+          {body}
+        </span>
+      </span>
+      <Icon name="chevron-right" className="h-4 w-4 shrink-0 text-[var(--color-ink-4)]" />
+    </Link>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Attention card
+ * ------------------------------------------------------------------ */
+
+/**
+ * A deal waiting on the viewer.
+ *
+ * Deliberately louder than a deal card: it names the action in the button
+ * label, so a person does not have to open the deal to discover what is
+ * being asked of them.
+ */
+function AttentionCard({ deal }: { deal: DealView }) {
+  const settle = settlementLegs(deal);
+  const isFiat = deal.viewerRole === 'FIAT_SIDE';
+  const amount = isFiat ? settle.payerSends : settle.payeeReceives;
+  const paying = deal.permitted.canClaim;
+
+  return (
+    <Card tone="brand">
+      <div className="flex items-start justify-between gap-3">
+        <Chip tone="brand" icon={paying ? 'clock' : 'check-circle'}>
+          {paying ? 'Payment due' : 'Confirmation due'}
+        </Chip>
+        {deal.actionDeadline ? (
+          <span className="text-[length:var(--text-xs)] font-semibold text-[var(--color-brand-ink)]">
+            <Deadline iso={deal.actionDeadline} />
+          </span>
+        ) : null}
+      </div>
+
+      <p className="mt-3 truncate text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+        {deal.title?.trim() || <span className="capitalize">{deal.counterpartyName}</span>}
       </p>
-      <ActionLink href="/app/new" variant="primary" size="md" className="mt-6">
-        Create a deal link
-      </ActionLink>
-    </Panel>
+      <p className="tnum mt-1 text-[length:var(--text-2xl)] font-semibold tracking-[-0.028em] text-[var(--color-ink)]">
+        {amount.display}
+        <span className="sr-only"> {amount.srLabel}</span>
+      </p>
+
+      <div className="mt-3.5 flex items-center gap-2">
+        <ActionLink
+          href={paying ? `/app/deal/${deal.dealId}/pay` : `/app/deal/${deal.dealId}`}
+          variant="primary"
+          size="sm"
+          className="flex-1"
+        >
+          {paying ? 'Pay now' : 'Review and release'}
+        </ActionLink>
+        <ActionLink href={`/app/deal/${deal.dealId}`} variant="outline" size="sm">
+          Open
+        </ActionLink>
+      </div>
+    </Card>
   );
 }

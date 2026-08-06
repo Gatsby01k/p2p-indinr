@@ -254,6 +254,19 @@ export interface LinkPreview extends Terms {
    */
   readonly viewerIsCreator: boolean;
   readonly createdAtIso: string;
+  /**
+   * Who made this link — but ONLY for a signed-in viewer.
+   *
+   * The disclosure boundary is identity-gated rather than absent, because
+   * the two readers are not the same reader. An anonymous fetch is also how
+   * an unfurl is generated: public, forwardable, and cached by
+   * intermediaries the sender does not control, so it gets `null` and the
+   * Open Graph card carries terms alone. A person who has signed in is
+   * about to become the counterparty and is entitled to know who they would
+   * be dealing with before they commit.
+   */
+  readonly creatorName: string | null;
+  readonly creatorVerified: boolean;
 }
 
 export interface DealMessage {

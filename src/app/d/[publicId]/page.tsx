@@ -1,38 +1,50 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
-import { getLinkPreview, type PreviewStatus } from '@/server/sandbox/service';
+import Link from 'next/link';
+import { dealIdForLink, getLinkPreview } from '@/server/sandbox/service';
 import { currentUser } from '@/server/sandbox/session';
 import { formatMinor } from '@/lib/format';
+import { PREVIEW_META, leg, previewHeadline, rateLabel, settlementLegs } from '@/lib/dealPresenter';
+import { SCENARIO } from '@/lib/scenario';
 import { TopBar } from '@/components/kit/AppChrome';
+import { ToastProvider } from '@/components/kit/Feedback';
+import { AssetMark, Icon } from '@/components/kit/Icon';
 import { JoinPanel } from '@/components/kit/JoinPanel';
 import { ShareLink } from '@/components/kit/ShareLink';
 import { Deadline } from '@/components/kit/Time';
 import {
-  ExchangeRail,
+  ActionLink,
+  Avatar,
+  Callout,
+  Card,
+  Fact,
+  Facts,
   Label,
-  Money,
   Notice,
   SandboxChip,
   SandboxLine,
   Shell,
   Status,
-  type Tone,
+  Stepper,
+  TotalRow,
+  VerifiedTick,
 } from '@/components/kit/primitives';
 
 /**
  * The public deal link — the product's shareable surface.
  *
- * Server-rendered from the database on every request, so status and
- * expiry are whatever the server says now. No client countdown gates
- * anything, and nothing is derived from the URL.
+ * Server-rendered from the database on every request, so status and expiry
+ * are whatever the server says now. No client countdown gates anything, and
+ * nothing is derived from the URL.
  *
  * ────────────────────────────────────────────────────────────────────
  * DISCLOSURE BOUNDARY. An unfurl is public, forwardable and cached by
- * intermediaries the sender does not control. This page and its metadata
- * carry the ECONOMIC TERMS ONLY, and never: identities (creator or
- * counterparty name or id), bank instructions, wallet addresses, UTRs or
- * payment proofs, dispute or case material. `getLinkPreview` returns none
- * of those, so they cannot leak here even by mistake.
+ * intermediaries the sender does not control. THE METADATA CARRIES THE
+ * ECONOMIC TERMS ONLY. The page itself will name the creator to a SIGNED-IN
+ * reader — who is about to become their counterparty and is entitled to know
+ * — and to nobody else. Bank instructions, wallet addresses, UTRs, proofs
+ * and dispute material never appear here at all: `getLinkPreview` does not
+ * return them, so they cannot leak even by mistake.
  * ────────────────────────────────────────────────────────────────────
  */
 
@@ -42,14 +54,13 @@ type Params = { params: Promise<{ publicId: string }> };
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { publicId } = await params;
+  // Deliberately anonymous: this call is what builds the unfurl.
   const preview = await getLinkPreview(publicId);
 
   if (!preview) {
     return { title: 'Deal link', robots: { index: false, follow: false } };
   }
 
-  const send = `${formatMinor(preview.usdtMinor, 'USDT')} USDT`;
-  const receive = `₹${formatMinor(preview.inrMinor, 'INR')}`;
   const state =
     preview.displayStatus === 'OPEN'
       ? 'Open to one counterparty'
@@ -58,8 +69,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
         : preview.displayStatus === 'EXPIRED'
           ? 'Expired'
           : 'Withdrawn';
-  const title = `${send} → ${receive}`;
-  const description = `${state}. Sandbox deal link — no real funds are held or moved.`;
+  const title = previewHeadline(preview);
+  const description = `${state}. Protected deal on INRP2P — sandbox build, no real funds are held or moved.`;
 
   return {
     title,
@@ -68,19 +79,12 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
       type: 'website',
       title: `INRP2P · ${title}`,
       description,
-      siteName: 'INRP2P Sandbox',
+      siteName: 'INRP2P DealSafe India',
     },
     twitter: { card: 'summary', title: `INRP2P · ${title}`, description },
     robots: { index: false, follow: false },
   };
 }
-
-const STATUS_META: Record<PreviewStatus, { tone: Tone; label: string; term: string }> = {
-  OPEN: { tone: 'action', label: 'Open', term: 'Expires' },
-  CONSUMED: { tone: 'idle', label: 'Already taken', term: 'Deadline was' },
-  EXPIRED: { tone: 'hold', label: 'Expired', term: 'Expired' },
-  CLOSED: { tone: 'idle', label: 'Withdrawn', term: 'Deadline was' },
-};
 
 export default async function DealLinkPage({ params }: Params) {
   const { publicId } = await params;
@@ -102,128 +106,325 @@ export default async function DealLinkPage({ params }: Params) {
     );
   }
 
-  const meta = STATUS_META[preview.displayStatus];
+  const meta = PREVIEW_META[preview.displayStatus];
+  const scenario = SCENARIO[preview.direction];
   const host = h.get('host') ?? 'localhost';
   const proto = h.get('x-forwarded-proto') ?? 'http';
   const url = `${proto}://${host}/d/${preview.publicId}`;
-  const headline = `${formatMinor(preview.usdtMinor, 'USDT')} USDT for ₹${formatMinor(preview.inrMinor, 'INR')}`;
+  const headline = previewHeadline(preview);
+  const settle = settlementLegs(preview);
+  const usdt = leg(preview.usdtMinor, 'USDT');
+
+  // A viewer who already holds a seat in the deal this link became should
+  // land in the room, not stare at a "taken" notice about their own deal.
+  const existingDeal = viewer ? await dealIdForLink(viewer, preview.publicId) : null;
+
+  /* -------- The creator's own view: share it -------------------- */
+  if (preview.viewerIsCreator) {
+    return (
+      <Frame>
+        <Card className="animate-rise text-center">
+          <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[var(--color-final-tint)] text-[var(--color-final)]">
+            <Icon name="shield-check" className="h-7 w-7" strokeWidth={1.9} />
+          </span>
+          <h1 className="mt-4 text-[length:var(--text-xl)] font-semibold tracking-[-0.025em] text-[var(--color-ink)]">
+            Your deal is protected
+          </h1>
+          <p className="mt-1.5 text-[length:var(--text-base)] leading-relaxed text-[var(--color-ink-2)]">
+            Share the link so the other person can join. Only one of them can.
+          </p>
+
+          <div className="mt-5">
+            <Stepper
+              steps={[
+                { key: 'created', label: 'Created', state: 'done' },
+                { key: 'secured', label: 'Secured', state: 'done' },
+                { key: 'shared', label: 'Shared', state: 'now' },
+                {
+                  key: 'joined',
+                  label: 'Joined',
+                  state: preview.displayStatus === 'CONSUMED' ? 'done' : 'todo',
+                },
+              ]}
+            />
+          </div>
+        </Card>
+
+        {preview.joinable ? (
+          <Card className="mt-3">
+            <ShareLink url={url} headline={headline} />
+          </Card>
+        ) : (
+          <Notice
+            className="mt-3"
+            tone={preview.displayStatus === 'CONSUMED' ? 'final' : 'hold'}
+            title={
+              preview.displayStatus === 'CONSUMED'
+                ? 'Someone has taken this deal'
+                : `This link is ${meta.label.toLowerCase()}`
+            }
+            body={
+              preview.displayStatus === 'CONSUMED'
+                ? 'Your counterparty joined. The deal has moved to its own room.'
+                : 'Nobody joined before it closed, so no deal exists for it.'
+            }
+            nextStep={
+              preview.displayStatus === 'CONSUMED'
+                ? 'Open the deal room to see what happens next.'
+                : 'Create a fresh deal if you still want to trade.'
+            }
+            action={
+              existingDeal
+                ? { href: `/app/deal/${existingDeal}`, label: 'Open the deal room' }
+                : { href: '/app/new', label: 'Create a new deal' }
+            }
+          />
+        )}
+
+        <TermsCard preview={preview} settle={settle} usdt={usdt} />
+
+        <div className="mt-3 flex gap-2">
+          <ActionLink href="/app/deals" variant="outline" size="md" full>
+            All deals
+          </ActionLink>
+          <ActionLink href="/app/new" variant="outline" size="md" full>
+            New deal
+          </ActionLink>
+        </div>
+        <SandboxLine className="mt-3" full />
+      </Frame>
+    );
+  }
+
+  /* -------- Already a participant: go to the room --------------- */
+  if (existingDeal) {
+    return (
+      <Frame>
+        <Notice
+          tone="final"
+          title="You are already in this deal"
+          body="This link was taken — by you. The deal has its own room."
+          nextStep="Open the deal room to see whose move it is."
+          action={{ href: `/app/deal/${existingDeal}`, label: 'Open the deal room' }}
+        />
+      </Frame>
+    );
+  }
+
+  /* -------- The joiner's view ------------------------------------ */
+  const receiving = preview.viewerWouldBe === 'FIAT_SIDE' ? usdt : settle.payeeReceives;
+  const sending = preview.viewerWouldBe === 'FIAT_SIDE' ? settle.payerSends : usdt;
 
   return (
     <Frame>
-      <article
-        className={`animate-rise overflow-hidden rounded-[var(--radius-lg)] border bg-[var(--color-paper)] ${
-          preview.joinable ? 'border-[var(--color-rule)]' : 'border-[var(--color-line)]'
-        }`}
-      >
-        {/* Identity of the offer — one status value, one badge. */}
-        <header className="flex items-start justify-between gap-3 border-b border-[var(--color-line)] px-5 py-4 sm:px-6">
-          <div>
-            <Label>Deal link</Label>
-            <h1 className="mt-1 text-[length:var(--text-lg)] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
-              Sell USDT for INR
-            </h1>
-          </div>
-          <Status tone={meta.tone}>{meta.label}</Status>
-        </header>
-
-        {/* The terms, as the product's core sentence. */}
-        <div className={`px-5 py-5 sm:px-6 ${preview.joinable ? '' : 'opacity-70'}`}>
-          <Label>They send</Label>
-          <div className="mt-1.5">
-            <Money
-              value={formatMinor(preview.usdtMinor, 'USDT')}
-              unit="USDT"
-              size="lg"
-              srLabel={`${formatMinor(preview.usdtMinor, 'USDT')} USDT`}
-            />
-          </div>
-
-          <div className="my-4">
-            <ExchangeRail
-              caption={`${(Number(preview.rateNum) / Number(preview.rateDen)).toFixed(2)} INR / USDT`}
-              live={preview.joinable}
-            />
-          </div>
-
-          <Label>They receive</Label>
-          <p className="tnum mt-1.5 text-[length:var(--text-4xl)] font-semibold tracking-[-0.03em] text-[var(--color-ink)]">
-            <span aria-hidden>₹</span>
-            {formatMinor(preview.inrMinor, 'INR')}
-            <span className="sr-only">{formatMinor(preview.inrMinor, 'INR')} rupees</span>
-          </p>
-        </div>
-
-        {/* Facts. Deliberately no identity of any kind. */}
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--color-line)] px-5 py-4 sm:px-6">
-          <div>
-            <dt className="text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">Reference</dt>
-            <dd className="mt-0.5 font-mono text-[length:var(--text-xs)] text-[var(--color-ink)]">
-              {preview.publicId}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">{meta.term}</dt>
-            <dd className="mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink)]">
-              <Deadline iso={preview.expiresAt} />
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">Your side</dt>
-            <dd className="mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink)]">
-              {preview.viewerWouldBe === 'FIAT_SIDE' ? 'Send the INR' : 'Supply the USDT'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">Settlement</dt>
-            <dd className="mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink)]">
-              Bank transfer, simulated
-            </dd>
-          </div>
-        </dl>
-
-        {/* The one action, or the reason there is none. */}
-        <div className="border-t border-[var(--color-line)] bg-[var(--color-sunken)] px-5 py-5 sm:px-6">
-          {preview.viewerIsCreator ? (
-            <div>
-              <p className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
-                This is your link — send it to your counterparty.
-              </p>
-              <p className="mt-1 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-3)]">
-                You already hold the {preview.viewerWouldBe === 'FIAT_SIDE' ? 'USDT' : 'INR'} side,
-                so you cannot also take the other one. The first eligible person to open this link
-                becomes your counterparty.
-              </p>
+      <article className="animate-rise">
+        <Card flush className={preview.joinable ? '' : 'opacity-95'}>
+          <header className="flex items-start justify-between gap-3 border-b border-[var(--color-line)] px-4 py-3.5 sm:px-5">
+            <div className="min-w-0">
+              <Label>Protected deal</Label>
+              <h1 className="mt-0.5 truncate text-[length:var(--text-lg)] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
+                {preview.title?.trim() || scenario.title}
+              </h1>
             </div>
-          ) : (
+            <Status tone={meta.tone}>{meta.label}</Status>
+          </header>
+
+          {/* The terms, as the product's core sentence. */}
+          <div className="px-4 py-5 sm:px-5">
+            <p className="text-center text-[length:var(--text-3xl)] font-semibold tracking-[-0.03em] text-[var(--color-ink)] sm:text-[length:var(--text-4xl)]">
+              <span className="tnum">{settle.amount.display}</span>
+              <span className="sr-only"> {settle.amount.srLabel}</span>
+            </p>
+
+            {preview.direction !== 'INR_TO_INR' ? (
+              <div className="mt-4 flex items-center justify-center gap-3">
+                <span className="flex items-center gap-1.5">
+                  <AssetMark asset={scenario.from} size="sm" />
+                  <span className="tnum text-[length:var(--text-base)] font-medium text-[var(--color-ink-2)]">
+                    {scenario.from === 'INR' ? settle.amount.display : usdt.display}
+                  </span>
+                </span>
+                <Icon
+                  name="arrow-right"
+                  className="h-4 w-4 text-[var(--color-ink-4)]"
+                  strokeWidth={2}
+                />
+                <span className="flex items-center gap-1.5">
+                  <AssetMark asset={scenario.to} size="sm" />
+                  <span className="tnum text-[length:var(--text-base)] font-medium text-[var(--color-ink-2)]">
+                    {scenario.to === 'INR' ? settle.amount.display : usdt.display}
+                  </span>
+                </span>
+              </div>
+            ) : null}
+
+            {/* Who made this — a signed-in reader only. */}
+            {preview.creatorName ? (
+              <div className="mt-5 flex items-center justify-center gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-sunken)] px-3 py-2.5">
+                <Avatar
+                  name={preview.creatorName}
+                  size="sm"
+                  verified={preview.creatorVerified}
+                />
+                <div className="min-w-0 text-left">
+                  <p className="truncate text-[length:var(--text-sm)] font-semibold capitalize text-[var(--color-ink)]">
+                    {preview.creatorName}
+                  </p>
+                  <p className="text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
+                    Created this deal
+                    {preview.creatorVerified ? ' · ' : ''}
+                    {preview.creatorVerified ? <VerifiedTick label="Verified" /> : null}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Your side of it. */}
+          <div className="border-t border-[var(--color-line)] px-4 py-4 sm:px-5">
+            <Facts>
+              <Fact term="Your role" strong>
+                {scenario.roleLabel[preview.viewerWouldBe]}
+              </Fact>
+              <Fact term="You send" strong>
+                <span className="tnum">{sending.display}</span>
+              </Fact>
+              <Fact term="You receive" strong>
+                <span className="tnum">{receiving.display}</span>
+              </Fact>
+              {scenario.hasRate ? (
+                <Fact term="Firm rate">
+                  <span className="tnum">{rateLabel(preview)}</span>
+                </Fact>
+              ) : null}
+              <Fact term={meta.term}>
+                <Deadline iso={preview.expiresAt} />
+              </Fact>
+              <Fact term="Reference" mono>
+                {preview.publicId}
+              </Fact>
+            </Facts>
+          </div>
+
+          {/* The one action, or the reason there is none. */}
+          <div className="border-t border-[var(--color-line)] bg-[var(--color-sunken)] px-4 py-4 sm:px-5">
             <JoinPanel
               publicId={preview.publicId}
               joinable={preview.joinable}
               status={preview.displayStatus}
               signedIn={viewer !== null}
               viewerWouldBe={preview.viewerWouldBe}
+              scenario={preview.direction}
+              amountLabel={sending.display}
             />
-          )}
-        </div>
+          </div>
+        </Card>
       </article>
 
-      {preview.joinable && preview.viewerIsCreator ? (
-        <div className="mt-4">
-          <ShareLink url={url} headline={headline} canJoin />
-        </div>
+      {/* What protection means, for someone meeting the product here. */}
+      {preview.joinable ? (
+        <Card className="mt-3">
+          <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+            What happens next
+          </h2>
+          <ol className="mt-3 space-y-3">
+            {NEXT_STEPS.map((s, i) => (
+              <li key={s.title} className="flex gap-3">
+                <span
+                  aria-hidden
+                  className="tnum mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--color-brand-tint)] text-[length:var(--text-2xs)] font-bold text-[var(--color-brand)]"
+                >
+                  {i + 1}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                    {s.title}
+                  </span>
+                  <span className="mt-0.5 block text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                    {s.body}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <Callout tone="info" icon="lock" className="mt-4">
+            Only one verified person can join this link. Bank details and payment references are
+            never shown here — they exist only inside the deal room, to the two sides.
+          </Callout>
+        </Card>
       ) : null}
 
-      <SandboxLine className="mt-4" full />
+      <SandboxLine className="mt-3" full />
+      <p className="mt-4 text-center text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
+        <Link href="/" className="font-medium underline underline-offset-4">
+          What is INRP2P?
+        </Link>
+      </p>
     </Frame>
+  );
+}
+
+const NEXT_STEPS = [
+  { title: 'Join', body: 'You take the other side of this protected deal.' },
+  { title: 'Secure', body: 'The value is held against the deal, not released to anyone.' },
+  { title: 'Complete', body: 'Both sides confirm what they did, in the deal room.' },
+  { title: 'Release', body: 'The receiving side confirms, and the deal closes with a receipt.' },
+];
+
+function TermsCard({
+  preview,
+  settle,
+  usdt,
+}: {
+  preview: Awaited<ReturnType<typeof getLinkPreview>> & object;
+  settle: ReturnType<typeof settlementLegs>;
+  usdt: ReturnType<typeof leg>;
+}) {
+  const scenario = SCENARIO[preview.direction];
+  return (
+    <Card className="mt-3">
+      <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+        Locked terms
+      </h2>
+      <Facts className="mt-1">
+        <Fact term="Deal type">{scenario.title}</Fact>
+        {preview.title?.trim() ? <Fact term="Purpose">{preview.title.trim()}</Fact> : null}
+        <Fact term="Amount">
+          <span className="tnum">{settle.amount.display}</span>
+        </Fact>
+        {scenario.hasRate ? (
+          <Fact term="Firm rate">
+            <span className="tnum">{rateLabel(preview)}</span>
+          </Fact>
+        ) : null}
+        {scenario.hasRate ? (
+          <Fact term="Crypto leg">
+            <span className="tnum">{usdt.display}</span>
+          </Fact>
+        ) : null}
+        <Fact term="Protection fee">
+          <span className="tnum">₹{formatMinor(preview.protectionFeeMinor, 'INR')}</span>
+        </Fact>
+        <Fact term="Link expires">
+          <Deadline iso={preview.expiresAt} />
+        </Fact>
+      </Facts>
+      <div className="mt-3">
+        <TotalRow term="Payer sends">{settle.payerSends.display}</TotalRow>
+      </div>
+    </Card>
   );
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col">
-      <TopBar suffix="Sandbox" right={<SandboxChip />} />
-      <main id="main" className="flex-1 py-6 sm:py-10">
-        <Shell width="form">{children}</Shell>
-      </main>
-    </div>
+    <ToastProvider>
+      <div className="flex min-h-dvh flex-col">
+        <TopBar suffix="DealSafe India" right={<SandboxChip />} />
+        <main id="main" className="flex-1 py-5 sm:py-8">
+          <Shell width="form">{children}</Shell>
+        </main>
+      </div>
+    </ToastProvider>
   );
 }

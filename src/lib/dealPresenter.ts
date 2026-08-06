@@ -78,6 +78,9 @@ export function settlementLegs(terms: Terms): {
   fees: bigint;
   payerSends: Leg;
   payeeReceives: Leg;
+  /** The exact paise figure, for anywhere that needs the number not the label. */
+  payerSendsMinor: string;
+  payeeReceivesMinor: string;
 } {
   const amount = BigInt(terms.inrMinor);
   const fees = BigInt(terms.protectionFeeMinor) + BigInt(terms.networkFeeMinor);
@@ -89,6 +92,8 @@ export function settlementLegs(terms: Terms): {
     fees,
     payerSends: leg(payerSendsMinor.toString(), 'INR'),
     payeeReceives: leg(payeeReceivesMinor.toString(), 'INR'),
+    payerSendsMinor: payerSendsMinor.toString(),
+    payeeReceivesMinor: payeeReceivesMinor.toString(),
   };
 }
 

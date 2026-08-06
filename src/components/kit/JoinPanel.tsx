@@ -3,17 +3,19 @@
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { joinAction } from '@/server/sandbox/actions';
-import { FAILURE_COPY, type PreviewStatus, type Role } from '@/lib/sandboxContract';
+import { FAILURE_COPY, type PreviewStatus, type Role, type Scenario } from '@/lib/sandboxContract';
+import { SCENARIO } from '@/lib/scenario';
+import { Icon } from './Icon';
 import { Notice, buttonClass } from './primitives';
 
 /**
  * The Join affordance.
  *
- * ⚠ THE BUTTON IS NOT THE CONCURRENCY CONTROL. Disabling it saves a
- * doomed round trip and decides nothing. The single-winner guarantee is
+ * ⚠ THE BUTTON IS NOT THE CONCURRENCY CONTROL. Disabling it saves a doomed
+ * round trip and decides nothing. The single-winner guarantee is
  * PostgreSQL's — `SELECT ... FOR UPDATE`, a conditional state change and
- * `UNIQUE(deal.link_id)`. Two people clicking in the same instant both
- * reach the server; the database picks the winner.
+ * `UNIQUE(deal.link_id)`. Two people tapping in the same instant both reach
+ * the server; the database picks the winner and tells the loser plainly.
  *
  * `joinable` is the server's verdict, so a consumed, expired or withdrawn
  * link structurally cannot present a live Join button.
@@ -24,15 +26,20 @@ export function JoinPanel({
   status,
   signedIn,
   viewerWouldBe,
+  scenario,
+  amountLabel,
 }: {
   publicId: string;
   joinable: boolean;
   status: PreviewStatus;
   signedIn: boolean;
   viewerWouldBe: Role;
+  scenario: Scenario;
+  amountLabel: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [accepted, setAccepted] = useState(false);
   const [failure, setFailure] = useState<{ reason: string; nextStep: string } | null>(null);
 
   if (!joinable) {
@@ -65,6 +72,7 @@ export function JoinPanel({
     return (
       <div className="space-y-2.5">
         <a href={`/login?next=/d/${publicId}`} className={buttonClass('primary', 'lg', true)}>
+          <Icon name="lock" className="h-4 w-4" />
           Sign in to join
         </a>
         <p className="text-center text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
@@ -75,8 +83,10 @@ export function JoinPanel({
     );
   }
 
+  const seat = SCENARIO[scenario].roleAction[viewerWouldBe];
+
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-3">
       {failure ? (
         <Notice
           tone="hold"
@@ -86,9 +96,33 @@ export function JoinPanel({
         />
       ) : null}
 
+      {/*
+        The confirmation is a real gate, not decoration: joining assigns a
+        seat in a deal with a payment deadline attached, and the person
+        should say once that they know what they are taking on.
+      */}
+      <label className="flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] p-3">
+        <input
+          type="checkbox"
+          checked={accepted}
+          onChange={(e) => setAccepted(e.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-brand)]"
+        />
+        <span className="text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-2)]">
+          I understand I will {seat.toLowerCase()} for this deal, and that it is for a legitimate
+          service or exchange.{' '}
+          <a
+            href="/app/help#terms"
+            className="font-semibold text-[var(--color-brand)] underline underline-offset-2"
+          >
+            Protection terms
+          </a>
+        </span>
+      </label>
+
       <button
         type="button"
-        disabled={pending}
+        disabled={pending || !accepted}
         data-testid="join-button"
         onClick={() =>
           startTransition(async () => {
@@ -111,15 +145,23 @@ export function JoinPanel({
         }
         className={buttonClass('primary', 'lg', true)}
       >
-        {pending ? 'Joining…' : 'Take the other side'}
+        {pending ? (
+          <>
+            <Icon name="refresh" className="h-4 w-4 animate-spin" />
+            Joining…
+          </>
+        ) : (
+          <>
+            <Icon name="shield" className="h-4 w-4" />
+            Join protected deal
+          </>
+        )}
       </button>
 
       <p className="text-center text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-        You would be the{' '}
-        <strong className="font-semibold text-[var(--color-ink-2)]">
-          {viewerWouldBe === 'FIAT_SIDE' ? 'INR sender' : 'USDT supplier'}
-        </strong>
-        . First come, decided by the server.
+        You would {seat.toLowerCase()} of{' '}
+        <strong className="tnum font-semibold text-[var(--color-ink-2)]">{amountLabel}</strong>.
+        First come, decided by the server.
       </p>
     </div>
   );

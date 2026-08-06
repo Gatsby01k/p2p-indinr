@@ -69,6 +69,17 @@ export function QueueKeys() {
           }
           break;
         }
+        case 'Enter': {
+          // Open the focused case. The row carries its own destination, so
+          // this never has to guess a URL from the table's shape.
+          const row = all[current];
+          const href = row?.getAttribute('data-href');
+          if (href) {
+            e.preventDefault();
+            window.location.assign(href);
+          }
+          break;
+        }
         case '?':
           e.preventDefault();
           setHint((v) => !v);
@@ -89,8 +100,8 @@ export function QueueKeys() {
     <>
       <p className="mt-3 text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">
         <kbd className="font-mono">j</kbd> / <kbd className="font-mono">k</kbd> move ·{' '}
-        <kbd className="font-mono">g g</kbd> top · <kbd className="font-mono">G</kbd> bottom ·{' '}
-        <kbd className="font-mono">?</kbd> shortcuts
+        <kbd className="font-mono">Enter</kbd> open · <kbd className="font-mono">g g</kbd> top ·{' '}
+        <kbd className="font-mono">G</kbd> bottom · <kbd className="font-mono">?</kbd> shortcuts
       </p>
       {hint ? (
         <div
@@ -105,6 +116,7 @@ export function QueueKeys() {
             {[
               ['j / ↓', 'Next row'],
               ['k / ↑', 'Previous row'],
+              ['Enter', 'Open the case'],
               ['g g', 'First row'],
               ['G', 'Last row'],
               ['Esc', 'Close this'],

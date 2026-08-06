@@ -1,25 +1,57 @@
-import { operatorQueue } from '@/server/sandbox/service';
+import Link from 'next/link';
 import { currentUser } from '@/server/sandbox/session';
+import { AT_RISK_MINUTES, countBy, deskQueue, type DeskFilter } from '@/server/sandbox/ops';
+import { getChrome } from '@/server/sandbox/chrome';
 import { formatMinor } from '@/lib/format';
-import { BottomNav, DeskNav } from '@/components/kit/AppChrome';
-import { ActionLink, Label, Notice, Shell, Status, type Tone } from '@/components/kit/primitives';
+import { DEAL_STATE } from '@/lib/dealPresenter';
+import { DISPUTE_REASON_COPY, type OperatorRow } from '@/lib/sandboxContract';
+import { SCENARIO } from '@/lib/scenario';
+import { cn } from '@/lib/cn';
+import { AppHeader } from '@/components/kit/AppChrome';
+import { Icon } from '@/components/kit/Icon';
 import { QueueKeys } from '@/components/kit/QueueKeys';
+import {
+  Card,
+  EmptyState,
+  Notice,
+  Shell,
+  StatTile,
+  Status,
+} from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Operator queue — settlement operations, not an admin table.
+ * The Operator Deal Desk.
  *
- * Scan order matches how an operator triages: age first (what is going
- * stale), then who owes the move, then the amount at stake. Rows are a
- * semantic table so it stays keyboard- and screen-reader-navigable, but
- * each row leads with a rule-weight age column rather than a checkbox.
+ * Settlement operations, not an admin table. Scan order matches how an
+ * operator triages: what is escalated, what is going stale, then who owes
+ * the move and how much is at stake.
  *
  * Authorization is decided BEFORE any queue data is fetched, so a denied
  * visitor's HTML never contains operator content at all — not hidden, not
  * collapsed, not present.
+ *
+ * ⚠ DISCLOSURE. This queue names the two parties, because a person
+ * triaging disputes cannot work without knowing who is involved. It carries
+ * no email address, no bank handle, no wallet address and no payment
+ * reference — those live in the case view, are shown only for a deal that
+ * is actually blocked, and opening one is itself written to the audit trail.
  */
-export default async function OpsPage() {
+
+const TABS: readonly { key: DeskFilter; label: string }[] = [
+  { key: 'ALL', label: 'All open' },
+  { key: 'DISPUTED', label: 'Escalations' },
+  { key: 'AT_RISK', label: 'At risk' },
+  { key: 'AWAITING_PAYMENT', label: 'Awaiting payment' },
+  { key: 'AWAITING_CONFIRM', label: 'Awaiting confirm' },
+];
+
+export default async function OpsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   const user = await currentUser();
 
   if (!user || !user.isOperator) {
@@ -55,159 +87,303 @@ export default async function OpsPage() {
     );
   }
 
-  const queue = await operatorQueue(user);
-  const stale = queue.filter((r) => r.waitingMinutes >= 30).length;
+  const { unread } = await getChrome();
+  const params = await searchParams;
+  const view: DeskFilter =
+    TABS.find((t) => t.key === params.view)?.key ?? 'ALL';
+
+  const [all, rows] = await Promise.all([deskQueue(user, 'ALL'), deskQueue(user, view)]);
+  const counts = countBy(all);
 
   return (
     <>
-      <Shell width="ops" className="py-6 sm:py-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-[length:var(--text-2xl)] font-semibold tracking-[-0.025em] text-[var(--color-ink)]">
-              Queue
-            </h1>
-            <p className="mt-1 text-[length:var(--text-sm)] text-[var(--color-ink-3)]">
-              Deals that cannot progress without a person. Nothing here resolves on a timer.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <DeskNav active="ops" isOperator />
-            <dl className="flex items-center gap-4">
-              <div className="text-right">
-                <dt className="text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">Open</dt>
-                <dd className="tnum text-[length:var(--text-lg)] font-semibold text-[var(--color-ink)]">
-                  {queue.length}
-                </dd>
-              </div>
-              <div className="text-right">
-                <dt className="text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">
-                  Over 30m
-                </dt>
-                <dd
-                  className={`tnum text-[length:var(--text-lg)] font-semibold ${
-                    stale > 0 ? 'text-[var(--color-risk)]' : 'text-[var(--color-ink)]'
-                  }`}
-                >
-                  {stale}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        </div>
+      <AppHeader
+        title="Deal Desk"
+        subtitle="Deals that cannot progress without a person. Nothing here resolves on a timer."
+        unread={unread}
+      />
 
-        {queue.length === 0 ? (
-          <div className="mt-6 rounded-[var(--radius-lg)] border border-dashed border-[var(--color-rule)] bg-[var(--color-paper)] p-12 text-center">
-            <Label>Clear</Label>
-            <p className="mt-2 text-[length:var(--text-sm)] text-[var(--color-ink-2)]">
-              Nothing is waiting on an operator.
-            </p>
-          </div>
+      <Shell width="ops" className="py-5 sm:py-7">
+        {/* ---- What the desk is carrying ------------------------- */}
+        <Card className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <StatTile value={counts.all} label="Open" />
+          <StatTile
+            value={counts.disputed}
+            label="Escalations"
+            tone={counts.disputed > 0 ? 'risk' : 'ink'}
+          />
+          <StatTile
+            value={counts.atRisk}
+            label={`Over ${AT_RISK_MINUTES}m`}
+            tone={counts.atRisk > 0 ? 'brand' : 'ink'}
+          />
+          <StatTile value={counts.awaitingConfirm} label="Awaiting confirm" />
+        </Card>
+
+        {/* ---- Views, as real addresses -------------------------- */}
+        <nav aria-label="Queue views" className="mt-5">
+          <ul className="no-bar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+            {TABS.map((tab) => {
+              const count = {
+                ALL: counts.all,
+                DISPUTED: counts.disputed,
+                AT_RISK: counts.atRisk,
+                AWAITING_PAYMENT: counts.awaitingPayment,
+                AWAITING_CONFIRM: counts.awaitingConfirm,
+              }[tab.key];
+              const active = tab.key === view;
+              return (
+                <li key={tab.key}>
+                  <Link
+                    href={tab.key === 'ALL' ? '/app/ops' : `/app/ops?view=${tab.key}`}
+                    prefetch={false}
+                    aria-current={active ? 'page' : undefined}
+                    className={cn(
+                      'press inline-flex items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-full)] border px-3.5 py-2 text-[length:var(--text-sm)] font-medium transition-colors',
+                      active
+                        ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-paper)]'
+                        : 'border-[var(--color-line)] bg-[var(--color-paper)] text-[var(--color-ink-2)] hover:border-[var(--color-rule)]',
+                    )}
+                  >
+                    {tab.label}
+                    <span
+                      className={cn(
+                        'tnum text-[length:var(--text-2xs)]',
+                        active ? 'text-[var(--color-paper)]/70' : 'text-[var(--color-ink-4)]',
+                      )}
+                    >
+                      {count}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        {/* ---- The queue ----------------------------------------- */}
+        {rows.length === 0 ? (
+          <EmptyState
+            className="mt-5"
+            icon="check-circle"
+            title="Nothing in this view"
+            body="No deal here is waiting on an operator right now."
+            action={{ href: '/app/ops', label: 'Show all open deals' }}
+          />
         ) : (
-          <div className="mt-5 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)]">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[52rem] border-collapse text-[length:var(--text-sm)]">
-                <caption className="sr-only">
-                  Deals awaiting action, oldest first. {queue.length} open.
-                </caption>
-                <thead>
-                  <tr className="border-b border-[var(--color-rule)] bg-[var(--color-sunken)] text-left">
-                    <Th className="w-[5rem]">Age</Th>
-                    <Th className="w-[8.5rem]">Reference</Th>
-                    <Th className="w-[13rem]">Waiting on</Th>
-                    <Th>Pressure</Th>
-                    <Th className="w-[10.5rem]">State</Th>
-                    <Th className="w-[8rem] text-right">USDT</Th>
-                    <Th className="w-[9rem] text-right">INR</Th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--color-line)]">
-                  {queue.map((r) => {
-                    const hot = r.waitingMinutes >= 30;
-                    const tone: Tone = r.state === 'FIAT_CLAIMED' ? 'hold' : 'idle';
-                    return (
-                      <tr
-                        key={r.publicId}
-                        tabIndex={0}
-                        data-queue-row
-                        className="outline-none transition-colors hover:bg-[var(--color-sunken)] focus-visible:bg-[var(--color-sunken)]"
-                      >
-                        <Td>
-                          <span
-                            className={`tnum font-semibold ${
-                              hot ? 'text-[var(--color-risk)]' : 'text-[var(--color-ink-2)]'
-                            }`}
-                          >
-                            {r.waitingMinutes}m
-                          </span>
-                          {hot ? <span className="sr-only"> — over the 30 minute mark</span> : null}
-                        </Td>
-                        <Td>
-                          <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-2)]">
-                            {r.publicId}
-                          </span>
-                        </Td>
-                        <Td>
-                          <span className="text-[var(--color-ink)]">
-                            {r.state === 'FIAT_PENDING' ? 'INR sender' : 'USDT supplier'}
-                          </span>
-                          <span className="ml-1.5 text-[var(--color-ink-3)]">
-                            {r.state === 'FIAT_PENDING' ? 'to pay' : 'to confirm'}
-                          </span>
-                        </Td>
-                        <Td>
-                          {/* Age against the 60-minute review horizon.
-                              `aria-hidden` because the Age column already
-                              states the same fact in words. */}
-                          <div
-                            aria-hidden
-                            className="rail-progress"
-                            data-tone={hot ? 'risk' : undefined}
-                          >
-                            <span
-                              style={{
-                                width: `${Math.min(100, Math.round((r.waitingMinutes / 60) * 100))}%`,
-                              }}
-                            />
-                          </div>
-                        </Td>
-                        <Td>
-                          <Status tone={tone}>
-                            {r.state === 'FIAT_PENDING' ? 'Awaiting payment' : 'Awaiting confirm'}
-                          </Status>
-                        </Td>
-                        <Td className="text-right">
-                          <span className="tnum font-medium text-[var(--color-ink)]">
-                            {formatMinor(r.usdtMinor, 'USDT')}
-                          </span>
-                          <span className="ml-1 text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
-                            USDT
-                          </span>
-                        </Td>
-                        <Td className="text-right">
-                          <span className="tnum font-medium text-[var(--color-ink)]">
-                            ₹{formatMinor(r.inrMinor, 'INR')}
-                          </span>
-                        </Td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          <>
+            {/* Cards on narrow screens: a nine-column table on a phone is
+                a table nobody can read. */}
+            <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:hidden">
+              {rows.map((row) => (
+                <li key={row.dealId}>
+                  <CaseCard row={row} />
+                </li>
+              ))}
+            </ul>
+
+            <Card className="mt-5 hidden lg:block" flush>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[64rem] border-collapse text-[length:var(--text-sm)]">
+                  <caption className="sr-only">
+                    Deals awaiting an operator, escalations first then oldest. {rows.length} shown.
+                  </caption>
+                  <thead>
+                    <tr className="border-b border-[var(--color-rule)] bg-[var(--color-sunken)] text-left">
+                      <Th className="w-[6rem]">Age</Th>
+                      <Th className="w-[7.5rem]">Deal</Th>
+                      <Th className="w-[7rem]">Type</Th>
+                      <Th className="w-[11rem]">State</Th>
+                      <Th>Parties</Th>
+                      <Th className="w-[8rem]">Trail</Th>
+                      <Th className="w-[9.5rem] text-right">Amount</Th>
+                      <Th className="w-[10rem]">Next action</Th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--color-line)]">
+                    {rows.map((row) => (
+                      <QueueRow key={row.dealId} row={row} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            <div className="hidden lg:block">
+              <QueueKeys />
             </div>
-          </div>
+          </>
         )}
 
-        {queue.length > 0 ? <QueueKeys /> : null}
-        <p className="mt-4 max-w-[68ch] text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-          The queue deliberately carries no participant identities and no payment references. An
-          operator triaging throughput does not need either, so the server does not send them.
+        <p className="mt-5 max-w-[76ch] text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+          The queue carries the parties and the amounts, because triage needs both. It carries no
+          email address, bank handle, wallet address or payment reference — those appear only in a
+          case, only for a deal that is actually blocked, and opening one is written to the audit
+          trail.
         </p>
-        <ActionLink href="/app" variant="quiet" size="sm" className="mt-3 md:hidden">
-          Back to your deals
-        </ActionLink>
       </Shell>
-      <BottomNav active="ops" isOperator />
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Rows
+ * ------------------------------------------------------------------ */
+
+function nextAction(row: OperatorRow): { label: string; tone: 'risk' | 'brand' | 'idle' } {
+  if (row.disputed) return { label: 'Review case', tone: 'risk' };
+  if (row.waitingMinutes >= AT_RISK_MINUTES) {
+    return {
+      label: row.state === 'FIAT_PENDING' ? 'Chase payer' : 'Chase receiver',
+      tone: 'brand',
+    };
+  }
+  return { label: 'Monitor', tone: 'idle' };
+}
+
+function QueueRow({ row }: { row: OperatorRow }) {
+  const meta = DEAL_STATE[row.state];
+  const hot = row.waitingMinutes >= AT_RISK_MINUTES;
+  const action = nextAction(row);
+
+  return (
+    <tr
+      tabIndex={0}
+      data-queue-row
+      data-href={`/app/ops/${row.dealId}`}
+      className="cursor-pointer outline-none transition-colors hover:bg-[var(--color-sunken)] focus-visible:bg-[var(--color-sunken)]"
+    >
+      <Td>
+        <span
+          className={cn(
+            'tnum font-semibold',
+            row.disputed
+              ? 'text-[var(--color-risk)]'
+              : hot
+                ? 'text-[var(--color-brand)]'
+                : 'text-[var(--color-ink-2)]',
+          )}
+        >
+          {row.waitingMinutes}m
+        </span>
+        {hot ? <span className="sr-only"> — over the {AT_RISK_MINUTES} minute mark</span> : null}
+      </Td>
+      <Td>
+        <Link
+          href={`/app/ops/${row.dealId}`}
+          prefetch={false}
+          className="font-mono text-[length:var(--text-xs)] font-semibold text-[var(--color-ink)] underline-offset-4 hover:underline"
+        >
+          {row.dealCode}
+        </Link>
+      </Td>
+      <Td>
+        <span className="text-[length:var(--text-xs)] text-[var(--color-ink-2)]">
+          {SCENARIO[row.direction].short}
+        </span>
+      </Td>
+      <Td>
+        <Status tone={meta.tone} size="sm">
+          {meta.label}
+        </Status>
+      </Td>
+      <Td>
+        <span className="block truncate capitalize text-[var(--color-ink)]">
+          {row.payerName}
+          <span className="text-[var(--color-ink-4)]"> → </span>
+          {row.payeeName}
+        </span>
+        {row.disputed && row.disputeReason ? (
+          <span className="mt-0.5 block truncate text-[length:var(--text-2xs)] text-[var(--color-risk)]">
+            {DISPUTE_REASON_COPY[row.disputeReason].label}
+          </span>
+        ) : null}
+      </Td>
+      <Td>
+        <span className="flex items-center gap-2.5 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
+          <span className="inline-flex items-center gap-1">
+            <Icon name="file" className="h-3.5 w-3.5" />
+            <span className="tnum">{row.evidenceCount}</span>
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Icon name="message" className="h-3.5 w-3.5" />
+            <span className="tnum">{row.messageCount}</span>
+          </span>
+        </span>
+      </Td>
+      <Td className="text-right">
+        <span className="tnum block font-semibold text-[var(--color-ink)]">
+          ₹{formatMinor(row.inrMinor, 'INR')}
+        </span>
+        {row.usdtMinor ? (
+          <span className="tnum block text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
+            {formatMinor(row.usdtMinor, 'USDT')} USDT
+          </span>
+        ) : null}
+      </Td>
+      <Td>
+        <Link
+          href={`/app/ops/${row.dealId}`}
+          prefetch={false}
+          className={cn(
+            'inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-[length:var(--text-xs)] font-semibold',
+            action.tone === 'risk' && 'bg-[var(--color-risk-tint)] text-[var(--color-risk)]',
+            action.tone === 'brand' && 'bg-[var(--color-brand-tint)] text-[var(--color-brand-ink)]',
+            action.tone === 'idle' && 'text-[var(--color-ink-3)]',
+          )}
+        >
+          {action.label}
+          <Icon name="chevron-right" className="h-3.5 w-3.5" strokeWidth={2.2} />
+        </Link>
+      </Td>
+    </tr>
+  );
+}
+
+function CaseCard({ row }: { row: OperatorRow }) {
+  const meta = DEAL_STATE[row.state];
+  const action = nextAction(row);
+  return (
+    <Link
+      href={`/app/ops/${row.dealId}`}
+      prefetch={false}
+      className={cn(
+        'lift block rounded-[var(--radius-lg)] border bg-[var(--color-paper)] p-4 shadow-[var(--shadow-card)]',
+        row.disputed ? 'border-[var(--color-risk-line)]' : 'border-[var(--color-line)]',
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-mono text-[length:var(--text-xs)] font-semibold text-[var(--color-ink)]">
+          {row.dealCode}
+        </span>
+        <Status tone={meta.tone} size="sm">
+          {meta.label}
+        </Status>
+      </div>
+      <p className="tnum mt-2 text-[length:var(--text-xl)] font-semibold text-[var(--color-ink)]">
+        ₹{formatMinor(row.inrMinor, 'INR')}
+      </p>
+      <p className="mt-1 truncate text-[length:var(--text-xs)] capitalize text-[var(--color-ink-3)]">
+        {row.payerName} → {row.payeeName}
+      </p>
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-[var(--color-line)] pt-2.5">
+        <span className="tnum text-[length:var(--text-xs)] text-[var(--color-ink-4)]">
+          {row.waitingMinutes}m waiting
+        </span>
+        <span
+          className={cn(
+            'text-[length:var(--text-xs)] font-semibold',
+            action.tone === 'risk'
+              ? 'text-[var(--color-risk)]'
+              : action.tone === 'brand'
+                ? 'text-[var(--color-brand)]'
+                : 'text-[var(--color-ink-3)]',
+          )}
+        >
+          {action.label}
+        </span>
+      </div>
+    </Link>
   );
 }
 
@@ -215,7 +391,7 @@ function Th({ children, className = '' }: { children: React.ReactNode; className
   return (
     <th
       scope="col"
-      className={`px-3 py-2.5 text-[length:var(--text-2xs)] font-medium uppercase tracking-[0.07em] text-[var(--color-ink-4)] ${className}`}
+      className={`px-3 py-2.5 text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.07em] text-[var(--color-ink-4)] ${className}`}
     >
       {children}
     </th>

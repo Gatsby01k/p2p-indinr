@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { getPool, toBigInt, withTransaction, type Tx } from '@/server/db/pool';
 import { getEscrowService } from './escrow';
 import { feesFor } from '@/lib/fees';
+import { LINK_TTL_SECONDS, QUOTE_TTL_SECONDS, REFERENCE_RATE } from '@/lib/rate';
 import { SCENARIO, creatorRoleFor, otherRole, type Scenario } from '@/lib/scenario';
 
 /**
@@ -280,10 +281,16 @@ export async function getUser(userId: string): Promise<SessionUser | null> {
  * 1. Server-issued firm quote
  * ------------------------------------------------------------------ */
 
-/** Sandbox reference price: exact rational, INR paise per USDT micro. */
-const SANDBOX_RATE_NUM = 8880n; // 88.80 INR / USDT
-const SANDBOX_RATE_DEN = 100n;
-const QUOTE_TTL_SECONDS = 150;
+/**
+ * Sandbox reference price and the two server-controlled windows.
+ *
+ * Imported from `@/lib/rate` rather than restated here, so the figure the
+ * client previews and the figure the server prices come from one constant.
+ * The client's preview is still only indicative: an expiry can only be
+ * attached — and honoured — server-side.
+ */
+const SANDBOX_RATE_NUM = REFERENCE_RATE.num;
+const SANDBOX_RATE_DEN = REFERENCE_RATE.den;
 
 export const SANDBOX_RATE = { num: SANDBOX_RATE_NUM, den: SANDBOX_RATE_DEN } as const;
 
@@ -419,8 +426,6 @@ function assertInrRange(inrMinor: bigint): void {
  * 2. Create a deal link from a valid quote
  * ------------------------------------------------------------------ */
 
-const LINK_TTL_SECONDS = 1800;
-
 /**
  * Turn a live quote into a shareable link.
  *
@@ -495,6 +500,9 @@ export async function createDealLink(
       viewerWouldBe: otherRole(creatorRole),
       viewerIsCreator: true,
       createdAtIso: (l.created_at as Date).toISOString(),
+      // The caller here IS the creator, so this discloses nothing new.
+      creatorName: user.displayName,
+      creatorVerified: user.isVerified,
     };
   });
 }
@@ -556,14 +564,22 @@ export async function getLinkPreview(
     `SELECT l.*, q.direction, q.usdt_minor, q.inr_minor, q.rate_num, q.rate_den,
             q.pricing_source, q.observed_at, q.protection_fee_minor,
             q.network_fee_minor, q.fee_bearer, q.title,
+            creator.display_name AS creator_name,
+            creator.is_verified  AS creator_verified,
             (l.expires_at <= now()) AS is_expired
        FROM sandbox.deal_link l
        JOIN sandbox.quote q ON q.quote_id = l.quote_id
+       JOIN sandbox.app_user creator ON creator.user_id = l.created_by
       WHERE l.public_id = $1`,
     [publicId],
   );
   const r = rows[0];
   if (!r) return null;
+
+  // Identity is disclosed to a SIGNED-IN reader only. An anonymous fetch is
+  // also how the unfurl is built, and an unfurl is public and cached by
+  // intermediaries the sender does not control.
+  const signedIn = Boolean(viewer);
 
   const displayStatus: PreviewStatus =
     r.state === 'CONSUMED'
@@ -584,6 +600,8 @@ export async function getLinkPreview(
     // Identity-derived, so it is false for every anonymous reader.
     viewerIsCreator: viewer ? r.created_by === viewer.userId : false,
     createdAtIso: (r.created_at as Date).toISOString(),
+    creatorName: signedIn ? r.creator_name : null,
+    creatorVerified: signedIn ? r.creator_verified : false,
   };
 }
 

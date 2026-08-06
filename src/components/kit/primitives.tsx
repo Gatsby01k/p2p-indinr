@@ -1058,14 +1058,18 @@ export function Callout({
   icon,
   children,
   className,
+  role,
 }: {
   tone?: Tone;
   icon?: IconName;
   children: ReactNode;
   className?: string;
+  /** Set to `alert` when the callout appears in response to a failed action. */
+  role?: 'alert' | 'status';
 }) {
   return (
     <div
+      role={role}
       className={cn(
         'flex items-start gap-2.5 rounded-[var(--radius-md)] border px-3 py-2.5',
         'text-[length:var(--text-xs)] leading-relaxed',
