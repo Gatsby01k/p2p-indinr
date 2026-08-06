@@ -10,6 +10,11 @@
  * are computed in `service.ts` on the server; this module only names them.
  */
 
+import type { Role, Scenario } from './scenario';
+import type { FeeBearer } from './fees';
+
+export type { Role, Scenario, FeeBearer };
+
 export type SandboxError =
   | 'UNAUTHENTICATED'
   | 'NOT_FOUND'
@@ -28,7 +33,16 @@ export type SandboxError =
   | 'UTR_INVALID'
   | 'UTR_ALREADY_USED'
   | 'SELF_CONFIRM_FORBIDDEN'
-  | 'REQUIRES_VERIFICATION';
+  | 'REQUIRES_VERIFICATION'
+  | 'DEAL_DISPUTED'
+  | 'ALREADY_DISPUTED'
+  | 'WINDOW_LAPSED'
+  | 'EVIDENCE_TOO_LARGE'
+  | 'EVIDENCE_TYPE_REJECTED'
+  | 'MESSAGE_EMPTY'
+  | 'AMOUNT_INVALID'
+  | 'AMOUNT_TOO_SMALL'
+  | 'AMOUNT_TOO_LARGE';
 
 export class SandboxFailure extends Error {
   readonly code: SandboxError;
@@ -118,25 +132,91 @@ export const FAILURE_COPY: Readonly<
     reason: 'Your sandbox account is not verified.',
     nextStep: 'Use a verified sandbox account to join.',
   },
+  DEAL_DISPUTED: {
+    reason: 'Release is paused while this deal is under review.',
+    nextStep: 'Add anything that supports your case. An operator decides the outcome.',
+  },
+  ALREADY_DISPUTED: {
+    reason: 'A problem has already been reported on this deal.',
+    nextStep: 'Open the existing case and add your evidence there.',
+  },
+  WINDOW_LAPSED: {
+    reason: 'The payment window for this deal has passed.',
+    nextStep: 'Nothing was released. Report a problem to have an operator look at it.',
+  },
+  EVIDENCE_TOO_LARGE: {
+    reason: 'That file is larger than 5 MB.',
+    nextStep: 'Attach a smaller file — a photo of the receipt is usually well under 1 MB.',
+  },
+  EVIDENCE_TYPE_REJECTED: {
+    reason: 'That file type is not accepted as evidence.',
+    nextStep: 'Attach a PDF, PNG, JPG or WebP.',
+  },
+  MESSAGE_EMPTY: {
+    reason: 'That message is empty.',
+    nextStep: 'Write something before sending, or attach a file instead.',
+  },
+  AMOUNT_INVALID: {
+    reason: 'That amount is not a valid figure.',
+    nextStep: 'Enter digits only, with up to two decimal places for rupees.',
+  },
+  AMOUNT_TOO_SMALL: {
+    reason: 'That amount is below the minimum for a protected deal.',
+    nextStep: 'Protected deals start at ₹100. Enter a larger amount.',
+  },
+  AMOUNT_TOO_LARGE: {
+    reason: 'That amount is above your current per-deal limit.',
+    nextStep: 'Complete more deals or verify your identity to raise the limit.',
+  },
 };
 
 /* ------------------------------------------------------------------ *
  * Shapes returned to the UI
  * ------------------------------------------------------------------ */
 
-export type Role = 'FIAT_SIDE' | 'CRYPTO_SIDE';
-export type DealState = 'FIAT_PENDING' | 'FIAT_CLAIMED' | 'COMPLETED' | 'CANCELLED';
-/** Note there is no `EXPIRED` member: expiry is derived, never stored. */
+/**
+ * Deal states.
+ *
+ * `EXPIRED` is stored here — unlike a LINK, whose expiry is derived —
+ * because a lapsed payment window is a decision the server records once,
+ * not a fact that flickers as the clock ticks past it.
+ */
+export type DealState =
+  | 'FIAT_PENDING'
+  | 'FIAT_CLAIMED'
+  | 'DISPUTED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'EXPIRED'
+  | 'REFUNDED';
+
+/** Note there is no `EXPIRED` member: link expiry is derived, never stored. */
 export type LinkState = 'OPEN' | 'CONSUMED' | 'CLOSED';
 
+export const TERMINAL_STATES: ReadonlySet<DealState> = new Set<DealState>([
+  'COMPLETED',
+  'CANCELLED',
+  'EXPIRED',
+  'REFUNDED',
+]);
+
+export function isTerminalState(state: DealState): boolean {
+  return TERMINAL_STATES.has(state);
+}
+
 export interface Terms {
-  readonly direction: 'USDT_TO_INR' | 'INR_TO_USDT';
-  readonly usdtMinor: string;
+  readonly direction: Scenario;
+  /** Null for INR → INR, which has no USDT leg. */
+  readonly usdtMinor: string | null;
   readonly inrMinor: string;
   readonly rateNum: string;
   readonly rateDen: string;
   readonly pricingSource: string;
   readonly observedAt: string;
+  readonly protectionFeeMinor: string;
+  readonly networkFeeMinor: string;
+  readonly feeBearer: FeeBearer;
+  readonly title: string | null;
 }
 
 export interface SandboxQuote extends Terms {
@@ -176,12 +256,77 @@ export interface LinkPreview extends Terms {
   readonly createdAtIso: string;
 }
 
+export interface DealMessage {
+  readonly messageId: string;
+  readonly kind: 'CHAT' | 'SYSTEM';
+  /** Null on a system line. */
+  readonly authorName: string | null;
+  readonly authorIsViewer: boolean;
+  readonly body: string;
+  readonly sentAt: string;
+}
+
+export interface DealEvidence {
+  readonly evidenceId: string;
+  readonly filename: string;
+  readonly contentType: string;
+  readonly byteSize: number;
+  readonly sha256: string;
+  readonly uploadedByName: string;
+  readonly uploadedByViewer: boolean;
+  readonly uploadedAt: string;
+}
+
+export type DisputeReason =
+  | 'PAYMENT_NOT_RECEIVED'
+  | 'WRONG_AMOUNT'
+  | 'PROOF_MISMATCH'
+  | 'NOT_AS_AGREED'
+  | 'OTHER';
+
+export const DISPUTE_REASON_COPY: Readonly<
+  Record<DisputeReason, { readonly label: string; readonly hint: string }>
+> = {
+  PAYMENT_NOT_RECEIVED: {
+    label: 'Payment not received',
+    hint: 'The transfer was marked sent but nothing reached the account.',
+  },
+  WRONG_AMOUNT: {
+    label: 'Wrong amount',
+    hint: 'Something arrived, but not the figure this deal fixed.',
+  },
+  PROOF_MISMATCH: {
+    label: 'Proof does not match',
+    hint: 'The reference or receipt does not correspond to this transfer.',
+  },
+  NOT_AS_AGREED: {
+    label: 'Not as agreed',
+    hint: 'The work or goods differ from what the deal described.',
+  },
+  OTHER: { label: 'Something else', hint: 'Describe it and attach anything relevant.' },
+};
+
+export interface DisputeView {
+  readonly disputeId: string;
+  readonly reason: DisputeReason;
+  readonly detail: string | null;
+  readonly state: 'OPEN' | 'UNDER_REVIEW' | 'RESOLVED';
+  readonly resolution: 'RELEASED' | 'REFUNDED' | 'CANCELLED' | null;
+  readonly raisedByViewer: boolean;
+  readonly raisedByName: string;
+  readonly raisedAt: string;
+  readonly resolvedAt: string | null;
+}
+
 export interface DealView extends Terms {
   readonly dealId: string;
   readonly publicId: string;
+  /** The short, speakable reference: `INR-8K4M`. */
+  readonly dealCode: string;
   readonly state: DealState;
   readonly viewerRole: Role;
   readonly counterpartyName: string;
+  readonly counterpartyVerified: boolean;
   readonly actionDeadline: string | null;
   readonly createdAt: string;
   readonly completedAt: string | null;
@@ -190,10 +335,25 @@ export interface DealView extends Terms {
     readonly submittedAt: string;
     readonly note: string | null;
   } | null;
+  readonly messages: readonly DealMessage[];
+  readonly evidence: readonly DealEvidence[];
+  readonly dispute: DisputeView | null;
+  /** Where the INR should actually go. Present only to the paying side. */
+  readonly payTo: {
+    readonly kind: 'UPI' | 'BANK' | 'WALLET';
+    readonly label: string;
+    readonly handle: string;
+    readonly bankName: string | null;
+    readonly ifsc: string | null;
+  } | null;
   /** Server-authorized actions. The UI renders these; it never derives them. */
   readonly permitted: {
     readonly canClaim: boolean;
     readonly canConfirm: boolean;
+    readonly canDispute: boolean;
+    readonly canMessage: boolean;
+    readonly canUpload: boolean;
+    readonly canCancel: boolean;
   };
 }
 
@@ -203,4 +363,94 @@ export interface SessionUser {
   readonly displayName: string;
   readonly isOperator: boolean;
   readonly isVerified: boolean;
+}
+
+/* ------------------------------------------------------------------ *
+ * Identity, trust, rewards
+ * ------------------------------------------------------------------ */
+
+export interface TrustProfile {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly email: string;
+  readonly memberSince: string;
+  readonly completedDeals: number;
+  /** Percentage 0–100, or null when there is no history to divide by. */
+  readonly completionRate: number | null;
+  readonly openDisputes: number;
+  readonly resolvedDisputes: number;
+  readonly identityVerified: boolean;
+  readonly upiVerified: boolean;
+  readonly walletVerified: boolean;
+  readonly twoFactorEnabled: boolean;
+  readonly notifyEmail: boolean;
+  readonly notifyPush: boolean;
+  readonly about: string | null;
+  readonly city: string | null;
+  readonly referralCode: string;
+  /** Non-monetary loyalty count. Never a balance, never withdrawable. */
+  readonly safePoints: number;
+  /** The fee discount those points currently unlock, in INR paise. */
+  readonly feeCreditMinor: string;
+  readonly level: number;
+  readonly volumeInrMinor: string;
+}
+
+export interface RewardEntry {
+  readonly rewardId: string;
+  readonly kind: 'DEAL_COMPLETED' | 'REFERRAL_COMPLETED' | 'VERIFICATION' | 'FEE_CREDIT_APPLIED';
+  readonly points: number;
+  readonly note: string | null;
+  readonly createdAt: string;
+}
+
+export interface ReferralEntry {
+  readonly referralId: string;
+  readonly inviteeName: string;
+  readonly joinedAt: string;
+  readonly qualifiedAt: string | null;
+  readonly points: number;
+}
+
+export interface PaymentMethodView {
+  readonly methodId: string;
+  readonly kind: 'UPI' | 'BANK' | 'WALLET';
+  readonly label: string;
+  readonly handle: string;
+  readonly bankName: string | null;
+  readonly ifsc: string | null;
+  readonly isDefault: boolean;
+  readonly verified: boolean;
+  readonly createdAt: string;
+}
+
+export interface NotificationView {
+  readonly notificationId: string;
+  readonly severity: 'INFO' | 'ACTION' | 'WARNING';
+  readonly title: string;
+  readonly body: string;
+  readonly dealId: string | null;
+  readonly read: boolean;
+  readonly createdAt: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Operator
+ * ------------------------------------------------------------------ */
+
+export interface OperatorRow {
+  readonly dealId: string;
+  readonly publicId: string;
+  readonly dealCode: string;
+  readonly state: DealState;
+  readonly direction: Scenario;
+  readonly inrMinor: string;
+  readonly usdtMinor: string | null;
+  readonly waitingMinutes: number;
+  readonly disputed: boolean;
+  readonly disputeReason: DisputeReason | null;
+  readonly payerName: string;
+  readonly payeeName: string;
+  readonly evidenceCount: number;
+  readonly messageCount: number;
 }
