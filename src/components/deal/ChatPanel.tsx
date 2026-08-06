@@ -104,9 +104,7 @@ export function ChatPanel({
                   {m.body}
                 </div>
                 <p className="mt-0.5 px-1 text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">
-                  <span className="capitalize">
-                    {m.authorIsViewer ? 'You' : (m.authorName ?? counterpartyName)}
-                  </span>
+                  {m.authorIsViewer ? 'You' : (m.authorName ?? counterpartyName)}
                   {' · '}
                   <ClockTime iso={m.sentAt} />
                 </p>

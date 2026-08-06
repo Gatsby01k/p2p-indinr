@@ -76,7 +76,7 @@ export function DealCard({ deal, className }: { deal: DealView; className?: stri
       <div className="mt-3.5 flex items-center gap-2 border-t border-[var(--color-line)] pt-3">
         <Avatar name={deal.counterpartyName} size="xs" verified={deal.counterpartyVerified} />
         <span className="min-w-0 flex-1 truncate text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-          <span className="capitalize text-[var(--color-ink-2)]">{deal.counterpartyName}</span>
+          <span className="text-[var(--color-ink-2)]">{deal.counterpartyName}</span>
           {' · '}
           {roleLabel(deal.direction, deal.viewerRole === 'FIAT_SIDE' ? 'CRYPTO_SIDE' : 'FIAT_SIDE')}
         </span>
@@ -146,7 +146,7 @@ export function DealRow({ deal }: { deal: DealView }) {
           {dealTitle(deal)}
         </span>
         <span className="mt-0.5 block truncate text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-          <span className="capitalize">{deal.counterpartyName}</span>
+          {deal.counterpartyName}
           {' · '}
           <span className="font-mono">{deal.dealCode}</span>
         </span>

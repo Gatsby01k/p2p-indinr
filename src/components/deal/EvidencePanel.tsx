@@ -118,10 +118,8 @@ export function EvidencePanel({
                   </span>
                   <span className="mt-0.5 block truncate text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
                     {humanSize(file.byteSize)} ·{' '}
-                    <span className="capitalize">
-                      {file.uploadedByViewer ? 'You' : file.uploadedByName}
-                    </span>{' '}
-                    · <Ago iso={file.uploadedAt} />
+                    {file.uploadedByViewer ? 'You' : file.uploadedByName} ·{' '}
+                    <Ago iso={file.uploadedAt} />
                   </span>
                 </span>
                 <Icon name="download" className="h-4 w-4 shrink-0 text-[var(--color-ink-4)]" />

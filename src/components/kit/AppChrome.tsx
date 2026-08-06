@@ -1,5 +1,8 @@
+'use client';
+
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/cn';
 import { Wordmark } from './Brand';
 import { Icon, type IconName } from './Icon';
@@ -15,11 +18,39 @@ import { Avatar, SandboxChip } from './primitives';
  *            destinations plus the operator desk, and a content header
  *            that carries the page's own title and actions.
  *
- * Both are server-rendered. Navigation is plain links — no client router
- * state, and the product is fully navigable with JavaScript disabled.
+ * WHY THIS IS A CLIENT MODULE. Only one thing here needs the client: which
+ * destination the current URL belongs to. Deriving that from `usePathname`
+ * inside the chrome means no page has to pass an `active` prop — and a page
+ * that forgot to would leave the tab bar highlighting the wrong tab, a small
+ * bug that makes a whole app feel broken.
+ *
+ * Nothing else here is interactive. Navigation is plain links, the page's
+ * own content is passed in as already-rendered children from the server, and
+ * the product is fully navigable with JavaScript disabled.
  */
 
 export type NavKey = 'home' | 'deals' | 'rewards' | 'profile' | 'ops';
+
+/**
+ * Which navigation destination a path belongs to.
+ *
+ * Deliberately by PREFIX: `/app/deal/abc/pay` is still the Deals section,
+ * and `/app/profile/payment-methods` is still Profile.
+ */
+export function activeNavFor(pathname: string): NavKey {
+  if (pathname.startsWith('/app/ops')) return 'ops';
+  if (pathname.startsWith('/app/rewards')) return 'rewards';
+  if (
+    pathname.startsWith('/app/profile') ||
+    pathname.startsWith('/app/settings') ||
+    pathname.startsWith('/app/help') ||
+    pathname.startsWith('/app/notifications')
+  ) {
+    return 'profile';
+  }
+  if (pathname.startsWith('/app/deal') || pathname.startsWith('/app/new')) return 'deals';
+  return 'home';
+}
 
 interface NavEntry {
   readonly key: NavKey;
@@ -225,7 +256,7 @@ export function SideRail({
         {signOut}
         <div className="flex items-center gap-2.5 px-3 pt-3">
           <Avatar name={displayName} size="xs" />
-          <span className="min-w-0 flex-1 truncate text-[length:var(--text-xs)] capitalize text-[var(--color-nav-ink-2)]">
+          <span className="min-w-0 flex-1 truncate text-[length:var(--text-xs)] text-[var(--color-nav-ink-2)]">
             {displayName}
           </span>
         </div>
@@ -329,21 +360,20 @@ export function NotificationBell({ unread }: { unread: number }) {
  */
 export function AppFrame({
   children,
-  active,
   isOperator,
   displayName,
   signOut,
   disputeCount,
-  wide = false,
 }: {
   children: ReactNode;
-  active: NavKey;
   isOperator: boolean;
   displayName: string;
+  /** Already-rendered on the server, so the action stays a server action. */
   signOut: ReactNode;
   disputeCount?: number;
-  wide?: boolean;
 }) {
+  const active = activeNavFor(usePathname());
+
   return (
     <div className="min-h-dvh">
       <SideRail
@@ -353,7 +383,7 @@ export function AppFrame({
         signOut={signOut}
         disputeCount={disputeCount}
       />
-      <div className={wide ? 'lg:pl-[var(--rail-w)]' : 'lg:pl-[var(--rail-w)]'}>
+      <div className="lg:pl-[var(--rail-w)]">
         <main id="main" className="pb-tabbar min-h-dvh lg:pb-12">
           {children}
         </main>

@@ -7,7 +7,6 @@ import { sweepLapsedDeals } from '@/server/sandbox/service';
 import { AppFrame } from '@/components/kit/AppChrome';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { Icon } from '@/components/kit/Icon';
-import { NavActive } from '@/components/kit/NavActive';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,29 +30,29 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <ToastProvider>
-      <NavActive>
-        {(active) => (
-          <AppFrame
-            active={active}
-            isOperator={user.isOperator}
-            displayName={user.displayName}
-            disputeCount={disputeCount}
-            signOut={
-              <form action={signOutAction}>
-                <button
-                  type="submit"
-                  className="flex w-full items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2.5 text-left text-[length:var(--text-base)] font-medium text-[var(--color-nav-ink-2)] transition-colors hover:bg-[var(--color-nav-3)] hover:text-[var(--color-nav-ink)]"
-                >
-                  <Icon name="logout" className="h-[18px] w-[18px]" />
-                  Sign out
-                </button>
-              </form>
-            }
-          >
-            {children}
-          </AppFrame>
-        )}
-      </NavActive>
+      <AppFrame
+        isOperator={user.isOperator}
+        displayName={user.displayName}
+        disputeCount={disputeCount}
+        /*
+         * Rendered here, on the server, and handed across as an element.
+         * That keeps `signOutAction` a real server action — a function
+         * cannot cross the boundary, but the form that carries it can.
+         */
+        signOut={
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="flex w-full items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2.5 text-left text-[length:var(--text-base)] font-medium text-[var(--color-nav-ink-2)] transition-colors hover:bg-[var(--color-nav-3)] hover:text-[var(--color-nav-ink)]"
+            >
+              <Icon name="logout" className="h-[18px] w-[18px]" />
+              Sign out
+            </button>
+          </form>
+        }
+      >
+        {children}
+      </AppFrame>
     </ToastProvider>
   );
 }

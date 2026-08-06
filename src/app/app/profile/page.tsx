@@ -104,7 +104,7 @@ export default async function ProfilePage() {
           <div className="flex items-center gap-4">
             <Avatar name={user.displayName} size="lg" verified={profile.identityVerified} />
             <div className="min-w-0 flex-1">
-              <h2 className="flex items-center gap-2 truncate text-[length:var(--text-xl)] font-semibold capitalize tracking-[-0.025em] text-[var(--color-ink)]">
+              <h2 className="flex items-center gap-2 truncate text-[length:var(--text-xl)] font-semibold tracking-[-0.025em] text-[var(--color-ink)]">
                 {user.displayName}
                 {profile.identityVerified ? <VerifiedTick /> : null}
               </h2>

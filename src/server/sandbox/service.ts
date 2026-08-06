@@ -224,7 +224,20 @@ export async function signInSandbox(email: string): Promise<SessionUser> {
   const isOperator = normalized.startsWith('ops@');
   const isVerified = !normalized.startsWith('new@');
   const local = normalized.split('@')[0]!;
-  const displayName = local.replace(/[._-]+/g, ' ');
+  /*
+   * Title-cased at the source, not with a `capitalize` class at each of the
+   * thirty places a name appears. CSS capitalisation cannot be used inside a
+   * sentence — "Send the rupees to ananya sharma" needs the name capitalised
+   * and the rest of the sentence left alone — so the stored value has to be
+   * right. Storing it right also means a screen reader reads a name as a
+   * name, and a copied string looks like one.
+   */
+  const displayName = local
+    .replace(/[._-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 
   const { rows } = await getPool().query(
     `INSERT INTO sandbox.app_user (email, display_name, is_operator, is_verified)

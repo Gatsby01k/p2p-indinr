@@ -3,7 +3,7 @@ import { listDealsForUser } from '@/server/sandbox/service';
 import { getTrustProfile } from '@/server/sandbox/identity';
 import { getChrome } from '@/server/sandbox/chrome';
 import { formatMinor } from '@/lib/format';
-import { DEAL_STATE, settlementLegs } from '@/lib/dealPresenter';
+import { DEAL_STATE, dealTitle, settlementLegs } from '@/lib/dealPresenter';
 import type { DealView } from '@/lib/sandboxContract';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { DealCard, DealRow } from '@/components/deal/DealCard';
@@ -51,7 +51,7 @@ export default async function HomePage() {
       <AppHeader
         title={
           <span className="flex items-center gap-2">
-            <span className="capitalize">Welcome back, {user.displayName.split(' ')[0]}</span>
+            <span>Welcome back, {user.displayName.split(' ')[0]}</span>
             {profile.identityVerified ? <VerifiedTick /> : null}
           </span>
         }
@@ -302,8 +302,13 @@ function AttentionCard({ deal }: { deal: DealView }) {
         ) : null}
       </div>
 
+      {/* The same fallback the deal card uses, so one deal is not called two
+          different things on two screens of the same product. */}
       <p className="mt-3 truncate text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
-        {deal.title?.trim() || <span className="capitalize">{deal.counterpartyName}</span>}
+        {dealTitle(deal)}
+      </p>
+      <p className="mt-0.5 truncate text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
+        {deal.counterpartyName}
       </p>
       <p className="tnum mt-1 text-[length:var(--text-2xl)] font-semibold tracking-[-0.028em] text-[var(--color-ink)]">
         {amount.display}

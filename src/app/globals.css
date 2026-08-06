@@ -238,6 +238,26 @@
  * ==================================================================== */
 
 @layer base {
+  /*
+   * NEITHER `html` NOR `body` SETS `overflow` HERE, DELIBERATELY.
+   *
+   * The obvious-looking `body { overflow-x: hidden }` is a trap. Overflow
+   * on the root propagates to the VIEWPORT, and:
+   *
+   *   · `hidden` makes the body a scroll container, so the viewport stops
+   *     being the scroller — `window.scrollTo` silently does nothing,
+   *     in-page anchors stop jumping, `scrollIntoView` lands in the wrong
+   *     place, and iOS loses momentum scrolling.
+   *   · `clip` is worse: paired with `visible` on the other axis it
+   *     computes to `clip` on BOTH, so the page cannot scroll vertically
+   *     at all.
+   *
+   * So horizontal overflow is prevented structurally instead. Every
+   * element that can legitimately exceed the viewport — the operator
+   * table, the filter rails, the scenario chips, code blocks — carries its
+   * own `overflow-x: auto`, and long values use `.break-anywhere`. That is
+   * checked at 320px rather than papered over here.
+   */
   html {
     -webkit-text-size-adjust: 100%;
     scroll-behavior: smooth;
@@ -251,10 +271,6 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Stop a single wide child leaking into a page-level scrollbar. */
-    overflow-x: hidden;
-    /* iOS: keep the rubber-band overscroll on the same warm ground. */
-    overscroll-behavior-y: none;
   }
 
   h1,

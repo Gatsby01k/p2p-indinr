@@ -212,15 +212,31 @@ export default async function DealLinkPage({ params }: Params) {
   }
 
   /* -------- The joiner's view ------------------------------------ */
-  const receiving = preview.viewerWouldBe === 'FIAT_SIDE' ? usdt : settle.payeeReceives;
-  const sending = preview.viewerWouldBe === 'FIAT_SIDE' ? settle.payerSends : usdt;
+  /*
+   * What the viewer would send and receive, PER SCENARIO.
+   *
+   * A protected INR → INR payment has no second asset: the payer sends
+   * rupees and receives the work, the payee receives rupees and sends
+   * nothing. Reusing the exchange's two-legged shape here printed
+   * "You receive 0 USDT" on a deal with no USDT leg at all — the single
+   * most alarming thing this screen could tell someone about to commit.
+   */
+  const isPayer = preview.viewerWouldBe === 'FIAT_SIDE';
+  const sending = isPayer ? settle.payerSends.display : scenario.hasRate ? usdt.display : null;
+  const receiving = isPayer
+    ? scenario.hasRate
+      ? usdt.display
+      : null
+    : settle.payeeReceives.display;
+  // What the person commits to, for the join panel's own sentence.
+  const commitment = isPayer ? settle.payerSends.display : (sending ?? settle.amount.display);
 
   return (
     <Frame>
       <article className="animate-rise">
         <Card flush className={preview.joinable ? '' : 'opacity-95'}>
-          <header className="flex items-start justify-between gap-3 border-b border-[var(--color-line)] px-4 py-3.5 sm:px-5">
-            <div className="min-w-0">
+          <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--color-line)] px-4 py-3.5 sm:px-5">
+            <div className="min-w-0 flex-1 basis-full sm:basis-auto">
               <Label>Protected deal</Label>
               <h1 className="mt-0.5 truncate text-[length:var(--text-lg)] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
                 {preview.title?.trim() || scenario.title}
@@ -263,7 +279,7 @@ export default async function DealLinkPage({ params }: Params) {
               <div className="mt-5 flex items-center justify-center gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-sunken)] px-3 py-2.5">
                 <Avatar name={preview.creatorName} size="sm" verified={preview.creatorVerified} />
                 <div className="min-w-0 text-left">
-                  <p className="truncate text-[length:var(--text-sm)] font-semibold capitalize text-[var(--color-ink)]">
+                  <p className="truncate text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
                     {preview.creatorName}
                   </p>
                   <p className="text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
@@ -282,12 +298,23 @@ export default async function DealLinkPage({ params }: Params) {
               <Fact term="Your role" strong>
                 {scenario.roleLabel[preview.viewerWouldBe]}
               </Fact>
-              <Fact term="You send" strong>
-                <span className="tnum">{sending.display}</span>
-              </Fact>
-              <Fact term="You receive" strong>
-                <span className="tnum">{receiving.display}</span>
-              </Fact>
+              {sending ? (
+                <Fact term="You send" strong>
+                  <span className="tnum">{sending}</span>
+                </Fact>
+              ) : null}
+              {receiving ? (
+                <Fact term="You receive" strong>
+                  <span className="tnum">{receiving}</span>
+                </Fact>
+              ) : null}
+              {!scenario.hasRate ? (
+                <Fact term={isPayer ? 'They receive' : 'They pay'}>
+                  <span className="tnum">
+                    {isPayer ? settle.payeeReceives.display : settle.payerSends.display}
+                  </span>
+                </Fact>
+              ) : null}
               {scenario.hasRate ? (
                 <Fact term="Firm rate">
                   <span className="tnum">{rateLabel(preview)}</span>
@@ -311,7 +338,7 @@ export default async function DealLinkPage({ params }: Params) {
               signedIn={viewer !== null}
               viewerWouldBe={preview.viewerWouldBe}
               scenario={preview.direction}
-              amountLabel={sending.display}
+              amountLabel={commitment}
             />
           </div>
         </Card>

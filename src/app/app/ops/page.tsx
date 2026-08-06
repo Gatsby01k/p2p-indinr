@@ -261,10 +261,13 @@ function QueueRow({ row }: { row: OperatorRow }) {
         {hot ? <span className="sr-only"> — over the {AT_RISK_MINUTES} minute mark</span> : null}
       </Td>
       <Td>
+        {/* `whitespace-nowrap`: a deal code is a single token people read
+            aloud and paste. Breaking it across two lines at the hyphen makes
+            it look like two different references. */}
         <Link
           href={`/app/ops/${row.dealId}`}
           prefetch={false}
-          className="font-mono text-[length:var(--text-xs)] font-semibold text-[var(--color-ink)] underline-offset-4 hover:underline"
+          className="whitespace-nowrap font-mono text-[length:var(--text-xs)] font-semibold text-[var(--color-ink)] underline-offset-4 hover:underline"
         >
           {row.dealCode}
         </Link>
@@ -280,7 +283,7 @@ function QueueRow({ row }: { row: OperatorRow }) {
         </Status>
       </Td>
       <Td>
-        <span className="block truncate capitalize text-[var(--color-ink)]">
+        <span className="block truncate text-[var(--color-ink)]">
           {row.payerName}
           <span className="text-[var(--color-ink-4)]"> → </span>
           {row.payeeName}
@@ -355,7 +358,7 @@ function CaseCard({ row }: { row: OperatorRow }) {
       <p className="tnum mt-2 text-[length:var(--text-xl)] font-semibold text-[var(--color-ink)]">
         ₹{formatMinor(row.inrMinor, 'INR')}
       </p>
-      <p className="mt-1 truncate text-[length:var(--text-xs)] capitalize text-[var(--color-ink-3)]">
+      <p className="mt-1 truncate text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
         {row.payerName} → {row.payeeName}
       </p>
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-[var(--color-line)] pt-2.5">

@@ -112,7 +112,7 @@ export default async function OperatorCasePage({
       <Shell width="ops" className="py-5 sm:py-7">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)_minmax(0,23rem)] lg:items-start">
           {/* ============ Column 1 · the facts ==================== */}
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <Card>
               <Label>Protected amount</Label>
               <p className="tnum mt-1 text-[length:var(--text-3xl)] font-semibold tracking-[-0.03em] text-[var(--color-ink)]">
@@ -153,7 +153,7 @@ export default async function OperatorCasePage({
                   <li key={p!.role} className="flex items-center gap-3">
                     <Avatar name={p!.name} size="sm" verified={p!.verified} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[length:var(--text-sm)] font-semibold capitalize text-[var(--color-ink)]">
+                      <p className="truncate text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
                         {p!.name}
                       </p>
                       <p className="truncate text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
@@ -204,7 +204,7 @@ export default async function OperatorCasePage({
           </div>
 
           {/* ============ Column 2 · the trail ==================== */}
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {kase.dispute ? (
               <Card className="border-[var(--color-risk-line)]">
                 <div className="flex items-start justify-between gap-3">
@@ -214,8 +214,7 @@ export default async function OperatorCasePage({
                       {DISPUTE_REASON_COPY[kase.dispute.reason].label}
                     </h2>
                     <p className="mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-                      Raised by <span className="capitalize">{kase.dispute.raisedByName}</span> ·{' '}
-                      <Ago iso={kase.dispute.raisedAt} />
+                      Raised by {kase.dispute.raisedByName} · <Ago iso={kase.dispute.raisedAt} />
                     </p>
                   </div>
                   <Status tone={kase.dispute.state === 'RESOLVED' ? 'final' : 'risk'}>
@@ -261,8 +260,7 @@ export default async function OperatorCasePage({
                             {file.filename}
                           </span>
                           <span className="block truncate text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
-                            <span className="capitalize">{file.uploadedByName}</span> ·{' '}
-                            <Ago iso={file.uploadedAt} /> ·{' '}
+                            {file.uploadedByName} · <Ago iso={file.uploadedAt} /> ·{' '}
                             <span className="font-mono">{file.sha256.slice(0, 12)}…</span>
                           </span>
                         </span>
@@ -303,7 +301,7 @@ export default async function OperatorCasePage({
                     <div key={i} className="flex items-start gap-2.5">
                       <Avatar name={m.authorName ?? '?'} size="xs" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-[length:var(--text-2xs)] capitalize text-[var(--color-ink-3)]">
+                        <p className="text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
                           {m.authorName} · <Ago iso={m.sentAt} />
                         </p>
                         <p className="mt-0.5 rounded-[var(--radius-md)] bg-[var(--color-sunken)] px-3 py-2 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink)]">
@@ -318,7 +316,7 @@ export default async function OperatorCasePage({
           </div>
 
           {/* ============ Column 3 · the decision ================= */}
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {kase.state === 'DISPUTED' && kase.dispute?.state !== 'RESOLVED' ? (
               <RulingPanel dealId={kase.dealId} dealCode={kase.dealCode} />
             ) : (
@@ -367,11 +365,7 @@ export default async function OperatorCasePage({
                         ) : null}
                       </p>
                       <p className="mt-0.5 text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
-                        {entry.actorName ? (
-                          <span className="capitalize">{entry.actorName}</span>
-                        ) : (
-                          'system'
-                        )}
+                        {entry.actorName ?? 'system'}
                         {entry.toState ? ` → ${entry.toState.toLowerCase()}` : ''} ·{' '}
                         <Ago iso={entry.at} />
                       </p>

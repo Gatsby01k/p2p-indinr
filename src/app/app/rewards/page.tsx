@@ -177,7 +177,7 @@ export default async function RewardsPage() {
                 {referrals.map((r) => (
                   <li key={r.referralId} className="flex items-center gap-3 px-4 py-3 sm:px-5">
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[length:var(--text-sm)] font-medium capitalize text-[var(--color-ink)]">
+                      <span className="block truncate text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
                         {r.inviteeName}
                       </span>
                       <span className="block truncate text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">

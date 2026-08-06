@@ -47,3 +47,15 @@ advisories are on this application's path: it uses no `next/image`.
 
 Breaks the Next build tracer (it produces a null byte in the path) and Vite's
 module resolver. Clone into a path without one.
+
+Running the app from such a path fails in three separate places, all with
+the same root cause:
+
+- `next build` — the file tracer produces a null byte and aborts.
+- `next dev` — PostCSS config resolution truncates the path at the `#`,
+  so `globals.css` cannot compile and every page 500s.
+- `vitest` — Vite's module resolver cannot load `/@vite/env`.
+
+Verification for this repository is therefore run from a copy at a path
+without a `#`. Nothing in the application code is involved, and the
+production build, both test suites and the dev server all pass there.

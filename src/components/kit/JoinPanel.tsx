@@ -108,9 +108,15 @@ export function JoinPanel({
           onChange={(e) => setAccepted(e.target.checked)}
           className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-brand)]"
         />
+        {/*
+          The role is quoted, not lower-cased into the sentence. `INR` and
+          `USDT` are acronyms — "I will pay the inr" reads as a typo, and a
+          consent line that looks sloppy is a consent line people distrust.
+        */}
         <span className="text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-2)]">
-          I understand I will {seat.toLowerCase()} for this deal, and that it is for a legitimate
-          service or exchange.{' '}
+          I understand my side of this deal is to{' '}
+          <strong className="font-semibold text-[var(--color-ink)]">{seat}</strong>, and that it is
+          for a legitimate service or exchange.{' '}
           <a
             href="/app/help#terms"
             className="font-semibold text-[var(--color-brand)] underline underline-offset-2"
@@ -159,7 +165,7 @@ export function JoinPanel({
       </button>
 
       <p className="text-center text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-        You would {seat.toLowerCase()} of{' '}
+        Your side: <strong className="font-semibold text-[var(--color-ink-2)]">{seat}</strong> ·{' '}
         <strong className="tnum font-semibold text-[var(--color-ink-2)]">{amountLabel}</strong>.
         First come, decided by the server.
       </p>

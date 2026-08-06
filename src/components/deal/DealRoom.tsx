@@ -116,10 +116,17 @@ export function DealRoom({ deal }: { deal: DealView }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
       {/* ================= COLUMN 1 · the deal ==================== */}
-      <div className={cn('space-y-4', tab === 'overview' ? 'block' : 'hidden', 'lg:block')}>
+      <div className={cn('min-w-0 space-y-4', tab === 'overview' ? 'block' : 'hidden', 'lg:block')}>
         <Card flush className="animate-rise">
-          <header className="flex items-start justify-between gap-3 border-b border-[var(--color-line)] px-4 py-3.5 sm:px-5">
-            <div className="min-w-0">
+          {/*
+            `flex-wrap` with a full-width title: in a 20rem column the label,
+            the deal name and a status badge cannot share one row without the
+            name truncating to nothing. Wrapping keeps the name whole and
+            drops the badge to its own line, which is the right sacrifice —
+            the badge is three words, the name is what identifies the deal.
+          */}
+          <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--color-line)] px-4 py-3.5 sm:px-5">
+            <div className="min-w-0 flex-1 basis-full sm:basis-auto">
               <Label>{scenario.title}</Label>
               <h2 className="mt-0.5 truncate text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
                 {dealTitle(deal)}
@@ -228,7 +235,7 @@ export function DealRoom({ deal }: { deal: DealView }) {
       </div>
 
       {/* ================= COLUMN 2 · what happens now ============= */}
-      <div className={cn('space-y-4', tab === 'overview' ? 'block' : 'hidden', 'lg:block')}>
+      <div className={cn('min-w-0 space-y-4', tab === 'overview' ? 'block' : 'hidden', 'lg:block')}>
         {failure ? (
           <Notice
             tone="risk"
@@ -334,11 +341,8 @@ export function DealRoom({ deal }: { deal: DealView }) {
                   Problem reported
                 </h2>
                 <p className="mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-                  by{' '}
-                  <span className="capitalize">
-                    {deal.dispute.raisedByViewer ? 'you' : deal.dispute.raisedByName}
-                  </span>{' '}
-                  · <Ago iso={deal.dispute.raisedAt} />
+                  by {deal.dispute.raisedByViewer ? 'you' : deal.dispute.raisedByName} ·{' '}
+                  <Ago iso={deal.dispute.raisedAt} />
                 </p>
               </div>
             </div>
@@ -395,7 +399,7 @@ export function DealRoom({ deal }: { deal: DealView }) {
       </div>
 
       {/* ================= COLUMN 3 · chat and proof =============== */}
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         <Card
           flush
           className={cn(
@@ -543,8 +547,8 @@ export function DealRoom({ deal }: { deal: DealView }) {
         }
       >
         <p className="text-[length:var(--text-base)] leading-relaxed text-[var(--color-ink-2)]">
-          <span className="capitalize">{deal.counterpartyName}</span> is told immediately, and the
-          deal closes for good. Nothing was transferred, so nothing is returned.
+          {deal.counterpartyName} is told immediately, and the deal closes for good. Nothing was
+          transferred, so nothing is returned.
         </p>
         <Callout tone="info" icon="info" className="mt-3">
           Once a payment has been marked sent, cancelling is no longer possible — that would strand
@@ -579,7 +583,7 @@ function Party({
     >
       <Avatar name={name} size="sm" verified={verified} />
       <div className="min-w-0">
-        <p className="truncate text-[length:var(--text-sm)] font-semibold capitalize text-[var(--color-ink)]">
+        <p className="truncate text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
           {name}
         </p>
         <p className="truncate text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">{role}</p>
@@ -675,7 +679,7 @@ function Receipt({ deal }: { deal: DealView }) {
           Deal completed
         </h2>
         <p className="mt-1 text-[length:var(--text-base)] text-[var(--color-ink-3)]">
-          Released to <span className="capitalize">{isFiat ? deal.counterpartyName : 'you'}</span>
+          Released to {isFiat ? deal.counterpartyName : 'you'}
         </p>
 
         <p className="tnum mt-4 text-[length:var(--text-4xl)] font-semibold tracking-[-0.03em] text-[var(--color-ink)]">
@@ -708,7 +712,7 @@ function Receipt({ deal }: { deal: DealView }) {
           </Fact>
           <Fact term="Completed">{deal.completedAt ? <Ago iso={deal.completedAt} /> : '—'}</Fact>
           <Fact term="Counterparty">
-            <span className="inline-flex items-center gap-1.5 capitalize">
+            <span className="inline-flex items-center gap-1.5">
               {deal.counterpartyName}
               {deal.counterpartyVerified ? <VerifiedTick /> : null}
             </span>
