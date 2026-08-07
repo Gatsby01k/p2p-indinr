@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci --omit=optional",
+  "framework": "nextjs",
+  "regions": ["iad1"]
+}
