@@ -1,24 +1,41 @@
 # Why `vercel.json` says what it says
 
-Three settings, each with a reason worth writing down.
+Two settings, and one deliberate omission that cost a broken deploy.
 
-## `installCommand: npm ci --omit=optional`
+## ⚠ Never add `--omit=optional` to the install command
 
-`embedded-postgres` is an **optional** dependency carrying 144 MB of real
-PostgreSQL 18 server binaries. It exists so `npm run db:start` can run a
-genuine database locally without Docker or Homebrew.
+It was here once. It broke every build:
 
-Nothing under `src/` imports it — only `scripts/db.mjs` does, and that script
-never runs on a deployment. Installing it on every build would download
-144 MB, slow each deploy, and put a database server inside a serverless
-bundle that must never contain one.
+```
+Cannot find module '@tailwindcss/oxide-linux-x64-gnu'
+```
 
-Verified rather than assumed: the production build was run with the package
-removed from `node_modules` entirely, and compiled successfully.
+The reasoning that put it there was: `embedded-postgres` is an optional
+dependency carrying 144 MB of PostgreSQL server binaries, nothing under
+`src/` imports it, so skipping it should make builds faster.
 
-`npm ci` rather than `npm install` because the lockfile is committed and a
-deployment should install exactly what was tested, not whatever resolves
-today.
+The flaw is that **`--omit=optional` is not selective.** It drops optional
+dependencies throughout the whole tree, and npm distributes platform-specific
+native binaries precisely through `optionalDependencies` — one entry per
+platform, so exactly one installs. `@tailwindcss/oxide` is a Rust module that
+works this way, so the flag removed the Tailwind compiler for the build
+platform and CSS compilation died.
+
+Measured, not guessed:
+
+| Install | `@tailwindcss/oxide-<platform>` |
+|---|---|
+| `npm ci` | present, under `@tailwindcss/postcss/node_modules/` |
+| `npm ci --omit=optional` | **absent** |
+
+The 144 MB is a build-time download only. Nothing imports the package, so
+Next never traces it into a serverless function — the concern that motivated
+the flag did not exist, and the flag broke something real to solve it.
+
+**The lesson worth keeping:** the original claim of "verified rather than
+assumed" was false. What had been tested was deleting `@embedded-postgres`
+from `node_modules` by hand — not running the flag. Testing an approximation
+of a change is not testing the change.
 
 ## `regions: ["iad1"]`
 
