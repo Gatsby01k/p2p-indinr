@@ -120,7 +120,6 @@ export function TelegramMainButton({
 
     const fire = () => handler.current();
     tg.MainButton.onClick(fire);
-    document.documentElement.dataset.tgMainbutton = '1';
 
     return () => {
       tg.MainButton.offClick(fire);
@@ -144,7 +143,7 @@ export function TelegramMainButton({
     const raw = style.getPropertyValue(tone === 'final' ? '--color-final' : '--color-brand').trim();
     const color = /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : undefined;
 
-    guarded(() =>
+    const applied = guarded(() =>
       tg.MainButton.setParams({
         text,
         is_visible: true,
@@ -153,6 +152,25 @@ export function TelegramMainButton({
       }),
     );
     guarded(() => (loading ? tg.MainButton.showProgress(false) : tg.MainButton.hideProgress()));
+
+    /*
+     * ⚠ THE IN-PAGE BUTTON ONLY HIDES ONCE TELEGRAM'S IS REALLY THERE.
+     *
+     * `data-tg-mainbutton` drives a stylesheet rule that hides
+     * `[data-mirrored-cta]`. Setting it on mount — as this did — meant that
+     * on any client where `setParams` was refused (an older API version,
+     * where `guarded` swallows the throw) the page hid its own button and
+     * Telegram never showed one. The person is then looking at a payment
+     * screen with no way to pay.
+     *
+     * So the flag is set from what Telegram REPORTS, not from what we
+     * asked for: both that the call succeeded and that `isVisible` is now
+     * true. If either is false the page keeps its own button, and the worst
+     * case is two buttons rather than none.
+     */
+    const visible = applied && tg.MainButton.isVisible === true;
+    if (visible) document.documentElement.dataset.tgMainbutton = '1';
+    else delete document.documentElement.dataset.tgMainbutton;
   }, [text, disabled, loading, tone]);
 
   return null;

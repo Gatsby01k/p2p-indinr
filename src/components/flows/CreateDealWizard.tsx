@@ -11,6 +11,8 @@ import { PAYMENT_WINDOW_MINUTES, REFERENCE_RATE, rateDisplay } from '@/lib/rate'
 import { SCENARIO, type Scenario } from '@/lib/scenario';
 import { cn } from '@/lib/cn';
 import { AssetMark, Icon } from '@/components/kit/Icon';
+import { TelegramClosingGuard, TelegramMainButton } from '@/components/telegram/TelegramButtons';
+import { haptic } from '@/lib/telegramSdk';
 import {
   Callout,
   Card,
@@ -143,11 +145,34 @@ export function CreateDealWizard({
       {/* The action. Fixed above the tab bar on mobile so it is always in
           thumb reach; inline on desktop where the page is not scrolled. */}
       <div className="pb-safe fixed inset-x-0 bottom-[var(--h-tabbar)] z-30 border-t border-[var(--color-line)] bg-[var(--color-canvas)]/95 px-4 py-3 backdrop-blur-[10px] lg:static lg:col-start-1 lg:row-start-2 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
+        {/*
+          Creating a deal is the product's flagship flow, so inside Telegram
+          it drives Telegram's own MainButton — the control a Telegram user
+          reaches for without thinking. Both steps mirror; the in-page button
+          stays in the DOM for the browser, for assistive technology, and for
+          any client where Telegram's button did not actually appear.
+        */}
+        <TelegramMainButton
+          text={
+            step === 'terms' ? 'Review deal' : `Protect ${quote ? quote.payerSends : ''}`.trim()
+          }
+          disabled={!ready}
+          loading={pending}
+          onClick={() => {
+            haptic('medium');
+            if (step === 'terms') setStep('review');
+            else submit();
+          }}
+        />
+        {/* A part-filled deal form is real work; a stray swipe should ask. */}
+        <TelegramClosingGuard active={ready || draft.amount.trim().length > 0} />
+
         {step === 'terms' ? (
           <button
             type="button"
             disabled={!ready}
             onClick={() => setStep('review')}
+            data-mirrored-cta
             className={buttonClass('primary', 'lg', true)}
           >
             Review deal
@@ -159,6 +184,7 @@ export function CreateDealWizard({
             disabled={!ready || pending}
             onClick={submit}
             data-testid="secure-submit"
+            data-mirrored-cta
             className={buttonClass('primary', 'lg', true)}
           >
             {pending ? (
@@ -252,48 +278,94 @@ function useQuotePreview(draft: Draft): QuotePreview | null {
 
 const STEP_LABELS = ['Set terms', 'Secure', 'Share', 'Complete'] as const;
 
+/**
+ * The wizard's progress rail.
+ *
+ * Four labelled steps need about 394px. A phone gives the content column
+ * 343px, so the rail used to overflow a `no-bar` scroller and silently clip
+ * the last step to "4 C…" — a progress indicator that hides the end state
+ * is worse than none, because it reads as breakage.
+ *
+ * So the rail has two forms. Narrow: dots for position, and only the
+ * CURRENT step named, which is the one piece of information a person needs
+ * mid-flow. Wide: every step named, where there is room for it.
+ *
+ * One `aria-label` carries the full state to assistive technology in both,
+ * so the compact form loses nothing but pixels.
+ */
 function StepRail({ step }: { step: Step }) {
   const index = step === 'terms' ? 0 : 1;
+  const label = `Step ${index + 1} of ${STEP_LABELS.length}: ${STEP_LABELS[index]}`;
+
+  const dot = (i: number, state: 'done' | 'now' | 'todo', compact: boolean) => (
+    <span
+      aria-hidden
+      className={cn(
+        'grid place-items-center rounded-full font-bold transition-colors',
+        compact ? 'h-2 w-2 text-[0px]' : 'h-5 w-5 text-[10px]',
+        state === 'done' && 'bg-[var(--color-final)] text-white',
+        state === 'now' && 'bg-[var(--color-brand)] text-white',
+        state === 'todo' && 'bg-[var(--color-sunken)] text-[var(--color-ink-4)]',
+        // The current dot is wider than tall on the compact rail, so
+        // position is readable at a glance without any label.
+        compact && state === 'now' && 'w-5',
+      )}
+    >
+      {compact ? null : state === 'done' ? (
+        <Icon name="check" className="h-2.5 w-2.5" strokeWidth={3.5} />
+      ) : (
+        i + 1
+      )}
+    </span>
+  );
+
+  const stateAt = (i: number): 'done' | 'now' | 'todo' =>
+    i < index ? 'done' : i === index ? 'now' : 'todo';
+
   return (
-    <ol className="no-bar flex items-center gap-2 overflow-x-auto" aria-label="Progress">
-      {STEP_LABELS.map((label, i) => {
-        const state = i < index ? 'done' : i === index ? 'now' : 'todo';
-        return (
-          <li key={label} className="flex shrink-0 items-center gap-2">
-            <span
-              className={cn(
-                'grid h-5 w-5 place-items-center rounded-full text-[10px] font-bold',
-                state === 'done' && 'bg-[var(--color-final)] text-white',
-                state === 'now' && 'bg-[var(--color-brand)] text-white',
-                state === 'todo' && 'bg-[var(--color-sunken)] text-[var(--color-ink-4)]',
-              )}
-            >
-              {state === 'done' ? (
-                <Icon name="check" className="h-2.5 w-2.5" strokeWidth={3.5} />
-              ) : (
-                i + 1
-              )}
-            </span>
-            <span
-              className={cn(
-                'text-[length:var(--text-xs)] font-medium',
-                state === 'now'
-                  ? 'text-[var(--color-ink)]'
-                  : state === 'done'
-                    ? 'text-[var(--color-ink-2)]'
-                    : 'text-[var(--color-ink-4)]',
-              )}
-            >
-              {label}
-            </span>
-            {i < STEP_LABELS.length - 1 ? (
-              <span aria-hidden className="h-px w-4 bg-[var(--color-line)] sm:w-8" />
-            ) : null}
-            <span className="sr-only">{state === 'now' ? ' — current step' : ''}</span>
-          </li>
-        );
-      })}
-    </ol>
+    <div aria-label={label} role="group">
+      {/* Narrow: dots plus the current step, named. */}
+      <div className="flex items-center gap-2.5 sm:hidden">
+        <div className="flex shrink-0 items-center gap-1.5">
+          {STEP_LABELS.map((l, i) => (
+            <span key={l}>{dot(i, stateAt(i), true)}</span>
+          ))}
+        </div>
+        <p className="min-w-0 truncate text-[length:var(--text-xs)] font-semibold text-[var(--color-ink)]">
+          <span className="text-[var(--color-ink-4)]">
+            {index + 1}/{STEP_LABELS.length}
+          </span>{' '}
+          {STEP_LABELS[index]}
+        </p>
+      </div>
+
+      {/* Wide: the full rail. */}
+      <ol className="hidden items-center gap-2 sm:flex" aria-hidden>
+        {STEP_LABELS.map((l, i) => {
+          const state = stateAt(i);
+          return (
+            <li key={l} className="flex shrink-0 items-center gap-2">
+              {dot(i, state, false)}
+              <span
+                className={cn(
+                  'text-[length:var(--text-xs)] font-medium',
+                  state === 'now'
+                    ? 'text-[var(--color-ink)]'
+                    : state === 'done'
+                      ? 'text-[var(--color-ink-2)]'
+                      : 'text-[var(--color-ink-4)]',
+                )}
+              >
+                {l}
+              </span>
+              {i < STEP_LABELS.length - 1 ? (
+                <span aria-hidden className="h-px w-4 bg-[var(--color-line)] sm:w-8" />
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
