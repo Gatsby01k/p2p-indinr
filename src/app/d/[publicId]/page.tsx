@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { headers } from 'next/headers';
 import Link from 'next/link';
 import { dealIdForLink, getLinkPreview } from '@/server/sandbox/service';
 import { currentUser } from '@/server/sandbox/session';
@@ -7,6 +6,7 @@ import { formatMinor } from '@/lib/format';
 import { PREVIEW_META, leg, previewHeadline, rateLabel, settlementLegs } from '@/lib/dealPresenter';
 import { SCENARIO } from '@/lib/scenario';
 import { miniAppDealLink } from '@/lib/miniApp';
+import { publicUrl } from '@/lib/publicUrl';
 import { TopBar } from '@/components/kit/AppChrome';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { AssetMark, Icon } from '@/components/kit/Icon';
@@ -90,7 +90,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function DealLinkPage({ params }: Params) {
   const { publicId } = await params;
   const viewer = await currentUser();
-  const [preview, h] = await Promise.all([getLinkPreview(publicId, viewer), headers()]);
+  const preview = await getLinkPreview(publicId, viewer);
 
   if (!preview) {
     return (
@@ -109,9 +109,10 @@ export default async function DealLinkPage({ params }: Params) {
 
   const meta = PREVIEW_META[preview.displayStatus];
   const scenario = SCENARIO[preview.direction];
-  const host = h.get('host') ?? 'localhost';
-  const proto = h.get('x-forwarded-proto') ?? 'http';
-  const url = `${proto}://${host}/d/${preview.publicId}`;
+  // The canonical address, never the one this viewer happens to be on:
+  // a deal link is forwarded to someone else, and a Vercel deployment URL
+  // would bounce them to a login page for a team they are not in.
+  const url = await publicUrl(`/d/${preview.publicId}`);
   const headline = previewHeadline(preview);
   const settle = settlementLegs(preview);
   const usdt = leg(preview.usdtMinor, 'USDT');

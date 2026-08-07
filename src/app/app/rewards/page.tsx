@@ -1,4 +1,3 @@
-import { headers } from 'next/headers';
 import { getChrome } from '@/server/sandbox/chrome';
 import {
   dealsToNextLevel,
@@ -13,6 +12,7 @@ import { Icon, type IconName } from '@/components/kit/Icon';
 import { Ago } from '@/components/kit/Time';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { InviteBlock } from '@/components/flows/InviteBlock';
+import { publicUrl } from '@/lib/publicUrl';
 import {
   Callout,
   Card,
@@ -44,16 +44,13 @@ const POINTS_PER_RUPEE = 10;
 
 export default async function RewardsPage() {
   const { user, unread } = await getChrome();
-  const [profile, rewards, referrals, h] = await Promise.all([
+  const [profile, rewards, referrals] = await Promise.all([
     getTrustProfile(user),
     listRewards(user),
     listReferrals(user),
-    headers(),
   ]);
 
-  const host = h.get('host') ?? 'localhost';
-  const proto = h.get('x-forwarded-proto') ?? 'http';
-  const inviteUrl = `${proto}://${host}/login?invite=${profile.referralCode}`;
+  const inviteUrl = await publicUrl(`/login?invite=${profile.referralCode}`);
 
   const qualified = referrals.filter((r) => r.qualifiedAt !== null);
   const toNext = dealsToNextLevel(profile.completedDeals);
