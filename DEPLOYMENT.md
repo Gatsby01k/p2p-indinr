@@ -56,6 +56,10 @@ On Vercel: **Project → Settings → Environment Variables**, all three for the
 Production environment, then redeploy. Environment changes do not apply to an
 existing deployment.
 
+> **Check the production branch.** Vercel deploys `main` by default. If the
+> work you want live is on another branch, either merge it or set
+> **Settings → Git → Production Branch**.
+
 ## 4. Verify
 
 ```
@@ -69,6 +73,62 @@ reachable — check `DATABASE_URL` and that step 2 actually ran.
 
 Sandbox accounts are chosen by email prefix: `ops@…` is an operator, `new@…`
 is unverified and cannot join, anything else is a verified trader.
+
+## 5. Connect the Telegram Mini App (optional)
+
+Skip this and nothing breaks — the web app is unaffected and only the Mini
+App refuses to sign anyone in. Full detail in
+[docs/TELEGRAM-MINI-APP.md](docs/TELEGRAM-MINI-APP.md); this is the order.
+
+**The ordering is not arbitrary.** BotFather needs the deployed URL before it
+can create the Mini App, and the Mini App's short name is part of the value
+you then feed back into the build. So it goes deploy → BotFather → variables
+→ **redeploy**.
+
+1. **Deploy first** (steps 1–4) and note the URL, e.g.
+   `https://inrp2p.vercel.app`. It must be HTTPS: Telegram refuses `http://`,
+   and the Mini App's session cookie is `Secure`, so a plain-HTTP host would
+   drop it and sign-in would appear to work and then not stick.
+
+2. **In [@BotFather](https://t.me/BotFather)**
+
+   ```
+   /newbot          create the bot; copy the token
+   /newapp          pick the bot, give it the HTTPS URL above and a short
+                    name — that short name becomes the /app in the link
+   /setmenubutton   optional: open the app from the chat header
+   ```
+
+3. **Add two more variables** on Vercel:
+
+   | Variable | Secret? | Value |
+   |---|---|---|
+   | `TELEGRAM_BOT_TOKEN` | **Yes** | the token from `/newbot` |
+   | `NEXT_PUBLIC_TELEGRAM_MINI_APP` | No | `https://t.me/<bot>/<short-name>` |
+
+   The bot token is the key every launch signature is verified against.
+   Anyone holding it can forge a launch for **any** Telegram user, which
+   means signing in as them. Treat it like a private key; rotate with
+   `/revoke` if it leaks.
+
+4. **Redeploy.** `NEXT_PUBLIC_*` is inlined at build time, so setting it
+   without a rebuild leaves the old value — usually `undefined` — compiled
+   into the bundle. Share links would then point at the web page instead of
+   the Mini App, which looks like the feature silently not working.
+
+5. **Open the app from the bot** and check, in this order, because each one
+   fails differently:
+
+   | Symptom | Cause |
+   |---|---|
+   | Stuck on “Opening INRP2P…” | `TELEGRAM_BOT_TOKEN` missing or wrong |
+   | Signs in, then appears signed out | Not HTTPS, so the `Secure` cookie was dropped |
+   | Blank frame on Telegram **Web** only | A proxy or host is re-adding `X-Frame-Options` |
+   | Share sends a web link, not a Mini App link | `NEXT_PUBLIC_TELEGRAM_MINI_APP` set but not rebuilt |
+
+   Worth testing on a real phone **and** on Telegram Web — Web is the only
+   surface that uses the cross-site iframe, so it is the only one that
+   exercises the `SameSite=None` cookie path.
 
 ---
 
