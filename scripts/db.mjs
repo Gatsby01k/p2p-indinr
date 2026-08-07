@@ -33,15 +33,59 @@ const USER = 'inrp2p_sandbox';
 const PASSWORD = 'sandbox-local-only';
 const DB = 'inrp2p_sandbox';
 
+/**
+ * Load `.env.local`, the way `next dev` already does.
+ *
+ * Without this, pointing a migration at a hosted database means typing the
+ * connection string into the terminal:
+ *
+ *     DATABASE_URL='postgres://user:PASSWORD@host/db' npm run db:migrate
+ *
+ * which writes the password into shell history, into the process list where
+ * any other program on the machine can read it, and often into a screen
+ * recording or a pasted snippet. Reading it from the same git-ignored file
+ * the app already uses removes every one of those.
+ *
+ * A real environment variable still wins, so CI — which injects secrets
+ * properly — is unaffected. Deliberately minimal: `KEY=value`, `#` comments,
+ * and one level of surrounding quotes. Anything more elaborate belongs in a
+ * dependency, and this script has none.
+ */
+function loadEnvLocal() {
+  const file = path.join(ROOT, '.env.local');
+  if (!existsSync(file)) return;
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    // An exported variable is the operator's explicit instruction for this
+    // one run; a file is a default. The instruction wins.
+    if (process.env[key] !== undefined) continue;
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith("'") && value.endsWith("'")) ||
+      (value.startsWith('"') && value.endsWith('"'))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
+
+loadEnvLocal();
+
 /** The embedded database this script can start and stop locally. */
 export const LOCAL_URL = `postgres://${USER}:${PASSWORD}@127.0.0.1:${PORT}/${DB}`;
 
 /**
  * The database commands act on.
  *
- * `DATABASE_URL` wins when set, so `npm run db:migrate` can target a hosted
- * PostgreSQL for a deployment. `start`/`stop`/`reset` only ever manage the
- * LOCAL embedded server and refuse to touch a remote one.
+ * `DATABASE_URL` wins when set — from the real environment or from
+ * `.env.local` — so `npm run db:migrate` can target a hosted PostgreSQL for
+ * a deployment. `start`/`stop`/`reset` only ever manage the LOCAL embedded
+ * server and refuse to touch a remote one.
  */
 export const DATABASE_URL = process.env.DATABASE_URL || LOCAL_URL;
 
