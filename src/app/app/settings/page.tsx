@@ -5,6 +5,7 @@ import { AppHeader } from '@/components/kit/AppChrome';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { ProfileForm } from '@/components/flows/ProfileForm';
 import { Callout, Card, ListRow, SectionHead, Shell } from '@/components/kit/primitives';
+import { accountHandle } from '@/lib/sandboxContract';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export default async function SettingsPage() {
             <ListRow
               icon="profile"
               title="Signed in as"
-              subtitle={profile.email}
+              subtitle={accountHandle(profile)}
               value={user.isOperator ? 'Operator' : undefined}
             />
             <ListRow

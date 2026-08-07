@@ -166,71 +166,196 @@
    tokens are restated as plain custom properties. Only ground and ink
    invert — the saffron and the status colours carry over, brightened just
    enough to hold contrast on a dark ground. */
+/* The dark palette, defined ONCE.
+ *
+ * These are inert on their own — nothing reads `--dk-*` except the two
+ * mapping blocks below. Keeping the VALUES in a single place is the point:
+ * the mapping is mechanical and safe to repeat, whereas two hand-maintained
+ * copies of fifty colours drift, and a drifted dark theme is how a disabled
+ * button ends up the same colour as an enabled one. */
+:root {
+  --dk-canvas: #100e0c;
+  --dk-paper: #191512;
+  --dk-sunken: #221d19;
+  --dk-inset: #2a2420;
+
+  --dk-ink: #f8f4ee;
+  --dk-ink-2: #e0d9d0;
+  --dk-ink-3: #a79d92;
+  --dk-ink-4: #7c7268;
+  --dk-ink-5: #5c534b;
+
+  --dk-line: #2c2621;
+  --dk-rule: #3b342c;
+  --dk-edge: #574e44;
+
+  --dk-nav: #0b0908;
+  --dk-nav-2: #17130f;
+  --dk-nav-3: #251f1a;
+  --dk-nav-ink: #f6f2ec;
+  --dk-nav-ink-2: #a89e93;
+  --dk-nav-ink-3: #6f665c;
+
+  --dk-brand: #ff6a37;
+  --dk-brand-hover: #ff804f;
+  --dk-brand-press: #e2521f;
+  --dk-brand-tint: #2b1409;
+  --dk-brand-tint-2: #3d1c0c;
+  --dk-brand-line: #6d3312;
+  --dk-brand-ink: #ffb595;
+
+  --dk-final: #46c088;
+  --dk-final-tint: #0c2018;
+  --dk-final-line: #1d4a34;
+  --dk-risk: #f47a68;
+  --dk-risk-tint: #2a1310;
+  --dk-risk-line: #5d2a20;
+  --dk-hold: #d9b357;
+  --dk-hold-tint: #241d0b;
+  --dk-hold-line: #4d3f1e;
+  --dk-idle: #a79d92;
+  --dk-idle-tint: #201c18;
+  --dk-idle-line: #363028;
+  --dk-info: #6aa5e8;
+  --dk-info-tint: #0e1a28;
+  --dk-info-line: #24405f;
+
+  --dk-usdt: #3fc09b;
+  --dk-usdt-tint: #0b241d;
+
+  --dk-shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.24);
+  --dk-shadow-raised: 0 1px 2px rgb(0 0 0 / 0.32), 0 4px 12px -4px rgb(0 0 0 / 0.45);
+  --dk-shadow-lift: 0 2px 4px rgb(0 0 0 / 0.36), 0 12px 32px -10px rgb(0 0 0 / 0.6);
+  --dk-shadow-sheet: 0 -1px 3px rgb(0 0 0 / 0.4), 0 -16px 40px -12px rgb(0 0 0 / 0.7);
+  --dk-shadow-brand: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 16px -6px rgb(255 106 55 / 0.3);
+}
+
+/* Applying the dark palette.
+ *
+ * Two entry points, because two different things can ask for dark:
+ *
+ *   `data-theme="dark"`  an explicit decision — inside a Telegram Mini App
+ *                        this follows TELEGRAM's colour scheme, which can
+ *                        differ from the operating system's.
+ *   the media query      the default when nothing has decided, so the site
+ *                        still respects the OS with JavaScript disabled.
+ *
+ * `data-theme="light"` therefore has to defeat the media query, which is
+ * why the fallback selector excludes it explicitly. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --color-canvas: #100e0c;
-    --color-paper: #191512;
-    --color-sunken: #221d19;
-    --color-inset: #2a2420;
-
-    --color-ink: #f8f4ee;
-    --color-ink-2: #e0d9d0;
-    --color-ink-3: #a79d92;
-    --color-ink-4: #7c7268;
-    --color-ink-5: #5c534b;
-
-    --color-line: #2c2621;
-    --color-rule: #3b342c;
-    --color-edge: #574e44;
-
-    --color-nav: #0b0908;
-    --color-nav-2: #17130f;
-    --color-nav-3: #251f1a;
-    --color-nav-ink: #f6f2ec;
-    --color-nav-ink-2: #a89e93;
-    --color-nav-ink-3: #6f665c;
-
-    --color-brand: #ff6a37;
-    --color-brand-hover: #ff804f;
-    --color-brand-press: #e2521f;
-    --color-brand-tint: #2b1409;
-    --color-brand-tint-2: #3d1c0c;
-    --color-brand-line: #6d3312;
-    --color-brand-ink: #ffb595;
-
-    --color-action: #ff6a37;
-    --color-action-hover: #ff804f;
-    --color-action-press: #e2521f;
-    --color-action-tint: #2b1409;
-    --color-action-line: #6d3312;
-
-    --color-final: #46c088;
-    --color-final-tint: #0c2018;
-    --color-final-line: #1d4a34;
-    --color-risk: #f47a68;
-    --color-risk-tint: #2a1310;
-    --color-risk-line: #5d2a20;
-    --color-hold: #d9b357;
-    --color-hold-tint: #241d0b;
-    --color-hold-line: #4d3f1e;
-    --color-idle: #a79d92;
-    --color-idle-tint: #201c18;
-    --color-idle-line: #363028;
-    --color-info: #6aa5e8;
-    --color-info-tint: #0e1a28;
-    --color-info-line: #24405f;
-
-    --color-inr: #ff6a37;
-    --color-inr-tint: #2b1409;
-    --color-usdt: #3fc09b;
-    --color-usdt-tint: #0b241d;
-
-    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.24);
-    --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.32), 0 4px 12px -4px rgb(0 0 0 / 0.45);
-    --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.36), 0 12px 32px -10px rgb(0 0 0 / 0.6);
-    --shadow-sheet: 0 -1px 3px rgb(0 0 0 / 0.4), 0 -16px 40px -12px rgb(0 0 0 / 0.7);
-    --shadow-brand: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 16px -6px rgb(255 106 55 / 0.3);
+  :root:not([data-theme='light']) {
+    --color-canvas: var(--dk-canvas);
+    --color-paper: var(--dk-paper);
+    --color-sunken: var(--dk-sunken);
+    --color-inset: var(--dk-inset);
+    --color-ink: var(--dk-ink);
+    --color-ink-2: var(--dk-ink-2);
+    --color-ink-3: var(--dk-ink-3);
+    --color-ink-4: var(--dk-ink-4);
+    --color-ink-5: var(--dk-ink-5);
+    --color-line: var(--dk-line);
+    --color-rule: var(--dk-rule);
+    --color-edge: var(--dk-edge);
+    --color-nav: var(--dk-nav);
+    --color-nav-2: var(--dk-nav-2);
+    --color-nav-3: var(--dk-nav-3);
+    --color-nav-ink: var(--dk-nav-ink);
+    --color-nav-ink-2: var(--dk-nav-ink-2);
+    --color-nav-ink-3: var(--dk-nav-ink-3);
+    --color-brand: var(--dk-brand);
+    --color-brand-hover: var(--dk-brand-hover);
+    --color-brand-press: var(--dk-brand-press);
+    --color-brand-tint: var(--dk-brand-tint);
+    --color-brand-tint-2: var(--dk-brand-tint-2);
+    --color-brand-line: var(--dk-brand-line);
+    --color-brand-ink: var(--dk-brand-ink);
+    --color-action: var(--dk-brand);
+    --color-action-hover: var(--dk-brand-hover);
+    --color-action-press: var(--dk-brand-press);
+    --color-action-tint: var(--dk-brand-tint);
+    --color-action-line: var(--dk-brand-line);
+    --color-final: var(--dk-final);
+    --color-final-tint: var(--dk-final-tint);
+    --color-final-line: var(--dk-final-line);
+    --color-risk: var(--dk-risk);
+    --color-risk-tint: var(--dk-risk-tint);
+    --color-risk-line: var(--dk-risk-line);
+    --color-hold: var(--dk-hold);
+    --color-hold-tint: var(--dk-hold-tint);
+    --color-hold-line: var(--dk-hold-line);
+    --color-idle: var(--dk-idle);
+    --color-idle-tint: var(--dk-idle-tint);
+    --color-idle-line: var(--dk-idle-line);
+    --color-info: var(--dk-info);
+    --color-info-tint: var(--dk-info-tint);
+    --color-info-line: var(--dk-info-line);
+    --color-inr: var(--dk-brand);
+    --color-inr-tint: var(--dk-brand-tint);
+    --color-usdt: var(--dk-usdt);
+    --color-usdt-tint: var(--dk-usdt-tint);
+    --shadow-card: var(--dk-shadow-card);
+    --shadow-raised: var(--dk-shadow-raised);
+    --shadow-lift: var(--dk-shadow-lift);
+    --shadow-sheet: var(--dk-shadow-sheet);
+    --shadow-brand: var(--dk-shadow-brand);
   }
+}
+
+:root[data-theme='dark'] {
+  --color-canvas: var(--dk-canvas);
+  --color-paper: var(--dk-paper);
+  --color-sunken: var(--dk-sunken);
+  --color-inset: var(--dk-inset);
+  --color-ink: var(--dk-ink);
+  --color-ink-2: var(--dk-ink-2);
+  --color-ink-3: var(--dk-ink-3);
+  --color-ink-4: var(--dk-ink-4);
+  --color-ink-5: var(--dk-ink-5);
+  --color-line: var(--dk-line);
+  --color-rule: var(--dk-rule);
+  --color-edge: var(--dk-edge);
+  --color-nav: var(--dk-nav);
+  --color-nav-2: var(--dk-nav-2);
+  --color-nav-3: var(--dk-nav-3);
+  --color-nav-ink: var(--dk-nav-ink);
+  --color-nav-ink-2: var(--dk-nav-ink-2);
+  --color-nav-ink-3: var(--dk-nav-ink-3);
+  --color-brand: var(--dk-brand);
+  --color-brand-hover: var(--dk-brand-hover);
+  --color-brand-press: var(--dk-brand-press);
+  --color-brand-tint: var(--dk-brand-tint);
+  --color-brand-tint-2: var(--dk-brand-tint-2);
+  --color-brand-line: var(--dk-brand-line);
+  --color-brand-ink: var(--dk-brand-ink);
+  --color-action: var(--dk-brand);
+  --color-action-hover: var(--dk-brand-hover);
+  --color-action-press: var(--dk-brand-press);
+  --color-action-tint: var(--dk-brand-tint);
+  --color-action-line: var(--dk-brand-line);
+  --color-final: var(--dk-final);
+  --color-final-tint: var(--dk-final-tint);
+  --color-final-line: var(--dk-final-line);
+  --color-risk: var(--dk-risk);
+  --color-risk-tint: var(--dk-risk-tint);
+  --color-risk-line: var(--dk-risk-line);
+  --color-hold: var(--dk-hold);
+  --color-hold-tint: var(--dk-hold-tint);
+  --color-hold-line: var(--dk-hold-line);
+  --color-idle: var(--dk-idle);
+  --color-idle-tint: var(--dk-idle-tint);
+  --color-idle-line: var(--dk-idle-line);
+  --color-info: var(--dk-info);
+  --color-info-tint: var(--dk-info-tint);
+  --color-info-line: var(--dk-info-line);
+  --color-inr: var(--dk-brand);
+  --color-inr-tint: var(--dk-brand-tint);
+  --color-usdt: var(--dk-usdt);
+  --color-usdt-tint: var(--dk-usdt-tint);
+  --shadow-card: var(--dk-shadow-card);
+  --shadow-raised: var(--dk-shadow-raised);
+  --shadow-lift: var(--dk-shadow-lift);
+  --shadow-sheet: var(--dk-shadow-sheet);
+  --shadow-brand: var(--dk-shadow-brand);
 }
 
 /* ==================================================================== *
@@ -1174,5 +1299,111 @@
   .shadow-card,
   [class*='shadow-'] {
     box-shadow: none !important;
+  }
+}
+
+/* ==================================================================== *
+ * TELEGRAM MINI APP
+ *
+ * `html[data-tg="1"]` is set by TelegramProvider once the SDK confirms we
+ * are genuinely running inside Telegram. Everything below is scoped to it,
+ * so the ordinary web app is bit-for-bit unaffected.
+ *
+ * Three things differ inside Telegram and each is a real problem, not a
+ * cosmetic preference:
+ *
+ *  1. `100dvh` LIES. Telegram's webview reports a viewport that includes
+ *     area behind its own header and, on Android, behind the keyboard.
+ *     The SDK's `viewportStableHeight` is the honest number, published
+ *     here as `--tg-vh`. A fixed bottom bar positioned against `dvh` ends
+ *     up off-screen; positioned against `--tg-vh` it does not.
+ *
+ *  2. THE INSETS ARE TELEGRAM'S, not the OS's. `env(safe-area-inset-*)`
+ *     is zero inside the webview because Telegram already consumed it, so
+ *     the app has to use the values Telegram hands back instead.
+ *
+ *  3. TELEGRAM SUPPLIES THE BACK BUTTON. Ours would be a second one two
+ *     centimetres below it, and two back buttons that behave differently
+ *     is worse than either alone.
+ * ==================================================================== */
+
+:root {
+  /* Fallbacks for every surface outside Telegram, so the same declaration
+     works in both places and no rule needs a browser check. */
+  --tg-vh: 100dvh;
+  --tg-safe-top: 0px;
+  --tg-safe-bottom: 0px;
+  --tg-safe-left: 0px;
+  --tg-safe-right: 0px;
+  --tg-content-top: 0px;
+}
+
+html[data-tg='1'] {
+  /* Telegram's own scrim sits behind the app; matching it stops a pale
+     band appearing at the bounce edges on iOS. */
+  background: var(--color-canvas);
+}
+
+html[data-tg='1'] body {
+  /* Telegram Web hosts the app in an iframe whose height is fixed by the
+     parent. Letting the body scroll independently produces two nested
+     scrollbars and a header that drifts. */
+  overscroll-behavior: none;
+}
+
+/* Full-height surfaces measure against Telegram's stable viewport. */
+html[data-tg='1'] .min-h-dvh {
+  min-height: var(--tg-vh);
+}
+
+/* Telegram's header overlaps the top of the webview on some platforms;
+   `contentSafeAreaInset.top` is how much. */
+html[data-tg='1'] .pt-safe {
+  padding-top: calc(var(--tg-safe-top) + var(--tg-content-top));
+}
+
+html[data-tg='1'] .pb-safe {
+  padding-bottom: var(--tg-safe-bottom);
+}
+
+html[data-tg='1'] .px-safe {
+  padding-left: var(--tg-safe-left);
+  padding-right: var(--tg-safe-right);
+}
+
+html[data-tg='1'] .pb-tabbar {
+  padding-bottom: calc(var(--h-tabbar) + var(--tg-safe-bottom) + 0.5rem);
+}
+
+/* A sheet must not grow past Telegram's stable viewport, or its footer —
+   which is where the confirming button lives — ends up unreachable. */
+html[data-tg='1'] .sheet {
+  max-height: calc(var(--tg-vh) - 2.5rem);
+}
+
+/* Telegram renders its own back control in the header. */
+html[data-tg-back='1'] [data-app-back] {
+  display: none;
+}
+
+/* When Telegram's MainButton is mirroring a screen's primary action, the
+   in-page button would be a duplicate sitting right above it. The page
+   keeps rendering it for screen readers and for the no-JS path, but it
+   stops taking up space. */
+html[data-tg-mainbutton='1'] [data-mirrored-cta] {
+  display: none;
+}
+
+/* The tab bar sits above Telegram's own bottom inset rather than the OS
+   home indicator, which reads as zero inside the webview. */
+html[data-tg='1'] [data-tabbar] {
+  padding-bottom: var(--tg-safe-bottom);
+}
+
+/* Telegram already frames the app; a second sticky header inside a short
+   webview costs a disproportionate amount of the visible screen. */
+@media (max-height: 620px) {
+  html[data-tg='1'] [data-app-header] {
+    position: static;
   }
 }

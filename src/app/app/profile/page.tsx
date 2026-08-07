@@ -12,6 +12,7 @@ import { SCENARIO, type Scenario } from '@/lib/scenario';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon, type IconName } from '@/components/kit/Icon';
 import { Ago } from '@/components/kit/Time';
+import { accountHandle } from '@/lib/sandboxContract';
 import {
   ActionLink,
   Avatar,
@@ -109,7 +110,7 @@ export default async function ProfilePage() {
                 {profile.identityVerified ? <VerifiedTick /> : null}
               </h2>
               <p className="mt-0.5 truncate text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-                {profile.email} · member since <Ago iso={profile.memberSince} />
+                {accountHandle(profile)} · member since <Ago iso={profile.memberSince} />
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <Chip tone="brand" icon="star">
@@ -348,7 +349,7 @@ export default async function ProfilePage() {
         <div className="mt-6">
           <Label>Signed in as</Label>
           <p className="mt-1 text-[length:var(--text-sm)] text-[var(--color-ink-2)]">
-            {profile.email}
+            {accountHandle(profile)}
           </p>
         </div>
       </Shell>

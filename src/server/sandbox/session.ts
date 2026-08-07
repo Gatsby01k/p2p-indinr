@@ -66,12 +66,37 @@ function verify(token: string | undefined): string | null {
   return timingSafeEqual(a, b) ? userId : null;
 }
 
-export async function setSessionCookie(userId: string): Promise<void> {
+/**
+ * Issue the session cookie.
+ *
+ * `embedded` says the session was created inside a Telegram Mini App, which
+ * changes exactly one thing and for one concrete reason:
+ *
+ *   Telegram Web and Desktop host a Mini App in a CROSS-SITE IFRAME. A
+ *   `SameSite=Lax` cookie is not sent with requests from one, so the person
+ *   would sign in and immediately appear signed out. `SameSite=None` is the
+ *   only value browsers send there, and browsers require `Secure` with it —
+ *   which is why a Mini App must be served over HTTPS.
+ *
+ * The obvious objection to `SameSite=None` is CSRF, and it is answered
+ * elsewhere rather than ignored: every mutation in this product is a Next.js
+ * server action, and those verify the request's Origin against the host
+ * before running. The cookie is not the only thing standing between a
+ * cross-site page and a state change.
+ *
+ * Ordinary web sessions stay `Lax`. The relaxation is scoped to the sessions
+ * that genuinely need it, not applied to everyone for convenience.
+ */
+export async function setSessionCookie(userId: string, embedded = false): Promise<void> {
   const jar = await cookies();
+  const isProduction = process.env.NODE_ENV === 'production';
   jar.set(COOKIE, sign(userId), {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: embedded ? 'none' : 'lax',
+    // `SameSite=None` is invalid without `Secure`, so an embedded session
+    // sets it even in development — where it means the flow only works over
+    // HTTPS, which is what a Mini App requires anyway.
+    secure: embedded || isProduction,
     path: '/',
     maxAge: 60 * 60 * 8,
   });

@@ -1,10 +1,12 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useCallback, useState, useTransition } from 'react';
 import { joinAction } from '@/server/sandbox/actions';
 import { FAILURE_COPY, type PreviewStatus, type Role, type Scenario } from '@/lib/sandboxContract';
 import { SCENARIO } from '@/lib/scenario';
+import { haptic } from '@/lib/telegramSdk';
+import { TelegramMainButton } from '@/components/telegram/TelegramButtons';
 import { Icon } from './Icon';
 import { Notice, buttonClass } from './primitives';
 
@@ -41,6 +43,32 @@ export function JoinPanel({
   const [pending, startTransition] = useTransition();
   const [accepted, setAccepted] = useState(false);
   const [failure, setFailure] = useState<{ reason: string; nextStep: string } | null>(null);
+
+  /*
+   * One handler, shared by the in-page button and Telegram's MainButton, so
+   * the two can never drift into doing subtly different things. Haptics are
+   * a no-op outside Telegram.
+   */
+  const join = useCallback(() => {
+    startTransition(async () => {
+      setFailure(null);
+      const result = await joinAction(publicId);
+      if (result.ok && result.dealId) {
+        haptic('success');
+        router.push(`/app/deal/${result.dealId}`);
+        return;
+      }
+      haptic('error');
+      const copy = result.code && result.code !== 'UNKNOWN' ? FAILURE_COPY[result.code] : null;
+      setFailure(
+        copy ?? {
+          reason: result.message ?? 'That did not work.',
+          nextStep: 'Refresh the page to see the current state of this link.',
+        },
+      );
+      router.refresh();
+    });
+  }, [publicId, router]);
 
   if (!joinable) {
     const copy =
@@ -126,29 +154,26 @@ export function JoinPanel({
         </span>
       </label>
 
+      {/*
+        Joining is the single most important tap in the product for someone
+        arriving from a shared link, and inside Telegram it belongs on
+        Telegram's own MainButton rather than halfway up a scrolling page.
+        The in-page button stays for the browser and for assistive
+        technology; the CSS only stops it occupying space.
+      */}
+      <TelegramMainButton
+        text="Join protected deal"
+        disabled={!accepted}
+        loading={pending}
+        onClick={join}
+      />
+
       <button
         type="button"
         disabled={pending || !accepted}
         data-testid="join-button"
-        onClick={() =>
-          startTransition(async () => {
-            setFailure(null);
-            const result = await joinAction(publicId);
-            if (result.ok && result.dealId) {
-              router.push(`/app/deal/${result.dealId}`);
-              return;
-            }
-            const copy =
-              result.code && result.code !== 'UNKNOWN' ? FAILURE_COPY[result.code] : null;
-            setFailure(
-              copy ?? {
-                reason: result.message ?? 'That did not work.',
-                nextStep: 'Refresh the page to see the current state of this link.',
-              },
-            );
-            router.refresh();
-          })
-        }
+        data-mirrored-cta
+        onClick={join}
         className={buttonClass('primary', 'lg', true)}
       >
         {pending ? (

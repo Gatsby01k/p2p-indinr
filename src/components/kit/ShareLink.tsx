@@ -5,6 +5,8 @@ import { cn } from '@/lib/cn';
 import { Icon } from './Icon';
 import { CopyButton, useCopy } from './Feedback';
 import { buttonClass } from './primitives';
+import { useTelegram } from '@/components/telegram/TelegramProvider';
+import { openLink } from '@/lib/telegramSdk';
 
 /**
  * The share moment.
@@ -26,25 +28,57 @@ export function ShareLink({
   url,
   headline,
   dealCode,
+  miniAppUrl,
   className,
 }: {
   url: string;
   headline: string;
   dealCode?: string;
+  /**
+   * A `t.me/<bot>/<app>?startapp=…` address that opens this deal INSIDE
+   * Telegram. Present only when the deployment has a Mini App configured;
+   * absent, the web URL is shared instead and everything still works.
+   */
+  miniAppUrl?: string | null;
   className?: string;
 }) {
   const { copy } = useCopy();
+  const { inTelegram, haptic } = useTelegram();
   const [sharing, setSharing] = useState(false);
+
+  /*
+   * Inside Telegram, share the Mini App address so the recipient lands in
+   * the app rather than in Telegram's in-app browser — that is the whole
+   * difference between "a website someone sent me" and "a thing that opens".
+   * Outside Telegram the web URL is the right thing to send, because most
+   * recipients will not have the bot.
+   */
+  const shareUrl = inTelegram && miniAppUrl ? miniAppUrl : url;
 
   // One sentence plus the link. Anything longer gets truncated by the
   // messaging app anyway, and the terms are what the recipient needs.
-  const message = `${headline} — protected deal on INRP2P.\n${url}`;
+  const message = `${headline} — protected deal on INRP2P.\n${shareUrl}`;
 
   const nativeShare = async () => {
+    /*
+     * Telegram's own forward sheet, not the Web Share API. Inside a Mini
+     * App `navigator.share` either does nothing or opens the OS sheet
+     * behind Telegram's UI depending on the platform; `t.me/share/url`
+     * through `openTelegramLink` is the only path that reliably lands in a
+     * chat picker.
+     */
+    if (inTelegram) {
+      haptic('light');
+      const forward = `https://t.me/share/url?url=${encodeURIComponent(
+        shareUrl,
+      )}&text=${encodeURIComponent(headline)}`;
+      if (openLink(forward)) return;
+    }
+
     if (typeof navigator !== 'undefined' && 'share' in navigator) {
       setSharing(true);
       try {
-        await navigator.share({ title: 'INRP2P protected deal', text: headline, url });
+        await navigator.share({ title: 'INRP2P protected deal', text: headline, url: shareUrl });
         return;
       } catch {
         /* dismissed, or unsupported at the last moment — fall through */
@@ -52,7 +86,7 @@ export function ShareLink({
         setSharing(false);
       }
     }
-    void copy(url, 'Link copied');
+    void copy(shareUrl, 'Link copied');
   };
 
   return (
@@ -97,34 +131,54 @@ export function ShareLink({
           Share deal link
         </button>
 
-        <div className="grid grid-cols-3 gap-2">
-          <ChannelButton
-            href={`https://wa.me/?text=${encodeURIComponent(message)}`}
-            icon="whatsapp"
-            label="WhatsApp"
-          />
-          <ChannelButton
-            href={`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(headline)}`}
-            icon="telegram"
-            label="Telegram"
-          />
+        {/*
+          Inside Telegram the named channels are dropped. A WhatsApp button
+          that opens a browser that opens WhatsApp is a worse path than the
+          forward sheet the person just used, and the row would be three
+          taps competing with the one that works.
+        */}
+        {inTelegram ? (
           <button
             type="button"
-            onClick={() => void copy(url, 'Link copied')}
-            className={cn(
-              'press tap flex flex-col items-center justify-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] py-2',
-              'text-[length:var(--text-2xs)] font-medium text-[var(--color-ink-2)] hover:bg-[var(--color-sunken)]',
-            )}
+            onClick={() => void copy(shareUrl, 'Link copied')}
+            className={buttonClass('outline', 'md', true)}
           >
-            <Icon name="link" className="h-[18px] w-[18px] text-[var(--color-ink-3)]" />
-            Copy link
+            <Icon name="link" className="h-4 w-4 text-[var(--color-ink-3)]" />
+            Copy link instead
           </button>
-        </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            <ChannelButton
+              href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+              icon="whatsapp"
+              label="WhatsApp"
+            />
+            <ChannelButton
+              href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(headline)}`}
+              icon="telegram"
+              label="Telegram"
+            />
+            <button
+              type="button"
+              onClick={() => void copy(shareUrl, 'Link copied')}
+              className={cn(
+                'press tap flex flex-col items-center justify-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] py-2',
+                'text-[length:var(--text-2xs)] font-medium text-[var(--color-ink-2)] hover:bg-[var(--color-sunken)]',
+              )}
+            >
+              <Icon name="link" className="h-[18px] w-[18px] text-[var(--color-ink-3)]" />
+              Copy link
+            </button>
+          </div>
+        )}
       </div>
 
       <p className="mt-3 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
         Only the first eligible person to open it can join. Everyone else is told it was already
         taken, and nothing is charged to them.
+        {inTelegram && miniAppUrl
+          ? ' This link opens INRP2P inside Telegram for whoever receives it.'
+          : ''}
       </p>
     </div>
   );

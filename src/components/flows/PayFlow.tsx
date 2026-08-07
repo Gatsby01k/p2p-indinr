@@ -9,6 +9,8 @@ import { cn } from '@/lib/cn';
 import { Icon } from '@/components/kit/Icon';
 import { Sheet } from '@/components/kit/Sheet';
 import { AttachButton, EvidencePanel } from '@/components/deal/EvidencePanel';
+import { TelegramClosingGuard, TelegramMainButton } from '@/components/telegram/TelegramButtons';
+import { haptic } from '@/lib/telegramSdk';
 import {
   Callout,
   Card,
@@ -185,10 +187,32 @@ export function PayFlow({
 
       {/* ---- The assertion --------------------------------------- */}
       <div className="mt-4">
+        {/*
+          Inside Telegram this action is mirrored into the client's own
+          MainButton, which sits above the keyboard where a Telegram user
+          already reaches. The in-page button stays in the DOM — it is what
+          screen readers and the no-JavaScript path use — and only stops
+          taking up space, so the two can never disagree about being
+          disabled.
+        */}
+        <TelegramMainButton
+          text={`I have paid ${amountLabel}`}
+          disabled={!valid}
+          loading={pending}
+          onClick={() => {
+            haptic('medium');
+            setConfirming(true);
+          }}
+        />
+        {/* A half-typed bank reference is real work; losing it to a stray
+            swipe is the kind of thing people do not come back from. */}
+        <TelegramClosingGuard active={utr.trim().length > 0} />
+
         <button
           type="button"
           disabled={!valid || pending}
           data-testid="claim-open"
+          data-mirrored-cta
           onClick={() => setConfirming(true)}
           className={buttonClass('primary', 'lg', true)}
         >

@@ -69,7 +69,7 @@ export async function getTrustProfile(user: SessionUser): Promise<TrustProfile> 
 
   const { rows } = await getPool().query(
     `SELECT
-       u.display_name, u.email, u.created_at,
+       u.display_name, u.email, u.telegram_username, u.created_at,
        p.identity_verified, p.upi_verified, p.wallet_verified,
        p.two_factor_enabled, p.notify_email, p.notify_push,
        p.about, p.city, p.referral_code,
@@ -107,7 +107,8 @@ export async function getTrustProfile(user: SessionUser): Promise<TrustProfile> 
   return {
     userId: user.userId,
     displayName: r.display_name,
-    email: r.email,
+    email: r.email ?? null,
+    telegramUsername: r.telegram_username ?? null,
     memberSince: (r.created_at as Date).toISOString(),
     completedDeals: completed,
     // Null rather than a flattering 100% when nothing has finished yet: a

@@ -6,6 +6,7 @@ import { currentUser } from '@/server/sandbox/session';
 import { formatMinor } from '@/lib/format';
 import { PREVIEW_META, leg, previewHeadline, rateLabel, settlementLegs } from '@/lib/dealPresenter';
 import { SCENARIO } from '@/lib/scenario';
+import { miniAppDealLink } from '@/lib/miniApp';
 import { TopBar } from '@/components/kit/AppChrome';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { AssetMark, Icon } from '@/components/kit/Icon';
@@ -152,7 +153,11 @@ export default async function DealLinkPage({ params }: Params) {
 
         {preview.joinable ? (
           <Card className="mt-3">
-            <ShareLink url={url} headline={headline} />
+            <ShareLink
+              url={url}
+              headline={headline}
+              miniAppUrl={miniAppDealLink(preview.publicId)}
+            />
           </Card>
         ) : (
           <Notice

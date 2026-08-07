@@ -372,10 +372,26 @@ export interface DealView extends Terms {
 
 export interface SessionUser {
   readonly userId: string;
-  readonly email: string;
+  /**
+   * Null for an account created inside Telegram, which supplies no address.
+   *
+   * Nullable rather than filled with a synthetic `tg-123@telegram.local`:
+   * a fabricated address would eventually be printed on a receipt or used
+   * to contact someone, and an account simply having no email is the truth.
+   */
+  readonly email: string | null;
   readonly displayName: string;
   readonly isOperator: boolean;
   readonly isVerified: boolean;
+}
+
+/** How an account is addressed on screen, whichever way it signed in. */
+export function accountHandle(account: {
+  email: string | null;
+  telegramUsername?: string | null;
+}): string {
+  if (account.telegramUsername) return `@${account.telegramUsername}`;
+  return account.email ?? 'Telegram account';
 }
 
 /* ------------------------------------------------------------------ *
@@ -385,7 +401,10 @@ export interface SessionUser {
 export interface TrustProfile {
   readonly userId: string;
   readonly displayName: string;
-  readonly email: string;
+  /** Null for a Telegram account. See `SessionUser.email`. */
+  readonly email: string | null;
+  /** Present only for an account linked to Telegram. Never an email. */
+  readonly telegramUsername: string | null;
   readonly memberSince: string;
   readonly completedDeals: number;
   /** Percentage 0–100, or null when there is no history to divide by. */

@@ -266,7 +266,7 @@ export async function signInSandbox(email: string): Promise<SessionUser> {
 
   return {
     userId: r.user_id,
-    email: r.email,
+    email: r.email ?? null,
     displayName: r.display_name,
     isOperator: r.is_operator,
     isVerified: r.is_verified,
@@ -283,7 +283,7 @@ export async function getUser(userId: string): Promise<SessionUser | null> {
   if (!r) return null;
   return {
     userId: r.user_id,
-    email: r.email,
+    email: r.email ?? null,
     displayName: r.display_name,
     isOperator: r.is_operator,
     isVerified: r.is_verified,

@@ -5,6 +5,7 @@ import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon } from '@/components/kit/Icon';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { ActionSwitch } from '@/components/flows/ActionButton';
+import { accountHandle } from '@/lib/sandboxContract';
 import {
   Callout,
   Card,
@@ -69,16 +70,35 @@ export default async function SecurityPage() {
           <SectionHead title="This session" />
           <Card className="mt-3">
             <Facts>
-              <Fact term="Signed in as">{profile.email}</Fact>
+              <Fact term="Signed in as">{accountHandle(profile)}</Fact>
+              <Fact term="Sign-in method">
+                {profile.telegramUsername ? 'Telegram' : 'Email address'}
+              </Fact>
               <Fact term="Account type">{user.isOperator ? 'Operator' : 'Trader'}</Fact>
               <Fact term="Session">Signed cookie, 8 hours</Fact>
-              <Fact term="Cookie">HTTP-only, SameSite=Lax</Fact>
+              <Fact term="Cookie">
+                {/*
+                  Stated exactly, because it differs by how you signed in. A
+                  Mini App is hosted in a cross-site iframe on Telegram Web
+                  and Desktop, and only a SameSite=None cookie is sent from
+                  one — so a Telegram session is issued that way and an
+                  ordinary web session is not.
+                */}
+                HTTP-only, SameSite={profile.telegramUsername ? 'None · Secure' : 'Lax'}
+              </Fact>
             </Facts>
             <p className="mt-3 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
               The session cookie is signed, so it cannot be edited to become another user or an
               operator. That signature is what the authorization tests depend on — it is a real
               control, unlike the sign-in itself.
             </p>
+            {profile.telegramUsername ? (
+              <p className="mt-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                Your Telegram identity was proven by a signature Telegram computed with this
+                bot&rsquo;s token, checked on our server. That part is a genuine control — unlike
+                the email sign-in, it cannot be typed in by hand.
+              </p>
+            ) : null}
             <form action={signOutAction} className="mt-4">
               <button type="submit" className={buttonClass('outline', 'md', true)}>
                 <Icon name="logout" className="h-4 w-4" />

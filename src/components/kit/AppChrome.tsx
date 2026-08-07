@@ -145,6 +145,7 @@ export function TabBar({ active }: { active: NavKey }) {
   return (
     <nav
       aria-label="Primary"
+      data-tabbar
       className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-[var(--color-line)] bg-[var(--color-paper)]/96 backdrop-blur-[10px] lg:hidden"
     >
       <div className="mx-auto flex h-[var(--h-tabbar)] max-w-md items-stretch gap-1 px-2">
@@ -292,6 +293,11 @@ export function AppHeader({
 }) {
   return (
     <header
+      // `data-app-header` and `data-app-back` are hooks for the Telegram
+      // stylesheet: inside Telegram this header stops being sticky on a
+      // short viewport, and the chevron gives way to Telegram's own header
+      // back button rather than sitting underneath it.
+      data-app-header
       className={cn(
         'pt-safe z-30 border-b border-[var(--color-line)] bg-[var(--color-canvas)]/88 backdrop-blur-[10px]',
         sticky && 'sticky top-0',
@@ -303,6 +309,7 @@ export function AppHeader({
             href={back.href}
             prefetch={false}
             aria-label={back.label}
+            data-app-back
             className="press -ml-1.5 grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--color-ink-2)] hover:bg-[var(--color-sunken)]"
           >
             <Icon name="chevron-left" className="h-5 w-5" strokeWidth={2} />

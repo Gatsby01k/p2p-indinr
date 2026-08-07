@@ -11,6 +11,7 @@ import {
 } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
+import { haptic } from '@/lib/telegramSdk';
 import { Icon, type IconName } from './Icon';
 
 /**
@@ -53,6 +54,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     seq.current += 1;
     const id = seq.current;
     setToasts((current) => [...current, { id, message, tone, icon }]);
+    /*
+     * Haptics live here rather than at each call site, so every
+     * confirmation and every failure in the product has the same feel
+     * without forty components remembering to ask for it. Outside Telegram
+     * this is a no-op, and it respects the client's own haptic setting.
+     */
+    haptic(tone === 'warn' ? 'error' : 'success');
     window.setTimeout(() => {
       setToasts((current) => current.filter((t) => t.id !== id));
     }, TOAST_MS);
