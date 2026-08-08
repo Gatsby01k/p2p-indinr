@@ -86,6 +86,12 @@ export default async function SettingsPage() {
               title="Help and support"
               subtitle="How protection works"
             />
+            <ListRow
+              href="/app/settings/diagnostics"
+              icon="settings"
+              title="Diagnostics"
+              subtitle="What this deployment has configured"
+            />
           </Card>
         </section>
 

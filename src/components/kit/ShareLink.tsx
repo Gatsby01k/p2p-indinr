@@ -120,6 +120,30 @@ export function ShareLink({
         </div>
       ) : null}
 
+      {/*
+        ⚠ SAY IT RATHER THAN DEGRADE QUIETLY.
+        Inside Telegram the right thing to send is a `t.me/<bot>/<app>?startapp=…`
+        link, which opens the recipient straight onto this deal. That link can
+        only be built when the deployment has NEXT_PUBLIC_TELEGRAM_MINI_APP.
+        Without it the component used to fall back to the web URL and say
+        nothing — so the sender believed they had shared a Mini App link, and
+        the recipient landed somewhere unexpected with no clue why. A missing
+        deployment setting must be visible where its absence changes what the
+        product does.
+      */}
+      {inTelegram && !miniAppUrl ? (
+        <div className="mt-2.5 rounded-[var(--radius-md)] border border-[var(--color-hold-line)] bg-[var(--color-hold-tint)] px-3 py-2.5">
+          <p className="text-[length:var(--text-xs)] font-semibold text-[var(--color-hold)]">
+            This will share a web link, not a Telegram one.
+          </p>
+          <p className="mt-1 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-hold)]">
+            Whoever opens it gets the browser page rather than this app.{' '}
+            <code className="font-mono">NEXT_PUBLIC_TELEGRAM_MINI_APP</code> is not set on this
+            deployment — set it and redeploy, and the link will open INRP2P on this deal instead.
+          </p>
+        </div>
+      ) : null}
+
       <div className="mt-3 space-y-2">
         <button
           type="button"
