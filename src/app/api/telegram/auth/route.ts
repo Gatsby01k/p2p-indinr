@@ -38,10 +38,15 @@ const FAILURE_STATUS: Readonly<Record<VerifyFailure, number>> = {
 /**
  * What the browser is told.
  *
- * Deliberately coarse. A caller probing this endpoint learns whether their
- * data was accepted, never whether the signature was wrong versus stale
- * versus for an unknown user — those distinctions are an oracle. The exact
- * reason goes to the server log instead.
+ * The message stays plain, but the REASON CODE now travels with it.
+ *
+ * It was withheld as an oracle risk, and that judgement was wrong on the
+ * balance of harms. Nobody can brute-force an HMAC-SHA256 keyed by the bot
+ * token, so learning "stale" versus "bad signature" buys an attacker
+ * nothing they could act on. Meanwhile it cost a real user a dead end and
+ * cost us the ability to tell those two apart from a screenshot — which is
+ * the only diagnostic anyone actually has when a Mini App fails on someone
+ * else's phone.
  */
 const FAILURE_MESSAGE: Readonly<Record<VerifyFailure, string>> = {
   NO_BOT_TOKEN: 'Telegram sign-in is not configured on this deployment.',
@@ -68,7 +73,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!result.ok) {
     console.warn('[telegram] launch rejected:', result.reason);
     return NextResponse.json(
-      { ok: false, message: FAILURE_MESSAGE[result.reason] },
+      { ok: false, code: result.reason, message: FAILURE_MESSAGE[result.reason] },
       { status: FAILURE_STATUS[result.reason] },
     );
   }

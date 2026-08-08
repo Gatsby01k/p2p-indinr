@@ -75,13 +75,30 @@ export const MAX_AUTH_AGE_SECONDS = 24 * 60 * 60;
 const FUTURE_SKEW_SECONDS = 60;
 
 /**
- * Fields excluded from the signed payload.
+ * How the signed payload is canonicalised.
  *
- * `hash` is the signature itself. `signature` is Telegram's separate
- * Ed25519 third-party attestation, which is not part of the bot-token
- * check and breaks it if included.
+ * `hash` is the digest itself and is never part of it. `signature` — the
+ * Ed25519 attestation Telegram added for third-party validation — is the
+ * genuinely ambiguous one:
+ *
+ *   · Telegram's documentation for the BOT-TOKEN check says the
+ *     data-check-string is every received field except `hash`, which
+ *     means `signature` is INCLUDED.
+ *   · Several widely used libraries exclude `signature` as well.
+ *
+ * The two produce different digests, so picking one and hoping is how a
+ * genuine launch gets rejected — which is exactly what happened here.
+ *
+ * Both candidates are tried. This does NOT weaken the check: each is an
+ * HMAC-SHA256 over real received fields keyed by the bot token, so
+ * producing either still requires the token. What it removes is our
+ * dependence on guessing which spelling a given Telegram client used.
  */
-const UNSIGNED_FIELDS = new Set(['hash', 'signature']);
+const ALWAYS_UNSIGNED = ['hash'];
+const CANONICALISATIONS: readonly (readonly string[])[] = [
+  [...ALWAYS_UNSIGNED, 'signature'],
+  ALWAYS_UNSIGNED,
+];
 
 function botToken(): string | null {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
@@ -122,25 +139,30 @@ export function verifyInitData(initData: string, now: Date = new Date()): Verify
     return { ok: false, reason: 'NO_HASH' };
   }
 
-  // The data-check string: every other field as `key=value`, sorted by key,
-  // joined with newlines. Sorting is what makes the digest independent of
-  // the order Telegram happened to serialise them in.
-  const pairs: string[] = [];
-  for (const [key, value] of params.entries()) {
-    if (UNSIGNED_FIELDS.has(key)) continue;
-    pairs.push(`${key}=${value}`);
-  }
-  pairs.sort();
-  const dataCheckString = pairs.join('\n');
-
+  /*
+   * The data-check string: every signed field as `key=value`, sorted by
+   * key, joined with newlines. Sorting is what makes the digest
+   * independent of the order Telegram happened to serialise them in.
+   *
+   * Built once per candidate canonicalisation — see CANONICALISATIONS.
+   */
   const secretKey = createHmac('sha256', 'WebAppData').update(token).digest();
-  const expected = createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+  const provided = Buffer.from(providedHash.toLowerCase(), 'hex');
 
-  const a = Buffer.from(expected, 'hex');
-  const b = Buffer.from(providedHash.toLowerCase(), 'hex');
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    return { ok: false, reason: 'BAD_SIGNATURE' };
-  }
+  const matches = CANONICALISATIONS.some((unsigned) => {
+    const pairs: string[] = [];
+    for (const [key, value] of params.entries()) {
+      if (unsigned.includes(key)) continue;
+      pairs.push(`${key}=${value}`);
+    }
+    pairs.sort();
+    const expected = createHmac('sha256', secretKey).update(pairs.join('\n')).digest();
+    // Length is compared first because `timingSafeEqual` throws on a
+    // mismatch rather than returning false.
+    return expected.length === provided.length && timingSafeEqual(expected, provided);
+  });
+
+  if (!matches) return { ok: false, reason: 'BAD_SIGNATURE' };
 
   // Freshness is checked ONLY after the signature holds. Reading a claimed
   // timestamp from unverified data and acting on it would be trusting the

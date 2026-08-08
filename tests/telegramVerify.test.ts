@@ -30,9 +30,18 @@ const USER = {
   photo_url: 'https://cdn5.telegram-cdn.org/file/arjun.jpg',
 };
 
-/** Build signed launch data exactly as Telegram does. */
-function sign(fields: Record<string, string>, token = BOT_TOKEN): string {
+/**
+ * Build signed launch data exactly as Telegram does.
+ *
+ * `excludeSignature` selects which canonicalisation the digest is computed
+ * over. Telegram's bot-token documentation excludes only `hash`, while
+ * several popular libraries also exclude `signature` — and real clients
+ * send data matching one or the other. Both must be accepted, so both are
+ * constructible here.
+ */
+function sign(fields: Record<string, string>, token = BOT_TOKEN, excludeSignature = false): string {
   const pairs = Object.entries(fields)
+    .filter(([k]) => k !== 'hash' && !(excludeSignature && k === 'signature'))
     .map(([k, v]) => `${k}=${v}`)
     .sort();
   const secret = createHmac('sha256', 'WebAppData').update(token).digest();
@@ -76,6 +85,38 @@ describe('a genuine launch', () => {
     const result = verifyInitData(data, NOW);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.launch.startParam).toBe('d_INRP-ABCDEFGHJK');
+  });
+
+  /*
+   * The defect this pair exists for: a real launch was rejected with
+   * "This launch could not be verified" because the implementation excluded
+   * `signature` from the digest and that client had included it. Whichever
+   * spelling arrives, only the bot-token holder can produce it, so both are
+   * genuine — and both are now pinned.
+   */
+  it('accepts a client that INCLUDES signature in the digest', () => {
+    const fields = launchFields({ signature: 'abc_signature_value' });
+    const result = verifyInitData(sign(fields, BOT_TOKEN, false), NOW);
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts a client that EXCLUDES signature from the digest', () => {
+    const fields = launchFields({ signature: 'abc_signature_value' });
+    const result = verifyInitData(sign(fields, BOT_TOKEN, true), NOW);
+    expect(result.ok).toBe(true);
+  });
+
+  it('still refuses a forgery when a signature field is present', () => {
+    // Accepting two canonicalisations must not accept a third thing.
+    const fields = launchFields({ signature: 'abc_signature_value' });
+    expect(verifyInitData(sign(fields, OTHER_TOKEN, false), NOW)).toMatchObject({
+      ok: false,
+      reason: 'BAD_SIGNATURE',
+    });
+    expect(verifyInitData(sign(fields, OTHER_TOKEN, true), NOW)).toMatchObject({
+      ok: false,
+      reason: 'BAD_SIGNATURE',
+    });
   });
 
   it('drops a start_param that is not in Telegram’s permitted alphabet', () => {

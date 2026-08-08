@@ -85,6 +85,7 @@ export function TelegramProvider({
   const [inTelegram, setInTelegram] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authCode, setAuthCode] = useState<string | null>(null);
   const attempted = useRef(false);
 
   /* ---------------- 1–4. Bootstrap the runtime ---------------- */
@@ -193,13 +194,16 @@ export function TelegramProvider({
         const payload: unknown = await response.json();
         const data = (payload ?? {}) as {
           ok?: boolean;
+          code?: string;
           message?: string;
           destination?: string;
           warning?: string | null;
         };
 
         if (!response.ok || data.ok !== true) {
+          console.warn('[telegram] launch rejected', response.status, data.code);
           setAuthError(data.message ?? 'Telegram sign-in did not complete.');
+          setAuthCode(data.code ?? `HTTP ${response.status}`);
           return;
         }
         if (data.warning) console.warn('[telegram]', data.warning);
@@ -215,6 +219,7 @@ export function TelegramProvider({
         if (destination !== pathname) router.replace(destination);
       } catch {
         setAuthError('Could not reach INRP2P. Check your connection and reopen the app.');
+        setAuthCode('NETWORK');
       } finally {
         setAuthenticating(false);
       }
@@ -265,7 +270,7 @@ export function TelegramProvider({
     <TelegramContext.Provider value={value}>
       {children}
       {authenticating ? <LaunchSplash /> : null}
-      {authError ? <LaunchError message={authError} /> : null}
+      {authError ? <LaunchError message={authError} code={authCode} /> : null}
     </TelegramContext.Provider>
   );
 }
@@ -308,7 +313,7 @@ function LaunchSplash() {
  * person has are to reopen the app or to use the web version — and both are
  * offered here instead of leaving them on a blank screen.
  */
-function LaunchError({ message }: { message: string }) {
+function LaunchError({ message, code }: { message: string; code: string | null }) {
   return (
     <div
       role="alert"
@@ -326,6 +331,16 @@ function LaunchError({ message }: { message: string }) {
           Nothing was changed, and no deal was affected. Close this window and open the app from the
           bot again.
         </p>
+        {/*
+          The reason code, in small print. It is the only thing a person can
+          read back from a screenshot when a Mini App fails on their phone,
+          and without it every failure looks identical to every other.
+        */}
+        {code ? (
+          <p className="mt-4 font-mono text-[length:var(--text-2xs)] text-[var(--color-ink-4)]">
+            {code}
+          </p>
+        ) : null}
       </div>
     </div>
   );
