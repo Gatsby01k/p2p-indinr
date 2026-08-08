@@ -1,6 +1,6 @@
 import { getChrome } from '@/server/sandbox/chrome';
 import { telegramConfigured } from '@/server/telegram/verify';
-import { MINI_APP_BASE } from '@/lib/miniApp';
+import { MINI_APP_BASE, MINI_APP_PROBLEM, MINI_APP_RAW } from '@/lib/miniApp';
 import { publicOrigin } from '@/lib/publicUrl';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon } from '@/components/kit/Icon';
@@ -84,10 +84,18 @@ export default async function DiagnosticsPage() {
     {
       label: 'Telegram Mini App address',
       ok: MINI_APP_BASE !== null,
-      value: MINI_APP_BASE ?? 'not set',
+      /*
+       * Shows the RAW configured value when it was rejected, not "not set".
+       * Reading "not set" while looking at a filled-in field in Vercel sends
+       * you hunting for the wrong problem.
+       */
+      value: MINI_APP_BASE ?? (MINI_APP_RAW ? `rejected: ${MINI_APP_RAW}` : 'not set'),
       consequence:
         'Deal links shared inside Telegram fall back to a web URL, so the recipient lands in a browser instead of on the deal in this app.',
-      fix: 'Set NEXT_PUBLIC_TELEGRAM_MINI_APP to https://t.me/<bot>/<app-short-name>, then REDEPLOY — it is compiled into the bundle at build time, so setting it alone changes nothing.',
+      fix:
+        MINI_APP_PROBLEM?.kind === 'INVALID'
+          ? `${MINI_APP_PROBLEM.reason}. Fix the value, then REDEPLOY — it is compiled into the bundle at build time.`
+          : 'Set NEXT_PUBLIC_TELEGRAM_MINI_APP to https://t.me/YourBot (main Mini App) or https://t.me/YourBot/app (named one), then REDEPLOY — it is compiled into the bundle at build time, so setting it alone changes nothing.',
     },
   ];
 

@@ -25,22 +25,83 @@ const RAW = process.env.NEXT_PUBLIC_TELEGRAM_MINI_APP;
  * interpolated into a share message and sent to a counterparty, which is
  * the worst possible place to discover a typo.
  */
-function base(): string | null {
-  const value = RAW?.trim();
-  if (!value) return null;
+/** Telegram usernames and Mini App short names share this alphabet. */
+const NAME = /^[A-Za-z0-9_]{3,32}$/;
+
+/**
+ * Why a configured value was rejected, in words that name the fix.
+ *
+ * Returned alongside the parsed value so the diagnostics screen can tell
+ * "nobody set this" apart from "this is set to something that cannot
+ * work" — two very different situations that used to look identical.
+ */
+export type MiniAppProblem =
+  | { readonly kind: 'UNSET' }
+  | { readonly kind: 'INVALID'; readonly reason: string };
+
+function parse(raw: string | undefined): { base: string | null; problem: MiniAppProblem | null } {
+  const value = raw?.trim();
+  if (!value) return { base: null, problem: { kind: 'UNSET' } };
+
+  const invalid = (reason: string) => ({
+    base: null,
+    problem: { kind: 'INVALID' as const, reason },
+  });
+
+  let url: URL;
   try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:') return null;
-    if (url.hostname !== 't.me' && url.hostname !== 'telegram.me') return null;
-    // Expect `/<bot>/<app>`; anything shorter is not a Mini App address.
-    if (url.pathname.split('/').filter(Boolean).length < 2) return null;
-    return `${url.origin}${url.pathname.replace(/\/$/, '')}`;
+    url = new URL(value);
   } catch {
-    return null;
+    return invalid('It is not a URL. It should look like https://t.me/YourBot/app');
   }
+
+  if (url.protocol !== 'https:') return invalid('It must start with https://');
+  if (url.hostname !== 't.me' && url.hostname !== 'telegram.me') {
+    return invalid(`The host must be t.me, not ${url.hostname}`);
+  }
+
+  const segments = url.pathname.split('/').filter(Boolean);
+  if (segments.length === 0) return invalid('It is missing the bot username after t.me/');
+  if (segments.length > 2) return invalid('It has too many parts after t.me/');
+
+  /*
+   * A leading `@` is the single most natural mistake here, because that is
+   * how a bot is written everywhere else in Telegram. But `t.me/@Bot`
+   * redirects rather than resolving, so it silently produces a link that
+   * does not open the app. Strip it instead of refusing: the intent is
+   * unambiguous and rejecting it helps nobody.
+   */
+  const bot = segments[0]!.replace(/^@/, '');
+  if (!NAME.test(bot)) return invalid(`"${segments[0]}" is not a valid bot username`);
+
+  const short = segments[1];
+  if (short !== undefined && !NAME.test(short)) {
+    return invalid(`"${short}" is not a valid Mini App short name`);
+  }
+
+  /*
+   * BOTH FORMS ARE ACCEPTED, and this is the part that was wrong before.
+   *
+   *   t.me/<bot>/<app>   a named direct-link Mini App, from /newapp
+   *   t.me/<bot>         a bot whose MAIN Mini App is configured — Telegram
+   *                      opens it directly, and `?startapp=` still arrives
+   *
+   * Requiring two segments rejected the second form, which is a perfectly
+   * ordinary way to ship a Mini App.
+   */
+  const path = short ? `/${bot}/${short}` : `/${bot}`;
+  return { base: `https://${url.hostname}${path}`, problem: null };
 }
 
-export const MINI_APP_BASE: string | null = base();
+const PARSED = parse(RAW);
+
+export const MINI_APP_BASE: string | null = PARSED.base;
+
+/** Why the address is unusable, or null when it is fine. */
+export const MINI_APP_PROBLEM: MiniAppProblem | null = PARSED.problem;
+
+/** The value as configured, for a diagnostics screen. Never a secret. */
+export const MINI_APP_RAW: string | null = RAW?.trim() || null;
 
 /** True when this deployment can produce Telegram deep links at all. */
 export function miniAppConfigured(): boolean {
