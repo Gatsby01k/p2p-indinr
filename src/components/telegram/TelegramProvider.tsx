@@ -23,17 +23,19 @@ import { Mark } from '@/components/kit/Brand';
  *   1. tell Telegram we are ready and take the full height;
  *   2. paint Telegram's own chrome in OUR colours, so the seam disappears;
  *   3. publish Telegram's viewport and insets as CSS variables;
- *   4. follow Telegram's light/dark scheme rather than the device's;
+ *   4. pin the light palette, whatever scheme the client is in;
  *   5. exchange the signed launch data for a session, once;
  *   6. hand the rest of the app a small, guarded API.
  *
  * ⚠ ON BRANDING. Telegram offers `themeParams` — the user's chat colours —
- * and many Mini Apps adopt them wholesale. This one does not. A payments
- * product whose confirm button is whatever colour the user picked for their
- * chat background is a product whose confirm button cannot be recognised.
- * We follow Telegram's LIGHT/DARK SCHEME, and we push our own palette back
- * into Telegram's header and bottom bar. The result reads as native without
- * the brand dissolving into it.
+ * and many Mini Apps adopt them wholesale. This one does not, and it does
+ * not follow the client's dark scheme either. A payments product whose
+ * confirm button is whatever colour the user picked for their chat
+ * background is a product whose confirm button cannot be recognised, and a
+ * near-black INRP2P is not a variant of this product but a different-
+ * looking one. The palette is pinned; Telegram's own header and bottom bar
+ * are painted to match it instead. The result reads as native without the
+ * brand dissolving into it.
  */
 
 interface TelegramContextValue {
@@ -108,9 +110,22 @@ export function TelegramProvider({
     guarded(() => tg.disableVerticalSwipes?.());
 
     const applyChrome = () => {
-      // Telegram's scheme wins over the device's, so the app never sits
-      // light inside a dark client.
-      document.documentElement.dataset.theme = tg.colorScheme === 'dark' ? 'dark' : 'light';
+      /*
+       * ⚠ THE MINI APP IS ALWAYS LIGHT.
+       *
+       * This used to follow `tg.colorScheme`, so anyone whose Telegram was
+       * in dark mode got a near-black INRP2P — which is not a variant of
+       * this product, it is a different-looking product. DealSafe is
+       * designed on warm paper: the saffron action colour, the tinted
+       * status pills and the amount typography were all judged against it,
+       * and the dark palette exists for the desktop web app.
+       *
+       * A payments screen that looks unfamiliar is a payments screen people
+       * hesitate on, so the brand is pinned rather than themed. Telegram's
+       * own chrome is then painted to match, below, which is what removes
+       * the seam a dark client would otherwise show.
+       */
+      document.documentElement.dataset.theme = 'light';
 
       // Painted AFTER the scheme is applied, so these read the palette that
       // is actually in force rather than the one being replaced.

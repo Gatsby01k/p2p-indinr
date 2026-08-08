@@ -3,7 +3,13 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { getPool, toBigInt, withTransaction, type Tx } from '@/server/db/pool';
 import { getEscrowService } from './escrow';
 import { feesFor } from '@/lib/fees';
-import { LINK_TTL_SECONDS, QUOTE_TTL_SECONDS, REFERENCE_RATE } from '@/lib/rate';
+import {
+  CONFIRM_WINDOW_MINUTES,
+  PAYMENT_WINDOW_MINUTES,
+  QUOTE_TTL_SECONDS,
+  REFERENCE_RATE,
+  linkTtlSeconds,
+} from '@/lib/rate';
 import { SCENARIO, creatorRoleFor, otherRole, type Scenario } from '@/lib/scenario';
 
 /**
@@ -491,7 +497,9 @@ export async function createDealLink(
          (public_id, quote_id, created_by, creator_role, expires_at)
        VALUES ($1,$2,$3,$4, now() + ($5 || ' seconds')::interval)
        RETURNING *`,
-      [publicId, quoteId, user.userId, creatorRole, String(LINK_TTL_SECONDS)],
+      // A protected payment has no rate to decay, so its link outlives a
+      // message sitting unread; an exchange holds a frozen rate and cannot.
+      [publicId, quoteId, user.userId, creatorRole, String(linkTtlSeconds(q.direction))],
     );
     const l = linkRows[0]!;
 
@@ -723,7 +731,7 @@ export async function joinDealLink(user: SessionUser, publicId: string): Promise
           protection_fee_minor, network_fee_minor, fee_bearer, title,
           action_deadline)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-               now() + interval '15 minutes')
+               now() + ($16 || ' minutes')::interval)
        RETURNING deal_id, public_id, deal_code`,
       [
         dealPublicId,
@@ -741,6 +749,7 @@ export async function joinDealLink(user: SessionUser, publicId: string): Promise
         q.network_fee_minor,
         q.fee_bearer,
         q.title,
+        String(PAYMENT_WINDOW_MINUTES),
       ],
     );
     const deal = dRows[0]!;
@@ -954,9 +963,9 @@ export async function submitPaymentClaim(
     const cas = await tx.query(
       `UPDATE sandbox.deal
           SET state='FIAT_CLAIMED', version=version+1,
-              action_deadline = now() + interval '30 minutes'
+              action_deadline = now() + ($2 || ' minutes')::interval
         WHERE deal_id=$1 AND state='FIAT_PENDING'`,
-      [dealId],
+      [dealId, String(CONFIRM_WINDOW_MINUTES)],
     );
     if (cas.rowCount !== 1) await fail('ALREADY_CLAIMED');
 
