@@ -101,6 +101,20 @@ export default async function DiagnosticsPage() {
 
   const failing = checks.filter((c) => !c.ok);
 
+  /*
+   * A bot-only address depends on something we cannot see.
+   *
+   * `t.me/<bot>?startapp=…` launches the app only when the bot has a MAIN
+   * Mini App. A bot with just a MENU BUTTON looks identical from outside —
+   * t.me serves the same page for every path, and there is no API to ask
+   * without a bot backend — but tapping the link drops the recipient into
+   * an empty chat instead of the deal.
+   *
+   * That is undetectable, not unimportant, so it is stated rather than
+   * left for someone to rediscover by watching a counterparty get lost.
+   */
+  const botOnly = MINI_APP_BASE !== null && pathSegments(MINI_APP_BASE) === 1;
+
   return (
     <>
       <AppHeader
@@ -124,6 +138,21 @@ export default async function DiagnosticsPage() {
             The app still runs — each one below says exactly what stops working while it is unset.
           </Callout>
         )}
+
+        {botOnly ? (
+          <Callout tone="hold" icon="alert" className="mt-3">
+            <strong className="font-semibold">
+              This address only opens the app if the bot has a MAIN Mini App.
+            </strong>{' '}
+            <code className="font-mono">{MINI_APP_BASE}</code> has no app short name, so
+            <code className="font-mono"> ?startapp=</code> launches the Mini App only when one is
+            set as the bot&rsquo;s main. A bot with just a <em>menu button</em> looks identical from
+            here — Telegram exposes no way to tell — but the link drops your counterparty into an
+            empty chat instead of the deal. If that is what you are seeing, run{' '}
+            <code className="font-mono">/newapp</code> in @BotFather, give it a short name, and set
+            this to <code className="font-mono">https://t.me/&lt;bot&gt;/&lt;short-name&gt;</code>.
+          </Callout>
+        ) : null}
 
         <section className="mt-5">
           <SectionHead title="Configuration" />
@@ -183,6 +212,15 @@ export default async function DiagnosticsPage() {
       </Shell>
     </>
   );
+}
+
+/** How many path parts an address has: 1 = bot only, 2 = bot plus app. */
+function pathSegments(url: string): number {
+  try {
+    return new URL(url).pathname.split('/').filter(Boolean).length;
+  } catch {
+    return 0;
+  }
 }
 
 /** The host of a connection string, with any credentials discarded. */
