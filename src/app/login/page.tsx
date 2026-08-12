@@ -1,15 +1,6 @@
-import { signInAction } from '@/services/actions';
+import { SignInFlow } from '@/components/flows/SignInFlow';
 import { TopBar } from '@/components/kit/AppChrome';
-import { Icon } from '@/components/kit/Icon';
-import {
-  Callout,
-  Card,
-  Label,
-  SandboxChip,
-  SandboxLine,
-  Shell,
-  buttonClass,
-} from '@/components/kit/primitives';
+import { Callout, Card, Label, SandboxChip, SandboxLine, Shell } from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,9 +12,11 @@ export const dynamic = 'force-dynamic';
  * because an indicative rate is not binding and restating one after sign-in
  * would present a stale price as if it still held. The page says so.
  *
- * ⚠ No password is asked for, accepted or stored. This authenticates nobody
- * in the real world and must never be reused for anything holding value; it
- * exists so the server has a real notion of who is asking.
+ * ⚠ No password is asked for, accepted or stored — and nothing is signed in
+ * without proof either. A one-time code goes to the address and must come
+ * back before a session exists (DEL-03). The code proves control of that
+ * mailbox and the copy says exactly that, rather than implying an identity
+ * check nobody performed.
  */
 export default async function LoginPage({
   searchParams,
@@ -93,55 +86,16 @@ export default async function LoginPage({
               {amount || joining ? 'Sign in to continue' : 'Sign in'}
             </h1>
             <p className="mt-1.5 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
-              Sandbox sign-in. Any address works, and no password is asked for or stored.
+              We email you a one-time code. No password is asked for, chosen or stored.
             </p>
 
-            <form action={signInAction} className="mt-5 space-y-3">
-              <input type="hidden" name="next" value={dest} />
-              <input type="hidden" name="invite" value={code} />
-              <div>
-                <label
-                  htmlFor="email"
-                  className="text-[length:var(--text-xs)] font-semibold text-[var(--color-ink-2)]"
-                >
-                  Email
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  autoFocus
-                  placeholder="you@example.in"
-                  className="field mt-1.5 text-[length:var(--text-base)]"
-                />
-              </div>
-              <button type="submit" className={buttonClass('primary', 'lg', true)}>
-                <Icon name="arrow-right" className="h-4 w-4" />
-                Continue
-              </button>
-            </form>
-
-            <div className="mt-5 border-t border-[var(--color-line)] pt-4">
-              <Label>Sandbox accounts</Label>
-              <ul className="mt-2 space-y-1.5 text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
-                <li>
-                  <code className="font-mono font-semibold text-[var(--color-ink)]">ops@…</code> —
-                  an operator, with the Deal Desk
-                </li>
-                <li>
-                  <code className="font-mono font-semibold text-[var(--color-ink)]">new@…</code> —
-                  unverified, cannot join a deal
-                </li>
-                <li>anything else — a verified trader</li>
-              </ul>
-            </div>
+            <SignInFlow next={dest} invite={code} />
           </Card>
 
           <Callout tone="risk" icon="lock" className="mt-4">
-            <strong className="font-semibold">Never enter a real password here.</strong> There is no
-            password field, nothing is stored, and this account protects nothing.
+            <strong className="font-semibold">We will never ask you for a password.</strong> There
+            is no password field anywhere in this product, and nobody from INRP2P will ever ask you
+            for your sign-in code.
           </Callout>
 
           <SandboxLine className="mt-3" full />

@@ -49,7 +49,19 @@ export type SandboxError =
   | 'IDEMPOTENCY_CONFLICT'
   | 'FEE_EXCEEDS_AMOUNT'
   | 'SCENARIO_UNAVAILABLE'
-  | 'ADAPTER_UNAVAILABLE';
+  | 'ADAPTER_UNAVAILABLE'
+  /* ---- DEL-03 identity and access vocabulary ----------------------- */
+  | 'AUTH_EMAIL_INVALID'
+  | 'AUTH_CHALLENGE_INVALID'
+  | 'RATE_LIMITED'
+  | 'TELEGRAM_LAUNCH_REPLAYED'
+  | 'ACCOUNT_LINK_CONFLICT'
+  | 'MFA_REQUIRED'
+  | 'MFA_INVALID'
+  | 'MFA_NOT_ENROLLED'
+  | 'SESSION_EXPIRED'
+  | 'PERMISSION_DENIED'
+  | 'REVIEWER_CONFLICT';
 
 export class SandboxFailure extends Error {
   readonly code: SandboxError;
@@ -198,6 +210,58 @@ export const FAILURE_COPY: Readonly<
   ADAPTER_UNAVAILABLE: {
     reason: 'This deployment cannot service that request.',
     nextStep: 'Nothing was created or charged. Contact support if this persists.',
+  },
+  AUTH_EMAIL_INVALID: {
+    reason: 'That does not look like an email address.',
+    nextStep: 'Check it and try again — nothing was sent.',
+  },
+  AUTH_CHALLENGE_INVALID: {
+    /*
+     * ONE SENTENCE FOR EVERY FAILURE MODE.
+     *
+     * Wrong code, expired code, already-used code and unknown address all
+     * say this. Distinguishing them would tell a stranger which addresses
+     * have pending sign-ins and which codes were once valid. The audit
+     * trail records which it actually was.
+     */
+    reason: 'That sign-in code is not valid.',
+    nextStep: 'Request a fresh code. Each one works once and expires quickly.',
+  },
+  RATE_LIMITED: {
+    reason: 'Too many attempts from this account.',
+    nextStep: 'Wait a few minutes and try again. Nothing was changed.',
+  },
+  TELEGRAM_LAUNCH_REPLAYED: {
+    reason: 'This Telegram launch has already been used.',
+    nextStep: 'Open the app from Telegram again to start a fresh session.',
+  },
+  ACCOUNT_LINK_CONFLICT: {
+    reason: 'That account is already linked to a different identity.',
+    nextStep: 'Sign in with the identity you already linked, or contact support.',
+  },
+  MFA_REQUIRED: {
+    reason: 'This action needs your second factor.',
+    nextStep: 'Enter the code from your authenticator app, then try again.',
+  },
+  MFA_INVALID: {
+    reason: 'That code is not valid.',
+    nextStep: 'Wait for the next code in your app and enter it. Each code works once.',
+  },
+  MFA_NOT_ENROLLED: {
+    reason: 'This account has no second factor enrolled.',
+    nextStep: 'Set up an authenticator app in Security before using operator tools.',
+  },
+  SESSION_EXPIRED: {
+    reason: 'Your session has ended.',
+    nextStep: 'Sign in again. Nothing you did earlier was lost.',
+  },
+  PERMISSION_DENIED: {
+    reason: 'Your account does not have access to that.',
+    nextStep: 'If you need it, ask an administrator — it cannot be granted from here.',
+  },
+  REVIEWER_CONFLICT: {
+    reason: 'A verification cannot be decided by the person it is about.',
+    nextStep: 'Another reviewer must take this case.',
   },
 };
 

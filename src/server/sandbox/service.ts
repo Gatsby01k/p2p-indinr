@@ -7,6 +7,7 @@ import {
   valueProtectionAvailable,
 } from '@/server/adapters/valueProtection';
 import { sandboxRolesForEmail, scenarioAvailable } from '@/server/adapters/policy';
+import { can, type Principal } from '@/server/identity/rbac';
 import { getPricingAdapter, type RateSnapshot } from '@/server/adapters/pricing';
 import {
   boundaryContextFor,
@@ -2070,7 +2071,17 @@ export async function attachEvidence(
 export async function readEvidence(
   user: SessionUser,
   evidenceId: string,
+  /**
+   * Live operator authority for this request, when there is any.
+   *
+   * Passing the principal rather than reading `user.isOperator` is the
+   * whole correction: a granted operator who has not satisfied their
+   * second factor on this device gets `false` here and therefore sees
+   * only evidence from their OWN deals, exactly like anybody else.
+   */
+  principal?: Principal | null,
 ): Promise<{ filename: string; contentType: string; bytes: Buffer } | null> {
+  const mayReviewDisputes = principal ? can(principal, 'ops.case.read') : false;
   const { rows } = await getPool().query(
     `SELECT e.filename, e.content_type, e.content
        FROM sandbox.deal_evidence e
@@ -2081,7 +2092,7 @@ export async function readEvidence(
           OR ($3 AND EXISTS (SELECT 1 FROM sandbox.dispute di
                               WHERE di.deal_id = e.deal_id AND di.state <> 'RESOLVED'))
         )`,
-    [evidenceId, user.userId, user.isOperator],
+    [evidenceId, user.userId, mayReviewDisputes],
   );
   const r = rows[0];
   if (!r) return null;
@@ -2346,10 +2357,16 @@ export interface OperatorQueueRow {
  * who opens a specific case gets the parties from `operatorCase`, which is a
  * separate, separately-audited disclosure.
  */
-export async function operatorQueue(user: SessionUser): Promise<readonly OperatorQueueRow[]> {
-  // Authorization is checked here, server-side, before any row is read.
-  if (!user.isOperator) {
-    throw new SandboxFailure('NOT_A_PARTICIPANT', 'This area is restricted to operators.');
+export async function operatorQueue(principal: Principal): Promise<readonly OperatorQueueRow[]> {
+  /*
+   * Live authority, checked before any row is read.
+   *
+   * `user.isOperator` used to be the whole check — a denormalised
+   * boolean that survived a revoked grant and said nothing about
+   * whether the second factor had been answered on this device.
+   */
+  if (!can(principal, 'ops.queue.read')) {
+    throw new SandboxFailure('PERMISSION_DENIED', FAILURE_COPY.PERMISSION_DENIED.reason);
   }
   const { rows } = await getPool().query(
     `SELECT public_id, state, usdt_minor, inr_minor,

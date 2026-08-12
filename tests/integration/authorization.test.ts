@@ -7,6 +7,7 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
+import { makeOperator, type OperatorFixture } from './support/operator';
 import { getPool } from '@/server/db/pool';
 import {
   SandboxFailure,
@@ -25,14 +26,23 @@ import {
 let seller: SessionUser; // creates links, CRYPTO_SIDE (supplies USDT)
 let buyer: SessionUser; // joins, FIAT_SIDE (sends INR)
 let outsider: SessionUser;
-let operator: SessionUser;
+let operator: OperatorFixture;
+
+/** A principal with no roles — what an ordinary signed-in person carries. */
+const bare = (u: SessionUser) => ({
+  userId: u.userId,
+  roles: [] as const,
+  permissions: [] as const,
+  mfaSatisfied: false,
+  mfaEnrolled: false,
+});
 let unverified: SessionUser;
 
 beforeAll(async () => {
   seller = await signInSandbox('authz-seller@sandbox.test');
   buyer = await signInSandbox('authz-buyer@sandbox.test');
   outsider = await signInSandbox('authz-outsider@sandbox.test');
-  operator = await signInSandbox('ops@sandbox.test');
+  operator = await makeOperator('ops@sandbox.test');
   unverified = await signInSandbox('new@sandbox.test');
 });
 
@@ -106,7 +116,7 @@ describe('deal privacy', () => {
     const dealId = await joinedDeal();
     // The id is not a capability: knowing it grants nothing.
     await expect(getDeal(outsider, dealId)).rejects.toMatchObject(code('NOT_A_PARTICIPANT'));
-    await expect(getDeal(operator, dealId)).rejects.toMatchObject(code('NOT_A_PARTICIPANT'));
+    await expect(getDeal(operator.user, dealId)).rejects.toMatchObject(code('NOT_A_PARTICIPANT'));
   });
 
   it('lets both participants read it', async () => {
@@ -296,19 +306,19 @@ describe('permitted actions are server-decided', () => {
 
 describe('operator access', () => {
   it('denies a non-operator before any row is read', async () => {
-    await expect(operatorQueue(buyer)).rejects.toBeInstanceOf(SandboxFailure);
-    await expect(operatorQueue(seller)).rejects.toBeInstanceOf(SandboxFailure);
+    await expect(operatorQueue(bare(buyer))).rejects.toBeInstanceOf(SandboxFailure);
+    await expect(operatorQueue(bare(seller))).rejects.toBeInstanceOf(SandboxFailure);
   });
 
   it('allows an operator', async () => {
     await joinedDeal();
-    await expect(operatorQueue(operator)).resolves.toBeInstanceOf(Array);
+    await expect(operatorQueue(operator.principal)).resolves.toBeInstanceOf(Array);
   });
 
   it('never exposes identities or UTRs in the operator queue', async () => {
     const dealId = await joinedDeal();
     await submitPaymentClaim(buyer, dealId, utr());
-    const rows = await operatorQueue(operator);
+    const rows = await operatorQueue(operator.principal);
     const text = JSON.stringify(rows);
     expect(text).not.toContain(utr());
     expect(text).not.toContain(buyer.email);

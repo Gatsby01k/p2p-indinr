@@ -126,7 +126,9 @@ describe('INR_TO_INR is preserved, and production-disabled (roadmap B2)', () => 
 describe('the sandbox identity path cannot be reached in production', () => {
   it('derives sandbox roles only in the sandbox', () => {
     expect(sandboxIdentityEnabled()).toBe(true);
-    expect(sandboxRolesForEmail('ops@example.com').isOperator).toBe(true);
+    // DEL-03 removed the operator half entirely: authority is a role_grant
+    // row, never a spelling. Only the unverified fixture survives.
+    expect(sandboxRolesForEmail('ops@example.com').isOperator).toBe(false);
     expect(sandboxRolesForEmail('new@example.com').isVerified).toBe(false);
   });
 
@@ -156,5 +158,10 @@ describe('the sandbox identity path cannot be reached in production', () => {
     for (const email of ['ops@x.com', 'OPS@x.com', 'ops@anything.example']) {
       await expect(signInSandbox(email)).rejects.toThrow(AdapterUnavailableError);
     }
+  });
+
+  it('and cannot mint one in the SANDBOX either — DEL-03 removed the prefix', async () => {
+    const user = await signInSandbox(`ops-sandbox-${Date.now()}@example.com`);
+    expect(user.isOperator).toBe(false);
   });
 });

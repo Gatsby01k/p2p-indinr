@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import { setSessionCookie } from '@/services';
-import { signInWithTelegram, destinationForStartParam } from '@/services';
-import { verifyInitData, type VerifyFailure } from '@/services';
-import { attachReferrer } from '@/services';
+import {
+  attachReferrer,
+  destinationForStartParam,
+  setSessionCookie,
+  signInWithTelegramLaunch,
+  verifyInitData,
+  type VerifyFailure,
+} from '@/services';
 
 export const dynamic = 'force-dynamic';
 /** Node, not Edge: the verification uses `node:crypto`. */
@@ -78,14 +82,38 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const { user: tgUser, startParam } = result.launch;
-  const { user, created } = await signInWithTelegram(tgUser);
+  const { user: tgUser, startParam, authDate } = result.launch;
+
+  /*
+   * SINGLE USE, not merely fresh.
+   *
+   * The HMAC above proves Telegram produced this string. It does not
+   * prove the string has not been presented before — and it used to be
+   * accepted for a full 24 hours (TS-00 `AUD-P1-009`), so a copy taken
+   * from a log or a shared device authenticated all day. The launch
+   * digest is now recorded, and its primary key refuses a second use.
+   */
+  const signIn = await signInWithTelegramLaunch({
+    user: tgUser,
+    initDataHash: initData,
+    authDate,
+    deviceLabel: 'Telegram',
+  });
+  if (!signIn.ok) {
+    console.warn('[telegram] sign-in refused:', signIn.code);
+    return NextResponse.json(
+      { ok: false, code: signIn.code, message: signIn.message },
+      { status: signIn.code === 'RATE_LIMITED' ? 429 : 401 },
+    );
+  }
+  const { userId, sessionToken, expiresAt, created } = signIn.value;
+  const user = { userId, displayName: tgUser.firstName || tgUser.username || 'Telegram' };
 
   // A referral is recorded on the FIRST launch only. `attachReferrer` is
   // additionally guarded by UNIQUE(invitee_id), so a person cannot be
   // re-attributed later by relaunching with someone else's code.
   if (created && startParam?.startsWith('r_')) {
-    await attachReferrer(user.userId, startParam.slice(2));
+    await attachReferrer(userId, startParam.slice(2));
   }
 
   /*
@@ -93,7 +121,7 @@ export async function POST(request: Request): Promise<NextResponse> {
    * the only form Telegram Web and Desktop will send back from their
    * cross-site iframe. See the comment on `setSessionCookie`.
    */
-  await setSessionCookie(user.userId, true);
+  await setSessionCookie(sessionToken, { embedded: true, expiresAt });
 
   const forwardedProto = (await headers()).get('x-forwarded-proto');
   const insecure = forwardedProto !== null && forwardedProto !== 'https';

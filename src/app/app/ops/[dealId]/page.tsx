@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { currentUser } from '@/services';
+import { currentCaller, denialFor } from '@/services';
 import { operatorCase } from '@/services';
 import { getChrome } from '@/services';
 import { SandboxFailure } from '@/lib/sandboxContract';
@@ -46,9 +46,19 @@ export default async function OperatorCasePage({
   params: Promise<{ dealId: string }>;
 }) {
   const { dealId } = await params;
-  const user = await currentUser();
+  const caller = await currentCaller();
 
-  if (!user?.isOperator) {
+  /*
+   * The gate is a LIVE permission check, not a cached boolean.
+   *
+   * `denialFor` distinguishes the three reasons so the screen can say
+   * something true and actionable: no permission at all, a second factor
+   * not yet enrolled, or one not yet answered on this device. The case
+   * is never loaded in any of those cases — a denied caller's response
+   * never contained operator data.
+   */
+  const denial = caller ? denialFor(caller.principal, 'ops.case.read') : 'NO_PERMISSION';
+  if (denial !== null || !caller) {
     return (
       <Shell width="prose" className="py-10">
         <Notice
@@ -67,7 +77,7 @@ export default async function OperatorCasePage({
 
   let kase;
   try {
-    kase = await operatorCase(user, dealId);
+    kase = await operatorCase(caller.principal, dealId);
   } catch (err) {
     const message = err instanceof SandboxFailure ? err.message : 'That case could not be opened.';
     return (

@@ -16,6 +16,7 @@ import {
   type SessionUser,
 } from '@/server/sandbox/service';
 import { ruleOnDisputeIn, type Ruling } from '@/server/sandbox/ops';
+import type { Principal } from '@/server/identity/rbac';
 import { isCommandId, runCommand } from '@/server/boundary/command';
 import { reject, type Outcome } from '@/server/boundary/outcome';
 import { DEFAULT_FEE_BEARER } from '@/server/adapters/policy';
@@ -276,7 +277,7 @@ export async function disputeCommand(
  * unavailable in production until those exist.
  */
 export async function rulingCommand(
-  user: SessionUser,
+  principal: Principal,
   commandId: string,
   dealId: string,
   ruling: Ruling,
@@ -285,9 +286,9 @@ export async function rulingCommand(
   return runCommand({
     commandId,
     commandType: 'DISPUTE_RULE',
-    actorId: user.userId,
+    actorId: principal.userId,
     payload: { dealId, ruling, reason: reason.trim() },
-    body: (ctx) => ruleOnDisputeIn(ctx, user, dealId, ruling, reason),
+    body: (ctx) => ruleOnDisputeIn(ctx, principal, dealId, ruling, reason),
     encodeResult: (v) => ({ dealId: v.dealId, ruling: v.ruling, state: v.state }),
     decodeResult: (r) => ({
       dealId: String(r.dealId),

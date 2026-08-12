@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { makeOperator, type OperatorFixture } from './support/operator';
 import { getPool } from '@/server/db/pool';
 import { newCommandId, readCommand } from '@/server/boundary/command';
 import { signInSandbox, type SessionUser } from '@/server/sandbox/service';
@@ -36,7 +37,7 @@ import {
 let creator: SessionUser;
 let joiner: SessionUser;
 let outsider: SessionUser;
-let operator: SessionUser;
+let operator: OperatorFixture;
 
 const unique = () => Math.random().toString(36).slice(2, 10);
 const original = { nodeEnv: process.env.NODE_ENV, sandbox: process.env.INRP2P_SANDBOX };
@@ -51,7 +52,7 @@ beforeAll(async () => {
   creator = await signInSandbox(`rej-creator-${unique()}@example.com`);
   joiner = await signInSandbox(`rej-joiner-${unique()}@example.com`);
   outsider = await signInSandbox(`rej-outsider-${unique()}@example.com`);
-  operator = await signInSandbox(`ops@rej-${unique()}.example.com`);
+  operator = await makeOperator(`ops@rej-${unique()}.example.com`);
 });
 
 async function openLink(actor: SessionUser = creator): Promise<string> {
@@ -580,7 +581,7 @@ describe('dispute ruling runs through the command boundary', () => {
     const commandId = newCommandId();
 
     const outcome = await rulingCommand(
-      operator,
+      operator.principal,
       commandId,
       dealId,
       'REFUNDED',
@@ -616,8 +617,8 @@ describe('dispute ruling runs through the command boundary', () => {
     const commandId = newCommandId();
     const reason = 'Both sides agree the transfer never arrived at all.';
 
-    const first = await rulingCommand(operator, commandId, dealId, 'CANCELLED', reason);
-    const replay = await rulingCommand(operator, commandId, dealId, 'CANCELLED', reason);
+    const first = await rulingCommand(operator.principal, commandId, dealId, 'CANCELLED', reason);
+    const replay = await rulingCommand(operator.principal, commandId, dealId, 'CANCELLED', reason);
     expect(first.ok && replay.ok).toBe(true);
     if (!first.ok || !replay.ok) return;
     expect(replay.value).toEqual(first.value);
@@ -634,8 +635,16 @@ describe('dispute ruling runs through the command boundary', () => {
     const commandId = newCommandId();
     const reason = 'The evidence is clear enough to decide this now.';
 
-    expect((await rulingCommand(operator, commandId, dealId, 'RELEASED', reason)).ok).toBe(true);
-    const conflicting = await rulingCommand(operator, commandId, dealId, 'REFUNDED', reason);
+    expect(
+      (await rulingCommand(operator.principal, commandId, dealId, 'RELEASED', reason)).ok,
+    ).toBe(true);
+    const conflicting = await rulingCommand(
+      operator.principal,
+      commandId,
+      dealId,
+      'REFUNDED',
+      reason,
+    );
     expect(conflicting.ok).toBe(false);
     if (conflicting.ok) return;
     expect(conflicting.code).toBe('IDEMPOTENCY_CONFLICT');
@@ -651,7 +660,14 @@ describe('dispute ruling runs through the command boundary', () => {
     const commandId = newCommandId();
 
     const outcome = await rulingCommand(
-      joiner,
+      // A signed-in person with no grant and no factor.
+      {
+        userId: joiner.userId,
+        roles: [],
+        permissions: [],
+        mfaSatisfied: false,
+        mfaEnrolled: false,
+      },
       commandId,
       dealId,
       'RELEASED',
@@ -659,10 +675,10 @@ describe('dispute ruling runs through the command boundary', () => {
     );
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
-    expect(outcome.code).toBe('NOT_A_PARTICIPANT');
+    expect(outcome.code).toBe('PERMISSION_DENIED');
     await expectRejectionContract({
       commandId,
-      code: 'NOT_A_PARTICIPANT',
+      code: 'PERMISSION_DENIED',
       action: 'DISPUTE_RULE',
       subjectId: dealId,
     });
@@ -678,9 +694,9 @@ describe('dispute ruling runs through the command boundary', () => {
     const reason = 'Concurrent ruling attempt from two operator sessions.';
 
     const attempts = await Promise.all([
-      rulingCommand(operator, newCommandId(), dealId, 'RELEASED', reason),
-      rulingCommand(operator, newCommandId(), dealId, 'REFUNDED', reason),
-      rulingCommand(operator, newCommandId(), dealId, 'CANCELLED', reason),
+      rulingCommand(operator.principal, newCommandId(), dealId, 'RELEASED', reason),
+      rulingCommand(operator.principal, newCommandId(), dealId, 'REFUNDED', reason),
+      rulingCommand(operator.principal, newCommandId(), dealId, 'CANCELLED', reason),
     ]);
     expect(attempts.filter((a) => a.ok)).toHaveLength(1);
 
@@ -699,7 +715,7 @@ describe('dispute ruling runs through the command boundary', () => {
 
     const commandId = newCommandId();
     const outcome = await rulingCommand(
-      operator,
+      operator.principal,
       commandId,
       dealId,
       'RELEASED',

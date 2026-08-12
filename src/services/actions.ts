@@ -5,7 +5,6 @@ import { revalidatePath } from 'next/cache';
 import {
   SandboxFailure,
   attachEvidence,
-  signInSandbox,
   type DisputeReason,
   type SandboxError,
 } from '@/server/sandbox/service';
@@ -13,12 +12,27 @@ import {
   addPaymentMethod,
   attachReferrer,
   markAllRead,
-  markVerified,
   removePaymentMethod,
   setDefaultPaymentMethod,
   updateProfile,
 } from '@/server/sandbox/identity';
-import { clearSessionCookie, requireUser, setSessionCookie } from '@/server/sandbox/session';
+import {
+  clearSessionCookie,
+  currentCaller,
+  requireCaller,
+  requireUser,
+  setSessionCookie,
+} from '@/server/sandbox/session';
+import {
+  beginMfaEnrolment,
+  confirmMfaEnrolment,
+  redeemEmailSignIn,
+  startEmailSignIn,
+  redeemRecoveryCode,
+  verifyMfaForSession,
+} from '@/server/identity/auth';
+import { listSessions, revokeAllSessions, revokeSession } from '@/server/identity/sessions';
+import { submitVerification } from '@/server/identity/verification';
 /*
  * EVERY DEL-02 MUTATION IS CONSTRUCTED IN `./commands`.
  *
@@ -103,22 +117,168 @@ function resultOf(outcome: { ok: boolean; code?: SandboxError; message?: string 
  * Session
  * ------------------------------------------------------------------ */
 
-export async function signInAction(formData: FormData): Promise<void> {
-  const email = String(formData.get('email') ?? '');
-  const next = String(formData.get('next') ?? '/app');
-  const invite = String(formData.get('invite') ?? '').trim();
-
-  const user = await signInSandbox(email);
-  if (invite) await attachReferrer(user.userId, invite);
-  await setSessionCookie(user.userId);
-  // Only same-origin relative paths, so a crafted `next` cannot bounce anyone.
-  const dest = next.startsWith('/') && !next.startsWith('//') ? next : '/app';
-  redirect(dest);
+/**
+ * Ask for a sign-in code.
+ *
+ * ⚠ THE CREDENTIAL-FREE SIGN-IN IS GONE.
+ *
+ * This used to take an address and issue a session — no password, no
+ * code, no proof of anything (TS-00 `AUD-P0-002`). It now starts a
+ * one-time-code flow: the code goes to the address out of band, and no
+ * session exists until it comes back.
+ *
+ * The answer is identical for a known and an unknown address, because
+ * distinguishing them would be an account-enumeration oracle.
+ */
+export async function requestSignInCodeAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const email = String(formData.get('email') ?? '');
+    const outcome = await startEmailSignIn(email);
+    return resultOf(outcome);
+  } catch (err) {
+    return fail(err);
+  }
 }
 
+/** Redeem a code or magic link and open a session. */
+export async function verifySignInCodeAction(input: {
+  email: string;
+  code: string;
+  next?: string;
+  invite?: string;
+}): Promise<ActionResult> {
+  try {
+    const outcome = await redeemEmailSignIn({
+      email: input.email,
+      secret: input.code,
+      deviceLabel: 'Browser',
+    });
+    if (!outcome.ok) return resultOf(outcome);
+
+    const { userId, sessionToken, expiresAt } = outcome.value;
+    if (input.invite?.trim()) await attachReferrer(userId, input.invite.trim());
+    await setSessionCookie(sessionToken, { embedded: false, expiresAt });
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Sign out this device. The session row is revoked, not just forgotten. */
 export async function signOutAction(): Promise<void> {
+  try {
+    const caller = await currentCaller();
+    if (caller) await revokeSession(caller.session.sessionId, caller.user.userId, 'SIGN_OUT');
+  } catch (err) {
+    console.error('[inrp2p] sign-out revocation failed', err);
+  }
   await clearSessionCookie();
   redirect('/');
+}
+
+/**
+ * Sign out everywhere.
+ *
+ * Revokes every other session AND bumps the user's session version, so a
+ * credential already in flight cannot become a session after the fact.
+ * The device the person is using is kept — that is what the control says.
+ */
+export async function signOutEverywhereAction(): Promise<ActionResult> {
+  try {
+    const caller = await requireCaller();
+    const revoked = await revokeAllSessions(
+      caller.user.userId,
+      'SIGN_OUT_EVERYWHERE',
+      caller.session.sessionId,
+    );
+    afterCommit(() => revalidatePath('/app/settings/security'));
+    return { ok: true, message: `${revoked} other session(s) ended.` };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** End one named session from the device list. */
+export async function revokeSessionAction(sessionId: string): Promise<ActionResult> {
+  try {
+    const caller = await requireCaller();
+    // Ownership: the listing only ever shows the caller's own sessions,
+    // and this re-checks rather than trusting the id that came back.
+    const owned = await listSessions(caller.user.userId, caller.session.sessionId);
+    if (!owned.some((s) => s.sessionId === sessionId)) {
+      return { ok: false, code: 'PERMISSION_DENIED', message: 'That session is not yours.' };
+    }
+    await revokeSession(sessionId, caller.user.userId, 'REVOKED_BY_USER');
+    afterCommit(() => revalidatePath('/app/settings/security'));
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Second factor
+ * ------------------------------------------------------------------ */
+
+export async function beginMfaEnrolmentAction(): Promise<
+  ActionResult & { secret?: string; uri?: string; recoveryCodes?: readonly string[] }
+> {
+  try {
+    const caller = await requireCaller();
+    const outcome = await beginMfaEnrolment(caller.user.userId);
+    if (!outcome.ok) return resultOf(outcome);
+    const { enrolmentUri } = await import('@/server/identity/totp');
+    return {
+      ok: true,
+      secret: outcome.value.secret,
+      uri: enrolmentUri(outcome.value.secret, caller.user.email ?? caller.user.displayName),
+      recoveryCodes: outcome.value.recoveryCodes,
+    };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function confirmMfaEnrolmentAction(code: string): Promise<ActionResult> {
+  try {
+    const caller = await requireCaller();
+    const outcome = await confirmMfaEnrolment(caller.user.userId, code);
+    if (outcome.ok) afterCommit(() => revalidatePath('/app/settings/security'));
+    return resultOf(outcome);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Satisfy the second factor for this session. */
+export async function verifyMfaAction(code: string): Promise<ActionResult> {
+  try {
+    const caller = await requireCaller();
+    const outcome = await verifyMfaForSession({
+      userId: caller.user.userId,
+      sessionId: caller.session.sessionId,
+      presented: code,
+    });
+    if (outcome.ok) afterCommit(() => revalidatePath('/app/ops'));
+    return resultOf(outcome);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function redeemRecoveryCodeAction(code: string): Promise<ActionResult> {
+  try {
+    const caller = await requireCaller();
+    const outcome = await redeemRecoveryCode({
+      userId: caller.user.userId,
+      sessionId: caller.session.sessionId,
+      code,
+    });
+    if (outcome.ok) afterCommit(() => revalidatePath('/app/settings/security'));
+    return resultOf(outcome);
+  } catch (err) {
+    return fail(err);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -324,24 +484,45 @@ export async function updateProfileAction(formData: FormData): Promise<ActionRes
   }
 }
 
-export async function setTwoFactorAction(enabled: boolean): Promise<ActionResult> {
-  try {
-    const user = await requireUser();
-    await updateProfile(user, { twoFactorEnabled: enabled });
-    revalidatePath('/app/settings/security');
-    return { ok: true };
-  } catch (err) {
-    return fail(err);
-  }
+/**
+ * The old boolean 2FA toggle, deliberately removed.
+ *
+ * It set `two_factor_enabled` and nothing else — no secret, no enrolment,
+ * no challenge (TS-00 `AUD-P1-008`). A screen that offered it was
+ * offering a checkbox labelled "be secure". Enrolment now goes through
+ * `beginMfaEnrolmentAction` / `confirmMfaEnrolmentAction`, and this
+ * action exists only to tell an out-of-date client so.
+ */
+export async function setTwoFactorAction(): Promise<ActionResult> {
+  return {
+    ok: false,
+    code: 'MFA_NOT_ENROLLED',
+    message: 'Two-factor authentication is set up with an authenticator app.',
+  };
 }
 
+/**
+ * Submit a verification for review.
+ *
+ * ⚠ THIS NO LONGER VERIFIES ANYTHING BY ITSELF.
+ *
+ * It used to set a boolean and mint loyalty points on every press (TS-00
+ * `AUD-P1-008`, `AUD-P1-001`). It now opens a CASE. Approval requires a
+ * reviewer who is not the subject — enforced by a database constraint,
+ * not by this function — and the badge follows the decision.
+ */
 export async function verifyStepAction(step: 'identity' | 'upi' | 'wallet'): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    await markVerified(user, step);
-    revalidatePath('/app/profile');
-    revalidatePath('/app/profile/verification');
-    return { ok: true };
+    const kind = step.toUpperCase() as 'IDENTITY' | 'UPI' | 'WALLET';
+    const outcome = await submitVerification({ userId: user.userId, kind });
+    if (outcome.ok) {
+      afterCommit(() => {
+        revalidatePath('/app/profile');
+        revalidatePath('/app/profile/verification');
+      });
+    }
+    return resultOf(outcome);
   } catch (err) {
     return fail(err);
   }
@@ -410,8 +591,10 @@ export async function ruleAction(
   reason: string,
 ): Promise<ActionResult> {
   try {
-    const user = await requireUser();
-    const outcome = await rulingCommand(user, commandId, dealId, ruling, reason);
+    // The PRINCIPAL, not the user: live roles plus this session's MFA
+    // state. A cached `isOperator` is not authority.
+    const caller = await requireCaller();
+    const outcome = await rulingCommand(caller.principal, commandId, dealId, ruling, reason);
     if (outcome.ok) {
       afterCommit(() => {
         revalidatePath('/app/ops');

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { currentUser } from '@/services';
+import { currentCaller, denialFor } from '@/services';
 import { AT_RISK_MINUTES, countBy, deskQueue, type DeskFilter } from '@/services';
 import { getChrome } from '@/services';
 import { formatMinor } from '@/lib/format';
@@ -45,9 +45,19 @@ export default async function OpsPage({
 }: {
   searchParams: Promise<{ view?: string }>;
 }) {
-  const user = await currentUser();
+  const caller = await currentCaller();
 
-  if (!user || !user.isOperator) {
+  /*
+   * The gate is a LIVE permission check, not a cached boolean.
+   *
+   * `denialFor` distinguishes the three reasons so the screen can say
+   * something true and actionable: no permission at all, a second factor
+   * not yet enrolled, or one not yet answered on this device. The queue
+   * is never loaded in any of those cases — a denied caller's response
+   * never contained operator data.
+   */
+  const denial = caller ? denialFor(caller.principal, 'ops.queue.read') : 'NO_PERMISSION';
+  if (denial !== null || !caller) {
     return (
       <Shell width="prose" className="py-10 sm:py-16">
         <div data-testid="access-denied">
@@ -57,22 +67,36 @@ export default async function OpsPage({
           <Notice
             className="mt-4"
             tone="risk"
-            title="This area is restricted to operators"
+            title={
+              denial === 'MFA_REQUIRED' || denial === 'MFA_NOT_ENROLLED'
+                ? 'The Deal Desk needs your second factor'
+                : 'This area is restricted to operators'
+            }
             body={
-              user
-                ? 'Your account does not have operator permissions, so the queue was never loaded.'
-                : 'You are not signed in, so the queue was never loaded.'
+              !caller
+                ? 'You are not signed in, so the queue was never loaded.'
+                : denial === 'MFA_NOT_ENROLLED'
+                  ? 'Operator tools require an authenticator app. Nothing was loaded.'
+                  : denial === 'MFA_REQUIRED'
+                    ? 'Your account has operator permissions, but this device has not answered your second factor. Nothing was loaded.'
+                    : 'Your account does not have operator permissions, so the queue was never loaded.'
             }
             reassurance="No operator data was sent to this page, and no transaction was affected."
             nextStep={
-              user
-                ? 'If you should have operator access, ask an administrator to grant it. Otherwise return to your deals.'
-                : 'Sign in with an operator account. In this sandbox, any address starting with ops@ is an operator.'
+              !caller
+                ? 'Sign in with an account that has been granted operator access.'
+                : denial === 'MFA_NOT_ENROLLED'
+                  ? 'Set up an authenticator app in Security, then come back.'
+                  : denial === 'MFA_REQUIRED'
+                    ? 'Enter the code from your authenticator app in Security, then reopen the desk.'
+                    : 'Operator access is granted out of band — ask an administrator. It cannot be self-assigned.'
             }
             action={
-              user
-                ? { href: '/app', label: 'Back to your deals' }
-                : { href: '/login?next=/app/ops', label: 'Sign in' }
+              !caller
+                ? { href: '/login?next=/app/ops', label: 'Sign in' }
+                : denial === 'NO_PERMISSION'
+                  ? { href: '/app', label: 'Back to your deals' }
+                  : { href: '/app/settings/security', label: 'Go to Security' }
             }
           />
         </div>
@@ -84,7 +108,10 @@ export default async function OpsPage({
   const params = await searchParams;
   const view: DeskFilter = TABS.find((t) => t.key === params.view)?.key ?? 'ALL';
 
-  const [all, rows] = await Promise.all([deskQueue(user, 'ALL'), deskQueue(user, view)]);
+  const [all, rows] = await Promise.all([
+    deskQueue(caller.principal, 'ALL'),
+    deskQueue(caller.principal, view),
+  ]);
   const counts = countBy(all);
 
   return (

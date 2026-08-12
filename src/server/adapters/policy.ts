@@ -85,21 +85,16 @@ export function operatorRulingAvailable(): boolean {
  * ------------------------------------------------------------------ */
 
 /**
- * Whether the sandbox identity path may run.
+ * Whether the legacy sandbox identity path may run.
  *
- * DEL-02 does not build the replacement authentication system — that is
- * DEL-03, and inventing half of it here would be worse than waiting. What
- * DEL-02 owes is the guarantee that **switching the deployment to
- * production cannot make the unsafe path reachable**.
+ * ⚠ DEL-03 REPLACED IT. `signInSandbox` is no longer reachable from any
+ * route: the web sign-in is a one-time code (`startEmailSignIn` /
+ * `redeemEmailSignIn`) and operator authority comes from `role_grant`.
  *
- * Two audit findings live behind this one boolean:
- *
- *   AUD-P0-001  operator status derived from an `ops@` email prefix;
- *   AUD-P0-002  email sign-in that verifies no credential at all.
- *
- * Both are sandbox conveniences. In production this returns false, the
- * sign-in service refuses before touching the database, and no account —
- * let alone an operator one — can be minted from a typed address.
+ * The function survives for the integration suites that build fixture
+ * accounts directly, and this gate keeps it unreachable in production —
+ * so neither the `ops@` prefix (TS-00 `AUD-P0-001`) nor the
+ * credential-free sign-in (`AUD-P0-002`) can return by configuration.
  */
 export function sandboxIdentityEnabled(): boolean {
   return deploymentMode() !== 'PRODUCTION';
@@ -124,12 +119,17 @@ export function assertSandboxIdentityAllowed(): void {
 }
 
 /**
- * Role derivation from a sandbox email address.
+ * Fixture roles for a sandbox email address.
  *
- * Kept in one place, behind the same gate, so there is exactly one
- * expression of the `ops@` / `new@` convention in the codebase and it is
- * provably unreachable in production. Previously this lived inline in the
- * sign-in service where nothing constrained it.
+ * ⚠ `ops@` NO LONGER GRANTS OPERATOR AUTHORITY ANYWHERE.
+ *
+ * DEL-03 moved authority to `role_grant`, written only by the
+ * out-of-band tool. What survives here is a TEST FIXTURE convenience:
+ * `new@` marks an unverified account so the join guard can be exercised.
+ * The operator half is gone entirely — a sandbox account named `ops@`
+ * gets no permissions at all until somebody runs `grant-role.mjs`.
+ *
+ * The gate still applies, so even the fixture cannot run in production.
  */
 export function sandboxRolesForEmail(email: string): {
   readonly isOperator: boolean;
@@ -137,7 +137,8 @@ export function sandboxRolesForEmail(email: string): {
 } {
   assertSandboxIdentityAllowed();
   return {
-    isOperator: email.startsWith('ops@'),
+    // Always false. Authority is a grant, never a spelling.
+    isOperator: false,
     isVerified: !email.startsWith('new@'),
   };
 }

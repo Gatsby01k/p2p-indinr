@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { makeOperator, type OperatorFixture } from './support/operator';
 import { getPool } from '@/server/db/pool';
 import { canonicalise, newCommandId, readCommand, runCommand } from '@/server/boundary/command';
 import { reject } from '@/server/boundary/outcome';
@@ -18,13 +19,13 @@ import { FAILURE_COPY } from '@/lib/sandboxContract';
  */
 
 let alice: SessionUser;
-let operator: SessionUser;
+let operator: OperatorFixture;
 
 const unique = () => Math.random().toString(36).slice(2, 10);
 
 beforeAll(async () => {
   alice = await signInSandbox(`rr-alice-${unique()}@example.com`);
-  operator = await signInSandbox(`ops@rr-${unique()}.example.com`);
+  operator = await makeOperator(`ops@rr-${unique()}.example.com`);
 });
 
 /* ------------------------------------------------------------------ *
@@ -119,14 +120,26 @@ describe('a rejected command replays its exact original result', () => {
     const dealId = newCommandId(); // a well-formed but unknown deal id
     const commandId = newCommandId();
 
-    const first = await rulingCommand(operator, commandId, dealId, 'RELEASED', 'too short');
+    const first = await rulingCommand(
+      operator.principal,
+      commandId,
+      dealId,
+      'RELEASED',
+      'too short',
+    );
     expect(first.ok).toBe(false);
     if (first.ok) return;
     expect(first.message).toContain('at least a sentence');
     expect(first.message).not.toBe(FAILURE_COPY.NOT_FOUND.reason);
 
     // Identical arguments → an identical replay, not a conflict.
-    const replay = await rulingCommand(operator, commandId, dealId, 'RELEASED', 'too short');
+    const replay = await rulingCommand(
+      operator.principal,
+      commandId,
+      dealId,
+      'RELEASED',
+      'too short',
+    );
     expect(replay.ok).toBe(false);
     if (replay.ok) return;
     expect(replay.code).toBe(first.code);

@@ -3,6 +3,7 @@ import { getPool, toBigInt, withTransaction } from '@/server/db/pool';
 import { boundaryContextFor, newCommandId, type BoundaryContext } from '@/server/boundary/command';
 import { accept, reject, type Outcome, type Rejected } from '@/server/boundary/outcome';
 import { operatorRulingAvailable } from '@/server/adapters/policy';
+import { denialFor, type Permission, type Principal } from '@/server/identity/rbac';
 import {
   FAILURE_COPY,
   SandboxFailure,
@@ -12,7 +13,6 @@ import {
   type SandboxError,
   type Scenario,
 } from '@/lib/sandboxContract';
-import type { SessionUser } from '@/lib/sandboxContract';
 
 /**
  * The Operator Deal Desk.
@@ -34,10 +34,33 @@ import type { SessionUser } from '@/lib/sandboxContract';
  * └────────────────────────────────────────────────────────────────────┘
  */
 
-function assertOperator(user: SessionUser): void {
-  if (!user.isOperator) {
-    throw new SandboxFailure('NOT_A_PARTICIPANT', 'This area is restricted to operators.');
+/**
+ * The operator authorization boundary.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  `SessionUser.isOperator` IS A CACHE, NOT AUTHORITY.               │
+ * │                                                                    │
+ * │  It used to be the whole check. Two things were wrong with that.   │
+ * │  It is a denormalised boolean, so a revoked grant kept working     │
+ * │  until something happened to refresh it. And it says nothing about │
+ * │  the SESSION — an operator who had not answered their second       │
+ * │  factor on this device passed it exactly as one who had.           │
+ * │                                                                    │
+ * │  Authorization is now a live `Principal`: roles read from          │
+ * │  `role_grant` on every request, and a second factor that must be   │
+ * │  both enrolled on the account and satisfied in this session.       │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+function assertPermission(principal: Principal, permission: Permission): void {
+  const denial = denialFor(principal, permission);
+  if (denial === null) return;
+  if (denial === 'MFA_REQUIRED') {
+    throw new SandboxFailure('MFA_REQUIRED', FAILURE_COPY.MFA_REQUIRED.reason);
   }
+  if (denial === 'MFA_NOT_ENROLLED') {
+    throw new SandboxFailure('MFA_NOT_ENROLLED', FAILURE_COPY.MFA_NOT_ENROLLED.reason);
+  }
+  throw new SandboxFailure('PERMISSION_DENIED', FAILURE_COPY.PERMISSION_DENIED.reason);
 }
 
 /* ------------------------------------------------------------------ *
@@ -50,10 +73,12 @@ export type DeskFilter = 'ALL' | 'DISPUTED' | 'AWAITING_PAYMENT' | 'AWAITING_CON
 export const AT_RISK_MINUTES = 30;
 
 export async function deskQueue(
-  user: SessionUser,
+  principal: Principal,
   filter: DeskFilter = 'ALL',
 ): Promise<readonly OperatorRow[]> {
-  assertOperator(user);
+  // Checked BEFORE the first row is read, so a denied caller's response
+  // never contained the data at all.
+  assertPermission(principal, 'ops.queue.read');
 
   const { rows } = await getPool().query(
     `SELECT d.deal_id, d.public_id, d.deal_code, d.state, d.direction,
@@ -200,8 +225,8 @@ export interface OperatorCase {
  * business and is refused, which is what keeps this from being a window onto
  * every transaction on the platform.
  */
-export async function operatorCase(user: SessionUser, dealId: string): Promise<OperatorCase> {
-  assertOperator(user);
+export async function operatorCase(principal: Principal, dealId: string): Promise<OperatorCase> {
+  assertPermission(principal, 'ops.case.read');
 
   const { rows } = await getPool().query(`SELECT d.* FROM sandbox.deal d WHERE d.deal_id = $1`, [
     dealId,
@@ -335,7 +360,7 @@ export async function operatorCase(user: SessionUser, dealId: string): Promise<O
     `INSERT INTO sandbox.audit_event
        (actor_id, action, subject_kind, subject_id, outcome, detail)
      VALUES ($1,'OPERATOR_CASE_OPEN','deal',$2,'OK',$3)`,
-    [user.userId, dealId, JSON.stringify({ state })],
+    [principal.userId, dealId, JSON.stringify({ state })],
   );
 
   return {
@@ -381,7 +406,7 @@ const RULING_STATE: Readonly<Record<Ruling, DealState>> = {
  */
 export async function ruleOnDisputeIn(
   ctx: BoundaryContext,
-  user: SessionUser,
+  principal: Principal,
   dealId: string,
   ruling: Ruling,
   reason: string,
@@ -393,19 +418,30 @@ export async function ruleOnDisputeIn(
       `INSERT INTO sandbox.audit_event
          (actor_id, action, subject_kind, subject_id, outcome, detail)
        VALUES ($1,'DISPUTE_RULE','deal',$2,$3,$4)`,
-      [user.userId, dealId, code, JSON.stringify({ ruling })],
+      [principal.userId, dealId, code, JSON.stringify({ ruling })],
     );
     return reject(code, message);
   };
 
   /*
-   * Operator authorization is re-derived HERE, inside the service and
-   * inside the transaction, from the session-derived caller — never from
-   * anything the request carried, and never from the fact that a screen
-   * chose to render the panel.
+   * Authorization is re-derived HERE, inside the service and inside the
+   * transaction, from live role and session state — never from anything
+   * the request carried, never from a cached boolean, and never from the
+   * fact that a screen chose to render the panel.
+   *
+   * A ruling terminates somebody's deal, so it needs `deal.rule` AND a
+   * second factor that is enrolled and answered on this device. Each
+   * refusal is distinct so the operator is told what to do about it.
    */
-  if (!user.isOperator) {
-    return refuse('NOT_A_PARTICIPANT', 'This area is restricted to operators.');
+  const denial = denialFor(principal, 'deal.rule');
+  if (denial === 'NO_PERMISSION') {
+    return refuse('PERMISSION_DENIED', FAILURE_COPY.PERMISSION_DENIED.reason);
+  }
+  if (denial === 'MFA_NOT_ENROLLED') {
+    return refuse('MFA_NOT_ENROLLED', FAILURE_COPY.MFA_NOT_ENROLLED.reason);
+  }
+  if (denial === 'MFA_REQUIRED') {
+    return refuse('MFA_REQUIRED', FAILURE_COPY.MFA_REQUIRED.reason);
   }
 
   /*
@@ -472,7 +508,7 @@ export async function ruleOnDisputeIn(
       `UPDATE sandbox.dispute
           SET state='RESOLVED', resolution=$2, resolved_by=$3, resolved_at=now()
         WHERE dispute_id=$1`,
-      [d.dispute_id, ruling, user.userId],
+      [d.dispute_id, ruling, principal.userId],
     );
 
     await tx.query(
@@ -499,7 +535,7 @@ export async function ruleOnDisputeIn(
     }
 
     await ctx.audit({
-      actorId: user.userId,
+      actorId: principal.userId,
       action: 'DISPUTE_RULE',
       subjectKind: 'deal',
       subjectId: dealId,
@@ -521,13 +557,13 @@ export async function ruleOnDisputeIn(
 
 /** Throwing wrapper, for the integration suite and legacy callers. */
 export async function ruleOnDispute(
-  user: SessionUser,
+  principal: Principal,
   dealId: string,
   ruling: Ruling,
   reason: string,
 ): Promise<void> {
   const outcome = await withTransaction((tx) =>
-    ruleOnDisputeIn(boundaryContextFor(tx, newCommandId()), user, dealId, ruling, reason),
+    ruleOnDisputeIn(boundaryContextFor(tx, newCommandId()), principal, dealId, ruling, reason),
   );
   if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
 }

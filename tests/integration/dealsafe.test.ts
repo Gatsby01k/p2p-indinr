@@ -13,6 +13,7 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
+import { makeOperator, type OperatorFixture } from './support/operator';
 import { getPool } from '@/server/db/pool';
 import {
   SandboxFailure,
@@ -35,13 +36,22 @@ import { deskQueue, operatorCase, ruleOnDispute } from '@/server/sandbox/ops';
 let payer: SessionUser;
 let payee: SessionUser;
 let outsider: SessionUser;
-let operator: SessionUser;
+let operator: OperatorFixture;
+
+/** A principal with no roles — what an ordinary signed-in person carries. */
+const bare = (u: SessionUser) => ({
+  userId: u.userId,
+  roles: [] as const,
+  permissions: [] as const,
+  mfaSatisfied: false,
+  mfaEnrolled: false,
+});
 
 beforeAll(async () => {
   payer = await signInSandbox('ds-payer@sandbox.test');
   payee = await signInSandbox('ds-payee@sandbox.test');
   outsider = await signInSandbox('ds-outsider@sandbox.test');
-  operator = await signInSandbox('ops@sandbox.test');
+  operator = await makeOperator('ops@sandbox.test');
 });
 
 const code = (c: string) => ({ code: c });
@@ -276,8 +286,8 @@ describe('disputes pause release', () => {
 
 describe('operator disclosure is tiered', () => {
   it('refuses the desk to a non-operator before any row is read', async () => {
-    await expect(deskQueue(payer)).rejects.toBeInstanceOf(SandboxFailure);
-    await expect(operatorCase(payer, 'whatever')).rejects.toBeInstanceOf(SandboxFailure);
+    await expect(deskQueue(bare(payer))).rejects.toBeInstanceOf(SandboxFailure);
+    await expect(operatorCase(bare(payer), 'whatever')).rejects.toBeInstanceOf(SandboxFailure);
   });
 
   it('never exposes an email, a UTR or a payment handle in the queue', async () => {
@@ -285,7 +295,7 @@ describe('operator disclosure is tiered', () => {
     const reference = utr();
     await submitPaymentClaim(payer, dealId, reference);
 
-    const text = JSON.stringify(await deskQueue(operator));
+    const text = JSON.stringify(await deskQueue(operator.principal));
     expect(text).not.toContain(reference);
     expect(text).not.toContain(payer.email);
     expect(text).not.toContain(payee.email);
@@ -297,14 +307,14 @@ describe('operator disclosure is tiered', () => {
     const reference = utr();
     await submitPaymentClaim(payer, dealId, reference);
 
-    const kase = await operatorCase(operator, dealId);
+    const kase = await operatorCase(operator.principal, dealId);
     expect(kase.claim?.utr).toBe(reference);
     expect(kase.parties).toHaveLength(2);
 
     const { rows } = await getPool().query(
       `SELECT 1 FROM sandbox.audit_event
         WHERE subject_id = $1 AND action = 'OPERATOR_CASE_OPEN' AND actor_id = $2`,
-      [dealId, operator.userId],
+      [dealId, operator.user.userId],
     );
     expect(rows.length).toBeGreaterThan(0);
   });
@@ -314,7 +324,9 @@ describe('operator disclosure is tiered', () => {
     await submitPaymentClaim(payer, dealId, utr());
     await confirmReceipt(payee, dealId);
     // Completed is nobody's business but the two sides'.
-    await expect(operatorCase(operator, dealId)).rejects.toMatchObject(code('NOT_A_PARTICIPANT'));
+    await expect(operatorCase(operator.principal, dealId)).rejects.toMatchObject(
+      code('NOT_A_PARTICIPANT'),
+    );
   });
 });
 
@@ -322,9 +334,9 @@ describe('rulings are the only way out of a dispute', () => {
   it('requires a written reason', async () => {
     const dealId = await protectedDeal();
     await raiseDispute(payer, dealId, 'WRONG_AMOUNT');
-    await expect(ruleOnDispute(operator, dealId, 'RELEASED', 'nope')).rejects.toBeInstanceOf(
-      SandboxFailure,
-    );
+    await expect(
+      ruleOnDispute(operator.principal, dealId, 'RELEASED', 'nope'),
+    ).rejects.toBeInstanceOf(SandboxFailure);
   });
 
   it('releases, records the reason for both sides, and closes the case', async () => {
@@ -333,7 +345,7 @@ describe('rulings are the only way out of a dispute', () => {
     await raiseDispute(payee, dealId, 'PROOF_MISMATCH', 'Reference does not match.');
 
     await ruleOnDispute(
-      operator,
+      operator.principal,
       dealId,
       'RELEASED',
       'Bank statement confirms the credit against the stated reference.',
@@ -354,7 +366,12 @@ describe('rulings are the only way out of a dispute', () => {
     await submitPaymentClaim(payer, dealId, utr());
     await raiseDispute(payer, dealId, 'PAYMENT_NOT_RECEIVED', 'Money left but never landed.');
 
-    await ruleOnDispute(operator, dealId, 'REFUNDED', 'No credit found on the receiving account.');
+    await ruleOnDispute(
+      operator.principal,
+      dealId,
+      'REFUNDED',
+      'No credit found on the receiving account.',
+    );
 
     const after = await getDeal(payer, dealId);
     expect(after.state).toBe('REFUNDED');
@@ -364,7 +381,7 @@ describe('rulings are the only way out of a dispute', () => {
   it('is refused on a deal that is not under dispute', async () => {
     const dealId = await protectedDeal();
     await expect(
-      ruleOnDispute(operator, dealId, 'RELEASED', 'Nothing to rule on here at all.'),
+      ruleOnDispute(operator.principal, dealId, 'RELEASED', 'Nothing to rule on here at all.'),
     ).rejects.toMatchObject(code('DEAL_TERMINAL'));
   });
 
@@ -372,7 +389,7 @@ describe('rulings are the only way out of a dispute', () => {
     const dealId = await protectedDeal();
     await raiseDispute(payer, dealId, 'OTHER', 'Something is wrong.');
     await expect(
-      ruleOnDispute(payee, dealId, 'RELEASED', 'I would like my money please.'),
-    ).rejects.toMatchObject(code('NOT_A_PARTICIPANT'));
+      ruleOnDispute(bare(payee), dealId, 'RELEASED', 'I would like my money please.'),
+    ).rejects.toMatchObject(code('PERMISSION_DENIED'));
   });
 });

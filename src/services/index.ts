@@ -77,7 +77,42 @@ export { attachReferrer } from '@/server/sandbox/identity';
 /* ---- Telegram ------------------------------------------------------ */
 export { telegramConfigured, verifyInitData } from '@/server/telegram/verify';
 export type { VerifyFailure } from '@/server/telegram/verify';
-export { destinationForStartParam, signInWithTelegram } from '@/server/telegram/auth';
+export { destinationForStartParam } from '@/server/telegram/auth';
+
+/* ---- DEL-03 identity and access ------------------------------------ */
+export {
+  beginMfaEnrolment,
+  confirmMfaEnrolment,
+  linkTelegramIdentity,
+  mfaEnrolled,
+  redeemEmailSignIn,
+  signInWithTelegramLaunch,
+  startEmailSignIn,
+  redeemRecoveryCode,
+  verifyMfaForSession,
+} from '@/server/identity/auth';
+export {
+  listSessions,
+  revokeAllSessions,
+  revokeSession,
+  type SessionSummary,
+} from '@/server/identity/sessions';
+export {
+  can,
+  denialFor,
+  permissionsFor,
+  rolesFor,
+  type Permission,
+  type Principal,
+} from '@/server/identity/rbac';
+export {
+  decideVerification,
+  listVerificationCases,
+  submitVerification,
+  type VerificationCase,
+} from '@/server/identity/verification';
+export { emailDeliveryAvailable } from '@/server/adapters/emailDelivery';
+export { currentCaller, requireCaller, rotateSessionIfDue } from '@/server/sandbox/session';
 
 /* ---- Contract re-exports, so a server component needs one import --- */
 export * from './contract';
