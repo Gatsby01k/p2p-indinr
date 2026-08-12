@@ -2,11 +2,13 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { createDealAction } from '@/server/sandbox/actions';
+import { createDealAction } from '@/services/actions';
+import { useCommandId } from '@/lib/commandId';
 import { FAILURE_COPY, type SandboxError } from '@/lib/sandboxContract';
 import { formatMinor } from '@/lib/format';
 import { amountProblem, parseInrToMinor, parseUsdtToMicro } from '@/lib/parse';
 import { inrFromUsdt, settlementFor, usdtFromInr, type FeeBearer } from '@/lib/fees';
+
 import { PAYMENT_WINDOW_MINUTES, REFERENCE_RATE, rateDisplay } from '@/lib/rate';
 import { SCENARIO, type Scenario } from '@/lib/scenario';
 import { cn } from '@/lib/cn';
@@ -24,6 +26,17 @@ import {
   TotalRow,
   buttonClass,
 } from '@/components/kit/primitives';
+
+/**
+ * Who absorbs the fee is SERVER POLICY, not a customer choice.
+ *
+ * UX-01 §3 and roadmap decision B4: retail does not get a fee-bearing
+ * control. This constant exists only so the indicative preview computes
+ * the same figures the server will freeze into the quote — it is a mirror
+ * of `DEFAULT_FEE_BEARER`, never an input. The wizard no longer sends a
+ * bearer at all, so a forged request has no field to carry.
+ */
+const SERVER_FEE_BEARER: FeeBearer = 'PAYER';
 
 /**
  * Create a protected deal.
@@ -55,7 +68,6 @@ interface Draft {
   /** Which leg the amount refers to. Exchanges may be quoted either way. */
   amountAsset: 'INR' | 'USDT';
   title: string;
-  feeBearer: FeeBearer;
 }
 
 export function CreateDealWizard({
@@ -68,6 +80,7 @@ export function CreateDealWizard({
   initialAmount?: string;
 }) {
   const router = useRouter();
+  const command = useCommandId();
   const [pending, startTransition] = useTransition();
   const [step, setStep] = useState<Step>('terms');
   const [failure, setFailure] = useState<{ reason: string; nextStep: string } | null>(null);
@@ -77,7 +90,6 @@ export function CreateDealWizard({
     amount: initialAmount,
     amountAsset: initialScenario === 'USDT_TO_INR' ? 'USDT' : 'INR',
     title: '',
-    feeBearer: 'PAYER',
   });
 
   const patch = (next: Partial<Draft>) => setDraft((d) => ({ ...d, ...next }));
@@ -91,14 +103,23 @@ export function CreateDealWizard({
     startTransition(async () => {
       setFailure(null);
       const result = await createDealAction({
+        commandId: command.next(),
         scenario: draft.scenario,
         intent: draft.scenario === 'INR_TO_INR' ? draft.intent : 'PAY',
-        feeBearer: draft.feeBearer,
         title: draft.title.trim() || undefined,
         ...(draft.amountAsset === 'USDT'
           ? { usdtAmount: draft.amount }
           : { inrAmount: draft.amount }),
       });
+      /*
+       * Settle ONLY on a definitive answer.
+       *
+       * An `UNKNOWN` result means the action could not tell whether the
+       * command committed, so the id is kept and a retry replays it. A
+       * corrected resubmission after a named rejection gets a fresh id,
+       * because it is a genuinely different request.
+       */
+      command.settleIfDefinitive(result);
 
       if (result.ok && result.publicId) {
         router.push(`/d/${result.publicId}`);
@@ -239,7 +260,7 @@ interface QuotePreview {
  */
 function useQuotePreview(draft: Draft): QuotePreview | null {
   return useMemo(() => {
-    const { scenario, amount, amountAsset, feeBearer } = draft;
+    const { scenario, amount, amountAsset } = draft;
 
     let inrMinor: bigint | null;
     let usdtMicro: bigint | null = null;
@@ -257,7 +278,7 @@ function useQuotePreview(draft: Draft): QuotePreview | null {
 
     if (inrMinor === null || inrMinor <= 0n) return null;
 
-    const settlement = settlementFor(scenario, inrMinor, feeBearer);
+    const settlement = settlementFor(scenario, inrMinor, SERVER_FEE_BEARER);
     return {
       inrMinor,
       usdtMicro,
@@ -565,27 +586,6 @@ function TermsStep({
         ) : null}
       </Card>
 
-      {/* ---- Who pays the fee? ------------------------------------- */}
-      <Card>
-        <h2 className="text-[length:var(--text-lg)] font-semibold text-[var(--color-ink)]">
-          Who covers the fee?
-        </h2>
-        <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-          <FeeOption
-            selected={draft.feeBearer === 'PAYER'}
-            onSelect={() => patch({ feeBearer: 'PAYER' })}
-            title="The payer"
-            body="They send the amount plus the fee. The receiver keeps the full amount."
-          />
-          <FeeOption
-            selected={draft.feeBearer === 'PAYEE'}
-            onSelect={() => patch({ feeBearer: 'PAYEE' })}
-            title="The receiver"
-            body="The payer sends exactly the amount. The fee comes out of the receipt."
-          />
-        </div>
-      </Card>
-
       {/* Mobile only: the same summary the desktop rail shows. */}
       <div className="lg:hidden">
         <SummaryRail draft={draft} quote={quote} />
@@ -624,39 +624,6 @@ function ScenarioOption({
         <Icon name="arrow-right" className="h-3 w-3 text-[var(--color-ink-4)]" strokeWidth={2.2} />
         <AssetMark asset={to} size="sm" />
       </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
-          {title}
-        </span>
-        <span className="mt-0.5 block text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-          {body}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-function FeeOption({
-  selected,
-  onSelect,
-  title,
-  body,
-}: {
-  selected: boolean;
-  onSelect: () => void;
-  title: string;
-  body: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onSelect}
-      data-selected={selected}
-      className="pick items-start"
-    >
-      <span className="pick-dot mt-0.5" aria-hidden />
       <span className="min-w-0 flex-1">
         <span className="block text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
           {title}
@@ -758,9 +725,7 @@ function ReviewStep({
               <span className="tnum">₹{formatMinor(quote.networkMinor.toString(), 'INR')}</span>
             </Fact>
           ) : null}
-          <Fact term="Fee paid by">
-            {draft.feeBearer === 'PAYER' ? 'The payer' : 'The receiver'}
-          </Fact>
+          <Fact term="Fee paid by">The payer</Fact>
         </Facts>
 
         <div className="mt-3">

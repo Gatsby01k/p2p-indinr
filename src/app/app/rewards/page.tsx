@@ -1,10 +1,5 @@
-import { getChrome } from '@/server/sandbox/chrome';
-import {
-  dealsToNextLevel,
-  getTrustProfile,
-  listReferrals,
-  listRewards,
-} from '@/server/sandbox/identity';
+import { getChrome } from '@/services';
+import { dealsToNextLevel, getTrustProfile, listReferrals, listRewards } from '@/services';
 import { formatMinor } from '@/lib/format';
 import type { RewardEntry } from '@/lib/sandboxContract';
 import { AppHeader } from '@/components/kit/AppChrome';

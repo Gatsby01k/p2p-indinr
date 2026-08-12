@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { currentUser } from '@/server/sandbox/session';
-import { operatorCase } from '@/server/sandbox/ops';
-import { getChrome } from '@/server/sandbox/chrome';
+import { currentUser } from '@/services';
+import { operatorCase } from '@/services';
+import { getChrome } from '@/services';
 import { SandboxFailure } from '@/lib/sandboxContract';
 import { DISPUTE_REASON_COPY } from '@/lib/sandboxContract';
 import { formatMinor } from '@/lib/format';

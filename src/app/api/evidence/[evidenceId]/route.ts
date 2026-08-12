@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { readEvidence } from '@/server/sandbox/service';
-import { currentUser } from '@/server/sandbox/session';
+import { readEvidence } from '@/services';
+import { currentUser } from '@/services';
 
 export const dynamic = 'force-dynamic';
 

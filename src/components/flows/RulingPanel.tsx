@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ruleAction } from '@/server/sandbox/actions';
-import type { Ruling } from '@/server/sandbox/ops';
+import { ruleAction } from '@/services/actions';
+import { useCommandId } from '@/lib/commandId';
+import type { Ruling } from '@/services/contract';
 import { cn } from '@/lib/cn';
 import { Icon, type IconName } from '@/components/kit/Icon';
 import { Sheet } from '@/components/kit/Sheet';
@@ -60,6 +61,7 @@ const MIN_REASON = 10;
 export function RulingPanel({ dealId, dealCode }: { dealId: string; dealCode: string }) {
   const router = useRouter();
   const toast = useToast();
+  const command = useCommandId();
   const [pending, startTransition] = useTransition();
   const [ruling, setRuling] = useState<Ruling | null>(null);
   const [reason, setReason] = useState('');
@@ -73,7 +75,18 @@ export function RulingPanel({ dealId, dealCode }: { dealId: string; dealCode: st
     startTransition(async () => {
       if (!ruling) return;
       setFailure(null);
-      const result = await ruleAction(dealId, ruling, reason);
+      const result = await ruleAction(command.next(), dealId, ruling, reason);
+      /*
+       * Settle on a definitive answer — success OR a named rejection.
+       *
+       * That matters here more than anywhere: an operator refused for a
+       * too-short reason will rewrite it and submit again, and that is a
+       * genuinely different ruling. Holding the id would meet the
+       * correction with an idempotency conflict. An `UNKNOWN` still keeps
+       * the id, because the ruling may already have committed and a deal
+       * must not be terminated twice.
+       */
+      command.settleIfDefinitive(result);
       if (result.ok) {
         setConfirming(false);
         toast.push(`${dealCode} resolved`, 'ok', 'check-circle');

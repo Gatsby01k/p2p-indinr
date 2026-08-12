@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
-import { FAILURE_COPY, SandboxFailure, getDeal } from '@/server/sandbox/service';
-import { getChrome } from '@/server/sandbox/chrome';
+import { FAILURE_COPY, SandboxFailure, getDeal } from '@/services';
+import { getChrome } from '@/services';
 import { settlementLegs } from '@/lib/dealPresenter';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { DisputeForm } from '@/components/flows/DisputeForm';

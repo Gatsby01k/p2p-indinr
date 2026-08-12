@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { claimAction } from '@/server/sandbox/actions';
+import { claimAction } from '@/services/actions';
+import { useCommandId } from '@/lib/commandId';
 import { FAILURE_COPY, type DealEvidence } from '@/lib/sandboxContract';
 import { UTR_LENGTH, isValidUtr, normaliseUtr } from '@/lib/parse';
 import { cn } from '@/lib/cn';
@@ -45,6 +46,7 @@ export function PayFlow({
   evidence: readonly DealEvidence[];
 }) {
   const router = useRouter();
+  const command = useCommandId();
   const [pending, startTransition] = useTransition();
   const [utr, setUtr] = useState('');
   const [note, setNote] = useState('');
@@ -59,7 +61,8 @@ export function PayFlow({
   const submit = () =>
     startTransition(async () => {
       setFailure(null);
-      const result = await claimAction(dealId, clean, note);
+      const result = await claimAction(command.next(), dealId, clean, note);
+      command.settleIfDefinitive(result);
       if (result.ok) {
         setConfirming(false);
         router.push(`/app/deal/${dealId}`);

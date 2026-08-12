@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import { setSessionCookie } from '@/server/sandbox/session';
-import { signInWithTelegram, destinationForStartParam } from '@/server/telegram/auth';
-import { verifyInitData, type VerifyFailure } from '@/server/telegram/verify';
-import { attachReferrer } from '@/server/sandbox/identity';
+import { setSessionCookie } from '@/services';
+import { signInWithTelegram, destinationForStartParam } from '@/services';
+import { verifyInitData, type VerifyFailure } from '@/services';
+import { attachReferrer } from '@/services';
 
 export const dynamic = 'force-dynamic';
 /** Node, not Edge: the verification uses `node:crypto`. */

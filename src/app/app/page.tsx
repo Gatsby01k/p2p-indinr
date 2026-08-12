@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { listDealsForUser } from '@/server/sandbox/service';
-import { getTrustProfile } from '@/server/sandbox/identity';
-import { getChrome } from '@/server/sandbox/chrome';
+import { listDealsForUser } from '@/services';
+import { getTrustProfile } from '@/services';
+import { getChrome } from '@/services';
 import { formatMinor } from '@/lib/format';
 import { DEAL_STATE, dealTitle, settlementLegs } from '@/lib/dealPresenter';
 import type { DealView } from '@/lib/sandboxContract';

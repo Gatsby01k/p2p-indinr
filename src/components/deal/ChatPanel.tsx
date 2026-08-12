@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { messageAction } from '@/server/sandbox/actions';
+import { messageAction } from '@/services/actions';
+import { useCommandId } from '@/lib/commandId';
 import type { DealMessage } from '@/lib/sandboxContract';
 import { cn } from '@/lib/cn';
 import { Avatar } from '@/components/kit/primitives';
@@ -38,6 +39,7 @@ export function ChatPanel({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const command = useCommandId();
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
@@ -57,7 +59,8 @@ export function ChatPanel({
     const body = draft.trim();
     if (!body || pending) return;
     startTransition(async () => {
-      const result = await messageAction(dealId, body);
+      const result = await messageAction(command.next(), dealId, body);
+      command.settleIfDefinitive(result);
       if (result.ok) {
         setDraft('');
         router.refresh();

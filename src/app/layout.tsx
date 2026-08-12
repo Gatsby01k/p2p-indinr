@@ -4,7 +4,7 @@ import './globals.css';
 import { RouteFocus } from '@/components/kit/RouteFocus';
 import { TelegramProvider } from '@/components/telegram/TelegramProvider';
 import { TelegramBackButton } from '@/components/telegram/TelegramButtons';
-import { currentUser } from '@/server/sandbox/session';
+import { currentUser } from '@/services';
 
 export const metadata: Metadata = {
   title: {

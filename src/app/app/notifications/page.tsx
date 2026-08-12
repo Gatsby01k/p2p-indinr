@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { getChrome } from '@/server/sandbox/chrome';
-import { listNotifications } from '@/server/sandbox/identity';
-import { markNotificationsReadAction } from '@/server/sandbox/actions';
+import { getChrome } from '@/services';
+import { listNotifications } from '@/services';
+import { markNotificationsReadAction } from '@/services/actions';
 import type { NotificationView } from '@/lib/sandboxContract';
 import { cn } from '@/lib/cn';
 import { AppHeader } from '@/components/kit/AppChrome';

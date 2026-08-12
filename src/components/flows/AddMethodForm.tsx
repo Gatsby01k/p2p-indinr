@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { addPaymentMethodAction } from '@/server/sandbox/actions';
+import { addPaymentMethodAction } from '@/services/actions';
 import { cn } from '@/lib/cn';
 import { Icon } from '@/components/kit/Icon';
 import { Sheet } from '@/components/kit/Sheet';

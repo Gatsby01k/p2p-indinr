@@ -1,11 +1,15 @@
 import 'server-only';
 import { getPool, toBigInt, withTransaction } from '@/server/db/pool';
+import { boundaryContextFor, newCommandId, type BoundaryContext } from '@/server/boundary/command';
+import { accept, reject, type Outcome, type Rejected } from '@/server/boundary/outcome';
+import { operatorRulingAvailable } from '@/server/adapters/policy';
 import {
   FAILURE_COPY,
   SandboxFailure,
   type DealState,
   type DisputeReason,
   type OperatorRow,
+  type SandboxError,
   type Scenario,
 } from '@/lib/sandboxContract';
 import type { SessionUser } from '@/lib/sandboxContract';
@@ -375,22 +379,56 @@ const RULING_STATE: Readonly<Record<Ruling, DealState>> = {
  * mandatory written reason — an unexplained ruling on someone's money is not
  * an acceptable artefact.
  */
-export async function ruleOnDispute(
+export async function ruleOnDisputeIn(
+  ctx: BoundaryContext,
   user: SessionUser,
   dealId: string,
   ruling: Ruling,
   reason: string,
-): Promise<void> {
-  assertOperator(user);
+): Promise<Outcome<{ dealId: string; ruling: Ruling; state: DealState }>> {
+  const tx = ctx.tx;
+
+  const refuse = async (code: SandboxError, message: string): Promise<Rejected> => {
+    await tx.query(
+      `INSERT INTO sandbox.audit_event
+         (actor_id, action, subject_kind, subject_id, outcome, detail)
+       VALUES ($1,'DISPUTE_RULE','deal',$2,$3,$4)`,
+      [user.userId, dealId, code, JSON.stringify({ ruling })],
+    );
+    return reject(code, message);
+  };
+
+  /*
+   * Operator authorization is re-derived HERE, inside the service and
+   * inside the transaction, from the session-derived caller — never from
+   * anything the request carried, and never from the fact that a screen
+   * chose to render the panel.
+   */
+  if (!user.isOperator) {
+    return refuse('NOT_A_PARTICIPANT', 'This area is restricted to operators.');
+  }
+
+  /*
+   * Ruling stays SANDBOX-ONLY until DEL-06.
+   *
+   * A ruling moves a deal to a terminal state, and in production that has
+   * to run through maker-checker approval and a ledger disposition that
+   * neither exists yet. Rather than let a single operator terminate a
+   * production deal with a status edit, the capability is absent there.
+   */
+  if (!operatorRulingAvailable()) {
+    return refuse('ADAPTER_UNAVAILABLE', 'Dispute rulings are unavailable on this deployment.');
+  }
+
   const note = reason.trim();
   if (note.length < 10) {
-    throw new SandboxFailure(
+    return refuse(
       'NOT_FOUND',
       'Write at least a sentence explaining the ruling. It is shown to both sides.',
     );
   }
 
-  await withTransaction(async (tx) => {
+  {
     const { rows } = await tx.query(
       `SELECT d.*, di.dispute_id, di.state AS dispute_state
          FROM sandbox.deal d
@@ -400,12 +438,12 @@ export async function ruleOnDispute(
       [dealId],
     );
     const d = rows[0];
-    if (!d) throw new SandboxFailure('NOT_FOUND', 'That deal does not exist.');
+    if (!d) return refuse('NOT_FOUND', 'That deal does not exist.');
     if (d.state !== 'DISPUTED') {
-      throw new SandboxFailure('DEAL_TERMINAL', 'That deal is not under dispute.');
+      return refuse('DEAL_TERMINAL', 'That deal is not under dispute.');
     }
     if (!d.dispute_id) {
-      throw new SandboxFailure('NOT_FOUND', FAILURE_COPY.NOT_FOUND.reason);
+      return refuse('NOT_FOUND', FAILURE_COPY.NOT_FOUND.reason);
     }
 
     const nextState = RULING_STATE[ruling];
@@ -460,11 +498,36 @@ export async function ruleOnDispute(
       );
     }
 
-    await tx.query(
-      `INSERT INTO sandbox.audit_event
-         (actor_id, action, subject_kind, subject_id, from_state, to_state, outcome, detail)
-       VALUES ($1,'DISPUTE_RULE','deal',$2,'DISPUTED',$3,'OK',$4)`,
-      [user.userId, dealId, nextState, JSON.stringify({ ruling, reason: note })],
-    );
-  });
+    await ctx.audit({
+      actorId: user.userId,
+      action: 'DISPUTE_RULE',
+      subjectKind: 'deal',
+      subjectId: dealId,
+      fromState: 'DISPUTED',
+      toState: nextState,
+      outcome: 'OK',
+      detail: { ruling, reason: note },
+    });
+    await ctx.emit({
+      type: 'deal.ruled',
+      subjectKind: 'deal',
+      subjectId: dealId,
+      payload: { ruling, toState: nextState },
+    });
+
+    return accept({ dealId, ruling, state: nextState });
+  }
+}
+
+/** Throwing wrapper, for the integration suite and legacy callers. */
+export async function ruleOnDispute(
+  user: SessionUser,
+  dealId: string,
+  ruling: Ruling,
+  reason: string,
+): Promise<void> {
+  const outcome = await withTransaction((tx) =>
+    ruleOnDisputeIn(boundaryContextFor(tx, newCommandId()), user, dealId, ruling, reason),
+  );
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
 }

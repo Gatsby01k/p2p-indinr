@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { dealIdForLink, getLinkPreview } from '@/server/sandbox/service';
-import { currentUser } from '@/server/sandbox/session';
+import { dealIdForLink, getLinkPreview } from '@/services';
+import { currentUser } from '@/services';
 import { formatMinor } from '@/lib/format';
 import { PREVIEW_META, leg, previewHeadline, rateLabel, settlementLegs } from '@/lib/dealPresenter';
 import { SCENARIO } from '@/lib/scenario';

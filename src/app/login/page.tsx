@@ -1,4 +1,4 @@
-import { signInAction } from '@/server/sandbox/actions';
+import { signInAction } from '@/services/actions';
 import { TopBar } from '@/components/kit/AppChrome';
 import { Icon } from '@/components/kit/Icon';
 import {

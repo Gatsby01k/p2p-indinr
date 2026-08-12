@@ -1,6 +1,6 @@
-import { getChrome } from '@/server/sandbox/chrome';
-import { listPaymentMethods } from '@/server/sandbox/identity';
-import { removeMethodAction, setDefaultMethodAction } from '@/server/sandbox/actions';
+import { getChrome } from '@/services';
+import { listPaymentMethods } from '@/services';
+import { removeMethodAction, setDefaultMethodAction } from '@/services/actions';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon, type IconName } from '@/components/kit/Icon';
 import { ToastProvider } from '@/components/kit/Feedback';

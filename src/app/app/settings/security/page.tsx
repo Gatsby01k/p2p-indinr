@@ -1,6 +1,6 @@
-import { getChrome } from '@/server/sandbox/chrome';
-import { getTrustProfile } from '@/server/sandbox/identity';
-import { setTwoFactorAction, signOutAction } from '@/server/sandbox/actions';
+import { getChrome } from '@/services';
+import { getTrustProfile } from '@/services';
+import { setTwoFactorAction, signOutAction } from '@/services/actions';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon } from '@/components/kit/Icon';
 import { ToastProvider } from '@/components/kit/Feedback';

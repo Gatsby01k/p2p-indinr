@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
-import { FAILURE_COPY, SandboxFailure, getDeal } from '@/server/sandbox/service';
-import { getChrome } from '@/server/sandbox/chrome';
+import { FAILURE_COPY, SandboxFailure, getDeal } from '@/services';
+import { getChrome } from '@/services';
 import { formatMinor } from '@/lib/format';
 import { settlementLegs } from '@/lib/dealPresenter';
 import { AppHeader } from '@/components/kit/AppChrome';
@@ -138,10 +138,21 @@ export default async function PayPage({ params }: { params: Promise<{ dealId: st
                 </div>
               ) : null}
             </>
-          ) : (
+          ) : deal.valueLocked ? (
             <Callout tone="risk" icon="alert" className="mt-4">
               This person has not added a way to be paid yet. Message them in the deal room and ask
               them to add one before you transfer anything.
+            </Callout>
+          ) : (
+            /*
+             * The two reasons instructions can be missing are not the same
+             * reason, and telling someone to "ask them to add one" when the
+             * truth is "nothing is protecting this deal yet" would send them
+             * to transfer money against nothing (UX-01 §3, TS-01.4 I7).
+             */
+            <Callout tone="risk" icon="alert" className="mt-4">
+              Payment details are not available yet, because nothing is locked against this deal. Do
+              not transfer anything until this page shows where to send it.
             </Callout>
           )}
         </Card>

@@ -1,4 +1,4 @@
-import { getChrome } from '@/server/sandbox/chrome';
+import { getChrome } from '@/services';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon, type IconName } from '@/components/kit/Icon';
 import {

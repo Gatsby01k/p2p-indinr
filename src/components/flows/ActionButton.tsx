@@ -2,7 +2,7 @@
 
 import { useTransition, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ActionResult } from '@/server/sandbox/actions';
+import type { ActionResult } from '@/services/contract';
 import { cn } from '@/lib/cn';
 import { Icon, type IconName } from '@/components/kit/Icon';
 import { useToast } from '@/components/kit/Feedback';

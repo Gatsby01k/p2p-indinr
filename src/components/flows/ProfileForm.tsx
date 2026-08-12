@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ActionResult } from '@/server/sandbox/actions';
+import type { ActionResult } from '@/services/contract';
 import { Icon } from '@/components/kit/Icon';
 import { useToast } from '@/components/kit/Feedback';
 import { buttonClass } from '@/components/kit/primitives';

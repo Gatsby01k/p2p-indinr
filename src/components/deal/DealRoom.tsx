@@ -3,7 +3,8 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { cancelDealAction, confirmAction } from '@/server/sandbox/actions';
+import { cancelDealAction, confirmAction } from '@/services/actions';
+import { useCommandId } from '@/lib/commandId';
 import { FAILURE_COPY, type DealView } from '@/lib/sandboxContract';
 import { formatMinor } from '@/lib/format';
 import {
@@ -70,6 +71,7 @@ type Tab = 'overview' | 'chat' | 'proof';
 
 export function DealRoom({ deal }: { deal: DealView }) {
   const router = useRouter();
+  const command = useCommandId();
   const [pending, startTransition] = useTransition();
   const [tab, setTab] = useState<Tab>('overview');
   const [confirming, setConfirming] = useState(false);
@@ -89,6 +91,10 @@ export function DealRoom({ deal }: { deal: DealView }) {
     startTransition(async () => {
       setFailure(null);
       const result = await fn();
+      // Settle only on a definitive answer. A throw never reaches here,
+      // and an `UNKNOWN` keeps the id so a retry replays rather than acts
+      // a second time on a command that may already have committed.
+      command.settleIfDefinitive(result);
       if (result.ok) {
         setConfirming(false);
         setCancelling(false);
@@ -459,7 +465,7 @@ export function DealRoom({ deal }: { deal: DealView }) {
               type="button"
               disabled={pending}
               data-testid="confirm-submit"
-              onClick={() => run(() => confirmAction(deal.dealId))}
+              onClick={() => run(() => confirmAction(command.next(), deal.dealId))}
               className={buttonClass('final', 'lg', true)}
             >
               {pending ? (
@@ -531,7 +537,7 @@ export function DealRoom({ deal }: { deal: DealView }) {
             <button
               type="button"
               disabled={pending}
-              onClick={() => run(() => cancelDealAction(deal.dealId))}
+              onClick={() => run(() => cancelDealAction(command.next(), deal.dealId))}
               className={buttonClass('danger', 'lg', true)}
             >
               {pending ? 'Cancelling…' : 'Cancel the deal'}

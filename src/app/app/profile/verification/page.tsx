@@ -1,8 +1,8 @@
-import { getChrome } from '@/server/sandbox/chrome';
-import { getTrustProfile } from '@/server/sandbox/identity';
-import { verifyStepAction } from '@/server/sandbox/actions';
+import { getChrome } from '@/services';
+import { getTrustProfile } from '@/services';
+import { verifyStepAction } from '@/services/actions';
 import { formatMinor } from '@/lib/format';
-import { MAX_INR_MINOR } from '@/server/sandbox/service';
+import { MAX_INR_MINOR } from '@/services';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon, type IconName } from '@/components/kit/Icon';
 import { ToastProvider } from '@/components/kit/Feedback';

@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useState, useTransition } from 'react';
-import { joinAction } from '@/server/sandbox/actions';
+import { joinAction } from '@/services/actions';
+import { useCommandId } from '@/lib/commandId';
 import { FAILURE_COPY, type PreviewStatus, type Role, type Scenario } from '@/lib/sandboxContract';
 import { SCENARIO } from '@/lib/scenario';
 import { haptic } from '@/lib/telegramSdk';
@@ -40,6 +41,7 @@ export function JoinPanel({
   amountLabel: string;
 }) {
   const router = useRouter();
+  const command = useCommandId();
   const [pending, startTransition] = useTransition();
   const [accepted, setAccepted] = useState(false);
   const [failure, setFailure] = useState<{ reason: string; nextStep: string } | null>(null);
@@ -52,7 +54,8 @@ export function JoinPanel({
   const join = useCallback(() => {
     startTransition(async () => {
       setFailure(null);
-      const result = await joinAction(publicId);
+      const result = await joinAction(command.next(), publicId);
+      command.settleIfDefinitive(result);
       if (result.ok && result.dealId) {
         haptic('success');
         router.push(`/app/deal/${result.dealId}`);
@@ -68,7 +71,7 @@ export function JoinPanel({
       );
       router.refresh();
     });
-  }, [publicId, router]);
+  }, [command, publicId, router]);
 
   if (!joinable) {
     const copy =

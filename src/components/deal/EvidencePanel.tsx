@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { uploadEvidenceAction } from '@/server/sandbox/actions';
+import { uploadEvidenceAction } from '@/services/actions';
 import { FAILURE_COPY, type DealEvidence } from '@/lib/sandboxContract';
 import { cn } from '@/lib/cn';
 import { Icon } from '@/components/kit/Icon';

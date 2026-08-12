@@ -2,7 +2,21 @@ import 'server-only';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { getPool, toBigInt, withTransaction, type Tx } from '@/server/db/pool';
 import { getEscrowService } from './escrow';
-import { feesFor } from '@/lib/fees';
+import {
+  getValueProtectionAdapter,
+  valueProtectionAvailable,
+} from '@/server/adapters/valueProtection';
+import { sandboxRolesForEmail, scenarioAvailable } from '@/server/adapters/policy';
+import { getPricingAdapter, type RateSnapshot } from '@/server/adapters/pricing';
+import {
+  boundaryContextFor,
+  newCommandId,
+  writeAudit,
+  type AuditEvent,
+  type BoundaryContext,
+} from '@/server/boundary/command';
+import { accept, reject, type Outcome, type Rejected } from '@/server/boundary/outcome';
+import { feesFor, settlementFor } from '@/lib/fees';
 import {
   CONFIRM_WINDOW_MINUTES,
   PAYMENT_WINDOW_MINUTES,
@@ -123,66 +137,75 @@ function rowTerms(r: Record<string, unknown>): Terms {
   };
 }
 
-interface AuditEvent {
-  actorId: string | null;
-  action: string;
-  subjectKind: 'link' | 'deal' | 'quote' | 'user';
-  subjectId: string;
-  fromState?: string | null;
-  toState?: string | null;
-  outcome: string;
-  detail?: Record<string, unknown>;
-}
+export type { AuditEvent };
 
-const AUDIT_SQL = `
-  INSERT INTO sandbox.audit_event
-    (actor_id, action, subject_kind, subject_id, from_state, to_state, outcome, detail)
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`;
-
-function auditParams(e: AuditEvent) {
-  return [
-    e.actorId,
-    e.action,
-    e.subjectKind,
-    e.subjectId,
-    e.fromState ?? null,
-    e.toState ?? null,
-    e.outcome,
-    JSON.stringify(e.detail ?? {}),
-  ];
-}
-
-/** Audit a SUCCESS, inside the transaction it describes. Commits with it. */
+/** Audit a transition, inside the transaction it describes. Commits with it. */
 async function audit(tx: Tx, e: AuditEvent): Promise<void> {
-  await tx.query(AUDIT_SQL, auditParams(e));
+  await writeAudit(tx, e);
 }
 
 /**
- * Audit a REJECTION, on a separate connection outside the failing transaction.
+ * Audit an expected REJECTION — in the SAME transaction, which then commits.
  *
- * This is not a stylistic choice; writing it inside the transaction is wrong
- * twice over:
+ * TS-00 `AUD-P1-004` recorded that this used to write on a separate pooled
+ * connection inside a `catch` that only logged, so a pool exhaustion or a
+ * restart silently destroyed the record of why somebody was refused.
  *
- *  1. **It would be rolled back.** A rejection aborts its transaction, so an
- *     audit row written inside it vanishes with everything else — and the
- *     record of *why* a caller was refused is exactly the record an operator
- *     needs. Expected rejections must persist.
- *  2. **It cannot even be written.** Once PostgreSQL raises (a constraint
- *     violation, say), the transaction is in an aborted state and every
- *     subsequent statement on that connection fails with 25P02
- *     `current transaction is aborted`. The audit attempt would replace the
- *     real rejection code with an opaque driver error.
+ * The reasoning behind that design was half right: a rejection that THROWS
+ * does abort its transaction, and PostgreSQL then refuses every further
+ * statement on the connection with 25P02. The fix is not a second
+ * connection — it is not throwing. Every DEL-02 boundary now returns a
+ * `Rejected` value rather than raising, so the transaction stays healthy,
+ * this row is written on the same connection as the decision, and it
+ * commits with it. No domain write accompanies it, because every guard
+ * runs before the first mutation.
  *
- * So the rejection record goes out on its own connection, committing
- * independently. It must never throw: a failure to audit must not mask the
- * rejection the caller needs to see.
+ * See `src/server/boundary/outcome.ts` for the full contract.
  */
-async function auditRejection(e: AuditEvent): Promise<void> {
-  try {
-    await getPool().query(AUDIT_SQL, auditParams(e));
-  } catch (err) {
-    console.error('[sandbox audit] failed to record rejection', e.outcome, err);
-  }
+async function auditRejectionInTx(tx: Tx, e: AuditEvent): Promise<void> {
+  await writeAudit(tx, e);
+}
+
+/**
+ * Audit a rejection taken BEFORE a subject row is known or safe to name.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  AN EARLY REFUSAL IS STILL A REFUSAL, AND STILL NEEDS A RECORD.    │
+ * │                                                                    │
+ * │  Some guards fire before the boundary has a link or a deal to      │
+ * │  audit against: an unverified account is turned away before the    │
+ * │  link is read, and a non-participant's query returns no row at all │
+ * │  because participation is a JOIN. Previously those paths returned  │
+ * │  a code and wrote nothing, so the audit trail an operator reads    │
+ * │  had no evidence that anyone had tried.                            │
+ * │                                                                    │
+ * │  The subject becomes the AUTHENTICATED ACTOR, and the resource     │
+ * │  they reached for goes into structured detail. That records the    │
+ * │  attempt without asserting the resource exists — and crucially     │
+ * │  without changing what the CALLER is told: a non-participant       │
+ * │  receives `NOT_A_PARTICIPANT` whether the deal exists or not, so   │
+ * │  the audit row is visible to operators and the response remains    │
+ * │  useless as an existence oracle.                                   │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+async function auditEarlyRejection(
+  tx: Tx,
+  input: {
+    readonly actorId: string;
+    readonly action: string;
+    readonly outcome: SandboxError;
+    /** What the caller reached for. Recorded, never confirmed to them. */
+    readonly attempted: Record<string, unknown>;
+  },
+): Promise<void> {
+  await writeAudit(tx, {
+    actorId: input.actorId,
+    action: input.action,
+    subjectKind: 'user',
+    subjectId: input.actorId,
+    outcome: input.outcome,
+    detail: { attempted: input.attempted },
+  });
 }
 
 /** A system line in the deal thread. Never attributable to a person. */
@@ -227,8 +250,17 @@ export async function signInSandbox(email: string): Promise<SessionUser> {
   if (!/^[^@\s]+@[^@\s]+$/.test(normalized)) {
     throw new SandboxFailure('UNAUTHENTICATED', 'Enter a valid email address.');
   }
-  const isOperator = normalized.startsWith('ops@');
-  const isVerified = !normalized.startsWith('new@');
+  /*
+   * Role derivation lives behind the deployment policy, not inline here.
+   *
+   * TS-00 recorded two P0s against this path: `ops@` granting operator
+   * (AUD-P0-001) and the whole path verifying no credential at all
+   * (AUD-P0-002). Replacing it is DEL-03's work and is deliberately not
+   * attempted here. What DEL-02 owes is that flipping a deployment to
+   * production cannot make it reachable — `sandboxRolesForEmail` throws
+   * `AdapterUnavailableError` before the first database write.
+   */
+  const { isOperator, isVerified } = sandboxRolesForEmail(normalized);
   const local = normalized.split('@')[0]!;
   /*
    * Title-cased at the source, not with a `capitalize` class at each of the
@@ -326,16 +358,26 @@ interface QuoteInsert {
   readonly inrMinor: bigint;
 }
 
-async function insertQuote(
+/**
+ * Write one quote row inside a caller-supplied transaction.
+ *
+ * The `tx` parameter is what makes DEL-02 requirement 3 possible: quote
+ * issuance and link creation are two writes that must land together, so
+ * neither may own its transaction. `insertQuote` therefore never opens
+ * one — `createDealIntent` does, once, around both.
+ */
+async function insertQuoteIn(
+  tx: Tx,
   user: SessionUser,
   q: QuoteInsert,
   options: QuoteOptions,
+  rate: RateSnapshot,
 ): Promise<SandboxQuote> {
   const fees = feesFor(q.direction, q.inrMinor);
   const bearer: FeeBearer = options.feeBearer ?? 'PAYER';
   const title = options.title?.trim() ? options.title.trim().slice(0, 120) : null;
 
-  return withTransaction(async (tx) => {
+  {
     const { rows } = await tx.query(
       `INSERT INTO sandbox.quote
          (issued_to, direction, usdt_minor, inr_minor, rate_num, rate_den,
@@ -349,9 +391,10 @@ async function insertQuote(
         q.direction,
         q.usdtMinor === null ? null : q.usdtMinor.toString(),
         q.inrMinor.toString(),
-        SANDBOX_RATE_NUM.toString(),
-        SANDBOX_RATE_DEN.toString(),
-        'SANDBOX_REFERENCE',
+        rate.num.toString(),
+        rate.den.toString(),
+        // Provenance comes from the adapter, never from a literal here.
+        rate.source,
         String(QUOTE_TTL_SECONDS),
         fees.protectionMinor.toString(),
         fees.networkMinor.toString(),
@@ -379,7 +422,80 @@ async function insertQuote(
       expiresAt: (r.expires_at as Date).toISOString(),
       expired: false,
     };
-  });
+  }
+}
+
+/**
+ * Price a quote request, or say exactly why it cannot be priced.
+ *
+ * Pure and transaction-free, so every guard — scenario availability,
+ * amount range, and the net-receipt floor — is decided before a single
+ * row is written. That ordering is what lets the boundary commit a
+ * rejection audit with no domain write beside it.
+ */
+function priceQuote(
+  scenario: Scenario,
+  input: { readonly inrMinor?: bigint; readonly usdtMinor?: bigint },
+  bearer: FeeBearer,
+  rate: RateSnapshot,
+): Outcome<QuoteInsert> {
+  if (!scenarioAvailable(scenario)) {
+    return reject('SCENARIO_UNAVAILABLE', FAILURE_COPY.SCENARIO_UNAVAILABLE.reason);
+  }
+
+  let inrMinor: bigint;
+  let usdtMinor: bigint | null;
+
+  if (scenario === 'INR_TO_INR') {
+    inrMinor = input.inrMinor ?? 0n;
+    usdtMinor = null;
+  } else if (input.usdtMinor !== undefined) {
+    if (input.usdtMinor <= 0n) {
+      return reject('AMOUNT_INVALID', FAILURE_COPY.AMOUNT_INVALID.reason);
+    }
+    usdtMinor = input.usdtMinor;
+    inrMinor = (input.usdtMinor * rate.num) / (rate.den * 10_000n);
+  } else {
+    inrMinor = input.inrMinor ?? 0n;
+    usdtMinor = (inrMinor * rate.den * 10_000n) / rate.num;
+  }
+
+  const range = checkInrRange(inrMinor);
+  if (range) return range;
+  if (usdtMinor !== null && usdtMinor <= 0n) {
+    return reject('AMOUNT_TOO_SMALL', FAILURE_COPY.AMOUNT_TOO_SMALL.reason);
+  }
+
+  /*
+   * THE NET-RECEIPT FLOOR — TS-00 `AUD-P1-005`.
+   *
+   * `settlementFor` floors a negative receipt at zero so no screen ever
+   * renders a negative figure. That is right for presentation and wrong
+   * as an acceptance rule: it let a ₹100 exchange with the payee bearing
+   * a ₹205 fee be quoted, priced and shared as a link on which the
+   * receiving side was guaranteed nothing while the payer was asked for
+   * the full amount.
+   *
+   * The floor stays. The quote is refused.
+   */
+  const settlement = settlementFor(scenario, inrMinor, bearer);
+  if (settlement.payeeReceivesMinor <= 0n) {
+    return reject('FEE_EXCEEDS_AMOUNT', FAILURE_COPY.FEE_EXCEEDS_AMOUNT.reason);
+  }
+
+  return accept({ direction: scenario, usdtMinor, inrMinor });
+}
+
+/** The amount range, as a rejection rather than a throw. */
+function checkInrRange(inrMinor: bigint): Rejected | null {
+  if (inrMinor <= 0n) return reject('AMOUNT_INVALID', FAILURE_COPY.AMOUNT_INVALID.reason);
+  if (inrMinor < MIN_INR_MINOR) {
+    return reject('AMOUNT_TOO_SMALL', FAILURE_COPY.AMOUNT_TOO_SMALL.reason);
+  }
+  if (inrMinor > MAX_INR_MINOR) {
+    return reject('AMOUNT_TOO_LARGE', FAILURE_COPY.AMOUNT_TOO_LARGE.reason);
+  }
+  return null;
 }
 
 /**
@@ -387,6 +503,10 @@ async function insertQuote(
  *
  * Rounding happens exactly once, here, at issuance; no later step re-derives
  * an amount from the rate.
+ *
+ * Retained as a primitive for tests and for the quote-expiry paths that
+ * need a quote without a link. The application boundary uses
+ * `createDealIntent`, which is atomic across both writes.
  */
 export async function issueFirmQuote(
   user: SessionUser,
@@ -394,13 +514,10 @@ export async function issueFirmQuote(
   usdtMinor: bigint,
   options: QuoteOptions = {},
 ): Promise<SandboxQuote> {
-  if (usdtMinor <= 0n) throw new SandboxFailure('NOT_FOUND', 'Enter an amount greater than zero.');
-
-  const inrMinor = (usdtMinor * SANDBOX_RATE_NUM) / (SANDBOX_RATE_DEN * 10_000n);
-  if (inrMinor <= 0n) {
-    throw new SandboxFailure('NOT_FOUND', 'That amount is too small to quote.');
-  }
-  return insertQuote(user, { direction, usdtMinor, inrMinor }, options);
+  const rate = getPricingAdapter().rateFor(direction);
+  const priced = priceQuote(direction, { usdtMinor }, options.feeBearer ?? 'PAYER', rate);
+  if (!priced.ok) throw new SandboxFailure(priced.code, priced.message);
+  return withTransaction((tx) => insertQuoteIn(tx, user, priced.value, options, rate));
 }
 
 /**
@@ -415,10 +532,10 @@ export async function issueExchangeQuoteFromInr(
   inrMinor: bigint,
   options: QuoteOptions = {},
 ): Promise<SandboxQuote> {
-  assertInrRange(inrMinor);
-  const usdtMinor = (inrMinor * SANDBOX_RATE_DEN * 10_000n) / SANDBOX_RATE_NUM;
-  if (usdtMinor <= 0n) throw new SandboxFailure('AMOUNT_TOO_SMALL', 'That amount is too small.');
-  return insertQuote(user, { direction, usdtMinor, inrMinor }, options);
+  const rate = getPricingAdapter().rateFor(direction);
+  const priced = priceQuote(direction, { inrMinor }, options.feeBearer ?? 'PAYER', rate);
+  if (!priced.ok) throw new SandboxFailure(priced.code, priced.message);
+  return withTransaction((tx) => insertQuoteIn(tx, user, priced.value, options, rate));
 }
 
 /** A firm quote for a protected INR → INR payment. No USDT leg exists. */
@@ -427,24 +544,242 @@ export async function issueProtectedQuote(
   inrMinor: bigint,
   options: QuoteOptions = {},
 ): Promise<SandboxQuote> {
-  assertInrRange(inrMinor);
-  return insertQuote(user, { direction: 'INR_TO_INR', usdtMinor: null, inrMinor }, options);
+  const rate = getPricingAdapter().rateFor('INR_TO_INR');
+  const priced = priceQuote('INR_TO_INR', { inrMinor }, options.feeBearer ?? 'PAYER', rate);
+  if (!priced.ok) throw new SandboxFailure(priced.code, priced.message);
+  return withTransaction((tx) => insertQuoteIn(tx, user, priced.value, options, rate));
 }
 
-function assertInrRange(inrMinor: bigint): void {
-  if (inrMinor <= 0n)
-    throw new SandboxFailure('AMOUNT_INVALID', FAILURE_COPY.AMOUNT_INVALID.reason);
-  if (inrMinor < MIN_INR_MINOR) {
-    throw new SandboxFailure('AMOUNT_TOO_SMALL', FAILURE_COPY.AMOUNT_TOO_SMALL.reason);
+/* ------------------------------------------------------------------ *
+ * 1b. Authoritative expiry transitions
+ *
+ * TS-00 `AUD-P1-003` recorded three defects in one function: the payment
+ * window lapsed at roughly four hours rather than the two the UI showed,
+ * the transition committed with no audit row at all, and it only ever ran
+ * because somebody happened to load a page.
+ *
+ * All three are corrected here. Expiry is an explicit transition, taken
+ * under the controlling row lock, compared against the DATABASE clock with
+ * no arithmetic beyond the stored deadline, audited in the same
+ * transaction, and reachable only from a boundary or the explicit sweep —
+ * never from rendering a page.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Expire one quote if its moment has passed. Caller must already hold the
+ * row lock; the row is re-read from the lock, not from a stale snapshot.
+ *
+ * Returns true when it transitioned, so the caller can distinguish "was
+ * already expired" from "expired just now" for its own audit detail.
+ */
+async function expireQuoteIfLapsed(
+  tx: Tx,
+  quote: { quote_id: string; state: string; is_expired: boolean },
+  actorId: string | null,
+  emit?: BoundaryContext['emit'],
+): Promise<boolean> {
+  if (quote.state !== 'ISSUED' || !quote.is_expired) return false;
+
+  const cas = await tx.query(
+    `UPDATE sandbox.quote SET state='EXPIRED' WHERE quote_id=$1 AND state='ISSUED'`,
+    [quote.quote_id],
+  );
+  if (cas.rowCount !== 1) return false;
+
+  await audit(tx, {
+    actorId,
+    action: 'QUOTE_EXPIRE',
+    subjectKind: 'quote',
+    subjectId: quote.quote_id,
+    fromState: 'ISSUED',
+    toState: 'EXPIRED',
+    outcome: 'OK',
+  });
+  if (emit) {
+    await emit({ type: 'quote.expired', subjectKind: 'quote', subjectId: quote.quote_id });
   }
-  if (inrMinor > MAX_INR_MINOR) {
-    throw new SandboxFailure('AMOUNT_TOO_LARGE', FAILURE_COPY.AMOUNT_TOO_LARGE.reason);
+  return true;
+}
+
+/**
+ * Expire one deal whose payment window has passed.
+ *
+ * The comparison is `action_deadline <= now()` — exactly the deadline the
+ * deal carries and exactly the one the interface displays. The previous
+ * `now() - interval '2 hours'` silently doubled a two-hour window into
+ * four, so the server enforced a deadline nobody had been shown.
+ *
+ * A claimed deal never expires. Once money is asserted to have moved, the
+ * remedy is a dispute, not a timer, and the state machine says so.
+ */
+async function expireDealIfLapsed(
+  tx: Tx,
+  deal: { deal_id: string; state: string; deal_code?: string | null },
+  actorId: string | null,
+  emit?: BoundaryContext['emit'],
+): Promise<boolean> {
+  if (deal.state !== 'FIAT_PENDING') return false;
+
+  const cas = await tx.query(
+    `UPDATE sandbox.deal
+        SET state='EXPIRED', closed_at=now(), action_deadline=NULL, version=version+1
+      WHERE deal_id=$1
+        AND state='FIAT_PENDING'
+        AND action_deadline IS NOT NULL
+        AND action_deadline <= now()`,
+    [deal.deal_id],
+  );
+  if (cas.rowCount !== 1) return false;
+
+  await systemLine(tx, deal.deal_id, 'The payment window closed. Nothing was transferred.');
+  await audit(tx, {
+    actorId,
+    action: 'DEAL_EXPIRE',
+    subjectKind: 'deal',
+    subjectId: deal.deal_id,
+    fromState: 'FIAT_PENDING',
+    toState: 'EXPIRED',
+    outcome: 'OK',
+  });
+  if (emit) {
+    await emit({ type: 'deal.expired', subjectKind: 'deal', subjectId: deal.deal_id });
   }
+
+  const { rows: seats } = await tx.query(
+    `SELECT user_id FROM sandbox.participant WHERE deal_id = $1`,
+    [deal.deal_id],
+  );
+  for (const seat of seats) {
+    await notify(
+      tx,
+      seat.user_id,
+      deal.deal_id,
+      'WARNING',
+      'Payment window closed',
+      'Nobody marked a payment in time. Nothing was transferred or released.',
+    );
+  }
+  return true;
 }
 
 /* ------------------------------------------------------------------ *
  * 2. Create a deal link from a valid quote
  * ------------------------------------------------------------------ */
+
+export interface DealIntent {
+  readonly publicId: string;
+  readonly quoteId: string;
+}
+
+/**
+ * Issue a quote and mint its link — as ONE transaction.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  WHY THIS FUNCTION EXISTS.                                         │
+ * │                                                                    │
+ * │  The create-deal action used to call `issueQuote(...)` and then    │
+ * │  `createDealLink(...)`, each opening its own transaction. A crash, │
+ * │  a timeout or a lost connection between the two committed the      │
+ * │  quote and never minted the link, leaving an orphan row that no    │
+ * │  screen could reach and no user could act on (TS-00 AUD-P0-004).   │
+ * │                                                                    │
+ * │  Here both writes share one transaction and one command record.    │
+ * │  A failure at any point rolls back everything: no quote, no link,  │
+ * │  no audit row, no outbox event, no command record. The caller      │
+ * │  retries with the SAME command id and gets exactly one deal        │
+ * │  intent, not two.                                                  │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export async function createDealIntentIn(
+  ctx: BoundaryContext,
+  user: SessionUser,
+  request: {
+    readonly scenario: Scenario;
+    readonly inrMinor?: bigint;
+    readonly usdtMinor?: bigint;
+    readonly intent: 'PAY' | 'RECEIVE';
+    readonly feeBearer: FeeBearer;
+    readonly title?: string | null;
+  },
+): Promise<Outcome<DealIntent>> {
+  /*
+   * CAPABILITY FIRST, BEFORE ANY WRITE OR ANY REJECTION.
+   *
+   * `getPricingAdapter()` throws in production, and it is called here —
+   * ahead of the command's first statement — so the whole transaction
+   * rolls back and the deployment produces no command row, no quote, no
+   * link, no audit row and no outbox event. A rejection *code* would be
+   * the wrong shape: it would commit a REJECTED command recording that
+   * somebody asked, which is a decision about the caller. This is not
+   * about the caller. The deployment cannot price anything.
+   */
+  const rate = getPricingAdapter().rateFor(request.scenario);
+
+  const priced = priceQuote(
+    request.scenario,
+    { inrMinor: request.inrMinor, usdtMinor: request.usdtMinor },
+    request.feeBearer,
+    rate,
+  );
+  if (!priced.ok) {
+    await auditRejectionInTx(ctx.tx, {
+      actorId: user.userId,
+      action: 'DEAL_INTENT_CREATE',
+      subjectKind: 'user',
+      subjectId: user.userId,
+      outcome: priced.code,
+      detail: { scenario: request.scenario },
+    });
+    return priced;
+  }
+
+  const quote = await insertQuoteIn(
+    ctx.tx,
+    user,
+    priced.value,
+    { feeBearer: request.feeBearer, title: request.title ?? null },
+    rate,
+  );
+  await ctx.emit({
+    type: 'quote.issued',
+    subjectKind: 'quote',
+    subjectId: quote.quoteId,
+    payload: { direction: quote.direction, inrMinor: quote.inrMinor },
+  });
+
+  const creatorRole: Role = creatorRoleFor(request.scenario, request.intent);
+  await ctx.tx.query(`UPDATE sandbox.quote SET state='CONSUMED' WHERE quote_id=$1`, [
+    quote.quoteId,
+  ]);
+
+  const publicId = newPublicId();
+  const { rows: linkRows } = await ctx.tx.query(
+    `INSERT INTO sandbox.deal_link
+       (public_id, quote_id, created_by, creator_role, expires_at)
+     VALUES ($1,$2,$3,$4, now() + ($5 || ' seconds')::interval)
+     RETURNING link_id`,
+    [publicId, quote.quoteId, user.userId, creatorRole, String(linkTtlSeconds(request.scenario))],
+  );
+  const linkId = linkRows[0]!.link_id as string;
+
+  await ctx.audit({
+    actorId: user.userId,
+    action: 'LINK_CREATE',
+    subjectKind: 'link',
+    subjectId: linkId,
+    toState: 'OPEN',
+    outcome: 'OK',
+    detail: { publicId, creatorRole, direction: request.scenario, quoteId: quote.quoteId },
+  });
+  await ctx.emit({
+    type: 'link.created',
+    subjectKind: 'link',
+    subjectId: linkId,
+    payload: { publicId, creatorRole, direction: request.scenario },
+  });
+
+  return accept({ publicId, quoteId: quote.quoteId });
+}
 
 /**
  * Turn a live quote into a shareable link.
@@ -458,7 +793,7 @@ export async function createDealLink(
   quoteId: string,
   intent: 'PAY' | 'RECEIVE' = 'PAY',
 ): Promise<LinkPreview> {
-  return withTransaction(async (tx) => {
+  const outcome = await withTransaction(async (tx): Promise<Outcome<LinkPreview>> => {
     // Lock the quote, then read the server clock. Expiry is evaluated after
     // the lock is held, so a quote cannot expire between check and use.
     const { rows } = await tx.query(
@@ -467,16 +802,23 @@ export async function createDealLink(
       [quoteId],
     );
     const q = rows[0];
-    if (!q) throw new SandboxFailure('NOT_FOUND', 'That quote does not exist.');
+    if (!q) return reject('NOT_FOUND', 'That quote does not exist.');
     if (q.issued_to !== user.userId) {
-      throw new SandboxFailure('NOT_A_PARTICIPANT', 'That quote was issued to someone else.');
+      return reject('NOT_A_PARTICIPANT', 'That quote was issued to someone else.');
     }
-    if (q.state === 'CONSUMED') throw new SandboxFailure('QUOTE_CONSUMED', 'Quote already used.');
+    if (q.state === 'CONSUMED') return reject('QUOTE_CONSUMED', 'Quote already used.');
     if (q.is_expired || q.state === 'EXPIRED') {
-      // The rejection audit goes out of band so it survives this transaction's
-      // rollback; marking the quote EXPIRED is a separate, idempotent cleanup
-      // that the next read would perform anyway from `expires_at`.
-      await auditRejection({
+      /*
+       * The transition and its refusal now commit TOGETHER.
+       *
+       * Nothing raises, so the transaction stays healthy: the quote is
+       * moved `ISSUED → EXPIRED` authoritatively (rather than being left
+       * to be re-derived from `expires_at` on every future read), the
+       * expiry is audited, the refusal is audited, and all three commit.
+       * No link is created, because the guard ran first.
+       */
+      await expireQuoteIfLapsed(tx, { ...q, is_expired: true }, user.userId);
+      await auditRejectionInTx(tx, {
         actorId: user.userId,
         action: 'LINK_CREATE',
         subjectKind: 'quote',
@@ -484,7 +826,7 @@ export async function createDealLink(
         fromState: q.state,
         outcome: 'QUOTE_EXPIRED',
       });
-      throw new SandboxFailure('QUOTE_EXPIRED', FAILURE_COPY.QUOTE_EXPIRED.reason);
+      return reject('QUOTE_EXPIRED', FAILURE_COPY.QUOTE_EXPIRED.reason);
     }
 
     const creatorRole: Role = creatorRoleFor(q.direction as Scenario, intent);
@@ -513,10 +855,10 @@ export async function createDealLink(
       detail: { publicId, creatorRole, direction: q.direction },
     });
 
-    return {
+    return accept({
       publicId,
       ...rowTerms(q),
-      displayStatus: 'OPEN',
+      displayStatus: 'OPEN' as const,
       joinable: true,
       expiresAt: (l.expires_at as Date).toISOString(),
       viewerWouldBe: otherRole(creatorRole),
@@ -525,43 +867,121 @@ export async function createDealLink(
       // The caller here IS the creator, so this discloses nothing new.
       creatorName: user.displayName,
       creatorVerified: user.isVerified,
-    };
+    });
   });
+
+  // Raised OUTSIDE the transaction, which has already committed the
+  // rejection evidence. The caller still sees an exception; the record of
+  // why survives regardless of what the caller does with it.
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
+  return outcome.value;
 }
 
-/** Withdraw a link that nobody has taken yet. Only its creator may. */
-export async function closeDealLink(user: SessionUser, publicId: string): Promise<void> {
-  await withTransaction(async (tx) => {
-    const { rows } = await tx.query(
-      `SELECT * FROM sandbox.deal_link WHERE public_id = $1 FOR UPDATE`,
-      [publicId],
-    );
-    const link = rows[0];
-    if (!link) throw new SandboxFailure('NOT_FOUND', 'That deal link does not exist.');
-    if (link.created_by !== user.userId) {
-      throw new SandboxFailure('NOT_A_PARTICIPANT', 'Only the creator can withdraw a link.');
-    }
-    if (link.state === 'CONSUMED') {
-      throw new SandboxFailure('LINK_CONSUMED', FAILURE_COPY.LINK_CONSUMED.reason);
-    }
-    if (link.state === 'CLOSED') return;
+export interface LinkClosure {
+  readonly publicId: string;
+  /** True when the link was already withdrawn before this command ran. */
+  readonly alreadyClosed: boolean;
+}
 
-    await tx.query(
-      `UPDATE sandbox.deal_link
-          SET state='CLOSED', closed_at=now(), version=version+1
-        WHERE link_id=$1 AND state='OPEN'`,
-      [link.link_id],
-    );
-    await audit(tx, {
+/**
+ * Withdraw a link that nobody has taken yet. Only its creator may.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  WHY THIS IS A COMMAND AND NOT A BARE MUTATION.                    │
+ * │                                                                    │
+ * │  Withdrawing a link is a state transition on an object a           │
+ * │  counterparty may be looking at RIGHT NOW, and the interesting     │
+ * │  case is the race: someone joins while the creator withdraws.      │
+ * │  Exactly one of those may win, the loser must be told which, and   │
+ * │  both outcomes must leave a record.                                │
+ * │                                                                    │
+ * │  `FOR UPDATE` serialises the two, the conditional CAS decides the  │
+ * │  winner, and the surrounding command makes the answer replayable   │
+ * │  so a retry after a dropped connection cannot report the opposite  │
+ * │  outcome to the one that actually happened.                        │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export async function closeDealLinkIn(
+  ctx: BoundaryContext,
+  user: SessionUser,
+  publicId: string,
+): Promise<Outcome<LinkClosure>> {
+  const tx = ctx.tx;
+
+  const { rows } = await tx.query(
+    `SELECT * FROM sandbox.deal_link WHERE public_id = $1 FOR UPDATE`,
+    [publicId],
+  );
+  const link = rows[0];
+  if (!link) {
+    await auditEarlyRejection(tx, {
+      actorId: user.userId,
+      action: 'LINK_CLOSE',
+      outcome: 'NOT_FOUND',
+      attempted: { publicId },
+    });
+    return reject('NOT_FOUND', 'That deal link does not exist.');
+  }
+
+  const refuse = async (code: SandboxError, message: string): Promise<Rejected> => {
+    await auditRejectionInTx(tx, {
       actorId: user.userId,
       action: 'LINK_CLOSE',
       subjectKind: 'link',
       subjectId: link.link_id,
-      fromState: 'OPEN',
-      toState: 'CLOSED',
-      outcome: 'OK',
+      fromState: link.state,
+      outcome: code,
     });
+    return reject(code, message);
+  };
+
+  // Ownership is re-derived here, in the service, from the session-derived
+  // caller — never from anything the request carried.
+  if (link.created_by !== user.userId) {
+    return refuse('NOT_A_PARTICIPANT', 'Only the creator can withdraw a link.');
+  }
+  if (link.state === 'CONSUMED') {
+    return refuse('LINK_CONSUMED', FAILURE_COPY.LINK_CONSUMED.reason);
+  }
+  // Already withdrawn: an idempotent success, not an error. No second
+  // audit row and no second event — it already happened once.
+  if (link.state === 'CLOSED') return accept({ publicId, alreadyClosed: true });
+
+  const cas = await tx.query(
+    `UPDATE sandbox.deal_link
+        SET state='CLOSED', closed_at=now(), version=version+1
+      WHERE link_id=$1 AND state='OPEN'`,
+    [link.link_id],
+  );
+  // The lock above makes this unreachable in practice; it is the same
+  // belt-and-braces the Join boundary carries, for the same reason.
+  if (cas.rowCount !== 1) return refuse('LINK_CONSUMED', FAILURE_COPY.LINK_CONSUMED.reason);
+
+  await ctx.audit({
+    actorId: user.userId,
+    action: 'LINK_CLOSE',
+    subjectKind: 'link',
+    subjectId: link.link_id,
+    fromState: 'OPEN',
+    toState: 'CLOSED',
+    outcome: 'OK',
   });
+  await ctx.emit({
+    type: 'link.closed',
+    subjectKind: 'link',
+    subjectId: link.link_id,
+    payload: { publicId },
+  });
+
+  return accept({ publicId, alreadyClosed: false });
+}
+
+/** Throwing wrapper, for the integration suite and legacy callers. */
+export async function closeDealLink(user: SessionUser, publicId: string): Promise<void> {
+  const outcome = await withTransaction((tx) =>
+    closeDealLinkIn(boundaryContextFor(tx, newCommandId()), user, publicId),
+  );
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
 }
 
 /* ------------------------------------------------------------------ *
@@ -671,129 +1091,213 @@ export interface JoinSuccess {
  * All of it commits as one transaction, so a loser leaves no partial record:
  * no orphan deal, no orphan participant, no half-consumed link.
  */
-export async function joinDealLink(user: SessionUser, publicId: string): Promise<JoinSuccess> {
+export async function joinDealLinkIn(
+  ctx: BoundaryContext,
+  user: SessionUser,
+  publicId: string,
+): Promise<Outcome<JoinSuccess>> {
+  const tx = ctx.tx;
+
   if (!user.isVerified) {
-    throw new SandboxFailure('REQUIRES_VERIFICATION', 'This sandbox account is not verified.');
-  }
-
-  return withTransaction(async (tx) => {
-    // (1) Serialise every concurrent joiner on this exact row.
-    const { rows } = await tx.query(
-      `SELECT l.*, (l.expires_at <= now()) AS is_expired
-         FROM sandbox.deal_link l
-        WHERE l.public_id = $1
-        FOR UPDATE`,
-      [publicId],
-    );
-    const link = rows[0];
-    if (!link) throw new SandboxFailure('NOT_FOUND', 'That deal link does not exist.');
-
-    const reject = async (code: SandboxError): Promise<never> => {
-      await auditRejection({
-        actorId: user.userId,
-        action: 'LINK_JOIN',
-        subjectKind: 'link',
-        subjectId: link.link_id,
-        fromState: link.state,
-        outcome: code,
-      });
-      throw new SandboxFailure(code, FAILURE_COPY[code].reason);
-    };
-
-    if (link.created_by === user.userId) await reject('CANNOT_JOIN_OWN_LINK');
-    if (link.state === 'CONSUMED') await reject('LINK_CONSUMED');
-    if (link.state === 'CLOSED') await reject('LINK_CLOSED');
-    if (link.is_expired) await reject('LINK_EXPIRED');
-
-    // (2) Conditional state change. Zero affected rows means we lost.
-    const cas = await tx.query(
-      `UPDATE sandbox.deal_link
-          SET state='CONSUMED', consumed_at=now(), version=version+1
-        WHERE link_id=$1 AND state='OPEN'`,
-      [link.link_id],
-    );
-    if (cas.rowCount !== 1) await reject('LINK_CONSUMED');
-
-    const { rows: qRows } = await tx.query(`SELECT * FROM sandbox.quote WHERE quote_id=$1`, [
-      link.quote_id,
-    ]);
-    const q = qRows[0]!;
-    const scenario = q.direction as Scenario;
-
-    const joinerRole: Role = otherRole(link.creator_role as Role);
-    const dealPublicId = newPublicId();
-
-    // (3) UNIQUE(link_id) is the database's own backstop.
-    const { rows: dRows } = await tx.query(
-      `INSERT INTO sandbox.deal
-         (public_id, deal_code, link_id, quote_id, direction, usdt_minor, inr_minor,
-          rate_num, rate_den, pricing_source, observed_at,
-          protection_fee_minor, network_fee_minor, fee_bearer, title,
-          action_deadline)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-               now() + ($16 || ' minutes')::interval)
-       RETURNING deal_id, public_id, deal_code`,
-      [
-        dealPublicId,
-        newDealCode(scenario),
-        link.link_id,
-        link.quote_id,
-        q.direction,
-        q.usdt_minor,
-        q.inr_minor,
-        q.rate_num,
-        q.rate_den,
-        q.pricing_source,
-        q.observed_at,
-        q.protection_fee_minor,
-        q.network_fee_minor,
-        q.fee_bearer,
-        q.title,
-        String(PAYMENT_WINDOW_MINUTES),
-      ],
-    );
-    const deal = dRows[0]!;
-
-    // Both seats are assigned in the same transaction as the deal.
-    await tx.query(
-      `INSERT INTO sandbox.participant (deal_id, user_id, role)
-       VALUES ($1,$2,$3), ($1,$4,$5)`,
-      [deal.deal_id, user.userId, joinerRole, link.created_by, link.creator_role],
-    );
-
-    // Simulated, non-custodial. Records an assertion; holds nothing.
-    if (q.usdt_minor !== null) {
-      await getEscrowService().hold(deal.deal_id, toBigInt(q.usdt_minor));
-    }
-
-    await systemLine(tx, deal.deal_id, 'Deal joined. Both sides are now in the room.');
-    await notify(
-      tx,
-      link.created_by,
-      deal.deal_id,
-      'ACTION',
-      'Someone joined your deal',
-      `${user.displayName} took the other side of ${deal.deal_code}.`,
-    );
-
-    await audit(tx, {
+    await auditEarlyRejection(tx, {
       actorId: user.userId,
       action: 'LINK_JOIN',
-      subjectKind: 'deal',
-      subjectId: deal.deal_id,
-      toState: 'FIAT_PENDING',
-      outcome: 'OK',
-      detail: { linkId: link.link_id, joinerRole, publicId: deal.public_id },
+      outcome: 'REQUIRES_VERIFICATION',
+      attempted: { publicId },
     });
+    return reject('REQUIRES_VERIFICATION', FAILURE_COPY.REQUIRES_VERIFICATION.reason);
+  }
 
-    return {
-      kind: 'JOINED',
-      dealId: deal.deal_id,
-      publicId: deal.public_id,
-      dealCode: deal.deal_code,
-      role: joinerRole,
-    };
+  // (1) Serialise every concurrent joiner on this exact row.
+  const { rows } = await tx.query(
+    `SELECT l.*, (l.expires_at <= now()) AS is_expired
+       FROM sandbox.deal_link l
+      WHERE l.public_id = $1
+      FOR UPDATE`,
+    [publicId],
+  );
+  const link = rows[0];
+  if (!link) {
+    await auditEarlyRejection(tx, {
+      actorId: user.userId,
+      action: 'LINK_JOIN',
+      outcome: 'NOT_FOUND',
+      attempted: { publicId },
+    });
+    return reject('NOT_FOUND', 'That deal link does not exist.');
+  }
+
+  /*
+   * A refusal is now a VALUE, so the audit row beside it commits.
+   *
+   * This is the whole of TS-02 §10 in three lines: record why, return the
+   * reason, do not raise. The losing side of a race takes exactly this
+   * path, which is why "losing is a designed outcome, not an exception"
+   * (UX-01 §2.2) is now true at the database level too — the loser leaves
+   * a durable record of having lost.
+   */
+  const refuse = async (code: SandboxError): Promise<Rejected> => {
+    await auditRejectionInTx(tx, {
+      actorId: user.userId,
+      action: 'LINK_JOIN',
+      subjectKind: 'link',
+      subjectId: link.link_id,
+      fromState: link.state,
+      outcome: code,
+    });
+    return reject(code, FAILURE_COPY[code].reason);
+  };
+
+  if (link.created_by === user.userId) return refuse('CANNOT_JOIN_OWN_LINK');
+  if (link.state === 'CONSUMED') return refuse('LINK_CONSUMED');
+  if (link.state === 'CLOSED') return refuse('LINK_CLOSED');
+  if (link.is_expired) return refuse('LINK_EXPIRED');
+
+  /*
+   * ────────────────────────────────────────────────────────────────────
+   * EVERY GUARD RUNS BEFORE THE FIRST DOMAIN WRITE.
+   *
+   * This ordering was wrong and the bug it caused is worth naming. The
+   * CAS below used to run FIRST, and the scenario check afterwards — so
+   * a Join of a production-disabled scenario returned
+   * `SCENARIO_UNAVAILABLE` as a non-raising rejection, and because a
+   * rejection COMMITS, the link committed as `CONSUMED` with no deal
+   * behind it. The link was destroyed by the very refusal that was
+   * supposed to protect it, and no counterparty could ever join it again.
+   *
+   * That is the precise hazard of the non-raising pattern: a returned
+   * rejection keeps the transaction alive, so anything written before it
+   * survives. The pattern is only safe while every guard precedes every
+   * write, which is now true here and asserted by test.
+   * ────────────────────────────────────────────────────────────────────
+   */
+  const { rows: qRows } = await tx.query(
+    `SELECT *, (expires_at <= now()) AS is_expired FROM sandbox.quote WHERE quote_id=$1`,
+    [link.quote_id],
+  );
+  const q = qRows[0]!;
+  const scenario = q.direction as Scenario;
+
+  // A scenario withdrawn from this deployment cannot be joined into a
+  // live deal, even through a link minted while it was available.
+  if (!scenarioAvailable(scenario)) return refuse('SCENARIO_UNAVAILABLE');
+
+  /*
+   * THE LOCKED-VALUE FACT — UX-01 §3 / I7, roadmap B5.
+   *
+   * `lock()` is the only thing permitted to assert that value is held, and
+   * `value_locked_at` is the only thing the pay screen consults. In the
+   * sandbox this records a simulated `SBX-` hold that moves nothing. In
+   * production `getValueProtectionAdapter()` throws — and it is resolved
+   * HERE, before the CAS, so the throw cannot leave a consumed link
+   * behind it. A throw would roll back regardless; ordering it first
+   * means the link is never even touched.
+   */
+  const joinerRole: Role = otherRole(link.creator_role as Role);
+  const dealPublicId = newPublicId();
+  const lock = await getValueProtectionAdapter().lock({
+    dealId: dealPublicId,
+    scenario,
+    usdtMinor: q.usdt_minor === null ? null : toBigInt(q.usdt_minor),
+    inrMinor: toBigInt(q.inr_minor),
   });
+
+  // (2) Conditional state change — the FIRST write in this boundary.
+  //     Zero affected rows means we lost the race.
+  const cas = await tx.query(
+    `UPDATE sandbox.deal_link
+        SET state='CONSUMED', consumed_at=now(), version=version+1
+      WHERE link_id=$1 AND state='OPEN'`,
+    [link.link_id],
+  );
+  if (cas.rowCount !== 1) return refuse('LINK_CONSUMED');
+
+  // (3) UNIQUE(link_id) is the database's own backstop.
+  const { rows: dRows } = await tx.query(
+    `INSERT INTO sandbox.deal
+       (public_id, deal_code, link_id, quote_id, direction, usdt_minor, inr_minor,
+        rate_num, rate_den, pricing_source, observed_at,
+        protection_fee_minor, network_fee_minor, fee_bearer, title,
+        action_deadline, value_locked_at, value_lock_ref)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
+             now() + ($16 || ' minutes')::interval, now(), $17)
+     RETURNING deal_id, public_id, deal_code`,
+    [
+      dealPublicId,
+      newDealCode(scenario),
+      link.link_id,
+      link.quote_id,
+      q.direction,
+      q.usdt_minor,
+      q.inr_minor,
+      q.rate_num,
+      q.rate_den,
+      q.pricing_source,
+      q.observed_at,
+      q.protection_fee_minor,
+      q.network_fee_minor,
+      q.fee_bearer,
+      q.title,
+      String(PAYMENT_WINDOW_MINUTES),
+      lock.reference,
+    ],
+  );
+  const deal = dRows[0]!;
+
+  // Both seats are assigned in the same transaction as the deal.
+  await tx.query(
+    `INSERT INTO sandbox.participant (deal_id, user_id, role)
+     VALUES ($1,$2,$3), ($1,$4,$5)`,
+    [deal.deal_id, user.userId, joinerRole, link.created_by, link.creator_role],
+  );
+
+  // Simulated, non-custodial. Records an assertion; holds nothing.
+  if (q.usdt_minor !== null) {
+    await getEscrowService().hold(deal.deal_id, toBigInt(q.usdt_minor));
+  }
+
+  await systemLine(tx, deal.deal_id, 'Deal joined. Both sides are now in the room.');
+  await notify(
+    tx,
+    link.created_by,
+    deal.deal_id,
+    'ACTION',
+    'Someone joined your deal',
+    `${user.displayName} took the other side of ${deal.deal_code}.`,
+  );
+
+  await ctx.audit({
+    actorId: user.userId,
+    action: 'LINK_JOIN',
+    subjectKind: 'deal',
+    subjectId: deal.deal_id,
+    toState: 'FIAT_PENDING',
+    outcome: 'OK',
+    detail: { linkId: link.link_id, joinerRole, publicId: deal.public_id },
+  });
+  await ctx.emit({
+    type: 'deal.joined',
+    subjectKind: 'deal',
+    subjectId: deal.deal_id,
+    payload: { linkId: link.link_id, joinerRole, valueLockRef: lock.reference },
+  });
+
+  return accept({
+    kind: 'JOINED',
+    dealId: deal.deal_id,
+    publicId: deal.public_id,
+    dealCode: deal.deal_code,
+    role: joinerRole,
+  });
+}
+
+/** Throwing wrapper, for the integration suite and legacy callers. */
+export async function joinDealLink(user: SessionUser, publicId: string): Promise<JoinSuccess> {
+  const outcome = await withTransaction((tx) =>
+    joinDealLinkIn(boundaryContextFor(tx, newCommandId()), user, publicId),
+  );
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
+  return outcome.value;
 }
 
 /* ------------------------------------------------------------------ *
@@ -836,16 +1340,42 @@ export async function getDeal(
   const terminal = isTerminalState(state);
   const disputed = state === 'DISPUTED';
 
+  /*
+   * ────────────────────────────────────────────────────────────────────
+   * BANK INSTRUCTIONS ARE GATED ON AN AUTHORITATIVE LOCKED-VALUE FACT.
+   *
+   * UX-01 §3 and TS-01.4 I7: instructions are released only at or after
+   * the value leg is locked, only to an authenticated participant, and
+   * never to a metadata crawler. TS-00 `SD-6` recorded that the pay
+   * screen relied on the deal merely existing — there was no lock fact to
+   * consult, because nothing recorded one.
+   *
+   * Three conditions must ALL hold, and they are evaluated here rather
+   * than in the screen, so no future screen can forget one:
+   *
+   *   1. the viewer holds the paying seat (a payee has no use for its own
+   *      handle, and a room showing both teaches people to pay the wrong
+   *      one);
+   *   2. `value_locked_at` is set — the adapter asserted a lock;
+   *   3. a value-protection adapter exists at all in this deployment.
+   *
+   * Condition 3 is what makes production correct today: no production
+   * adapter exists until DEL-04, so production releases no instructions
+   * regardless of what any row says.
+   * ────────────────────────────────────────────────────────────────────
+   */
+  const valueLocked = r.value_locked_at !== null && valueProtectionAvailable();
+  const mayDisclosePaymentInstructions = viewerRole === 'FIAT_SIDE' && valueLocked;
+
   const [messages, evidence, dispute, payTo] = options.summaryOnly
     ? [[], [], null, null]
     : await Promise.all([
         listMessages(dealId, user.userId),
         listEvidence(dealId, user.userId),
         getDispute(dealId, user.userId),
-        // Only the paying seat is told where to send money. The receiving
-        // seat has no use for its own handle here, and a deal room that
-        // shows both sides' handles teaches people to pay the wrong one.
-        viewerRole === 'FIAT_SIDE' ? defaultMethodFor(r.counterparty_id) : Promise.resolve(null),
+        mayDisclosePaymentInstructions
+          ? defaultMethodFor(r.counterparty_id)
+          : Promise.resolve(null),
       ]);
 
   return {
@@ -871,6 +1401,7 @@ export async function getDeal(
     evidence,
     dispute,
     payTo,
+    valueLocked,
     permitted: {
       // Only the INR sender may claim, only before a claim exists, only while live.
       canClaim: !terminal && !disputed && viewerRole === 'FIAT_SIDE' && state === 'FIAT_PENDING',
@@ -905,92 +1436,166 @@ export async function listDealsForUser(user: SessionUser): Promise<readonly Deal
  * 8. FIAT_SIDE payment claim
  * ------------------------------------------------------------------ */
 
+export async function submitPaymentClaimIn(
+  ctx: BoundaryContext,
+  user: SessionUser,
+  dealId: string,
+  utrRaw: string,
+  note?: string,
+): Promise<Outcome<{ dealId: string }>> {
+  const tx = ctx.tx;
+  const utr = utrRaw.trim().toUpperCase();
+  if (!UTR_PATTERN.test(utr)) {
+    return reject('UTR_INVALID', FAILURE_COPY.UTR_INVALID.reason);
+  }
+
+  const { rows } = await tx.query(
+    `SELECT d.*, p.role AS viewer_role,
+            other.user_id AS counterparty_id
+       FROM sandbox.deal d
+       JOIN sandbox.participant p ON p.deal_id = d.deal_id AND p.user_id = $2
+       JOIN sandbox.participant other ON other.deal_id = d.deal_id AND other.user_id <> $2
+      WHERE d.deal_id = $1
+      FOR UPDATE OF d`,
+    [dealId, user.userId],
+  );
+  const d = rows[0];
+  if (!d) {
+    await auditEarlyRejection(tx, {
+      actorId: user.userId,
+      action: 'PAYMENT_CLAIM',
+      outcome: 'NOT_A_PARTICIPANT',
+      attempted: { dealId },
+    });
+    return reject('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
+  }
+
+  const refuse = async (code: SandboxError): Promise<Rejected> => {
+    await auditRejectionInTx(tx, {
+      actorId: user.userId,
+      action: 'PAYMENT_CLAIM',
+      subjectKind: 'deal',
+      subjectId: dealId,
+      fromState: d.state,
+      outcome: code,
+    });
+    return reject(code, FAILURE_COPY[code].reason);
+  };
+
+  /*
+   * Expiry is decided HERE, under the lock, against the database clock —
+   * not by whether a page happened to be rendered. A payer arriving one
+   * second after the deadline is refused by the same fact that a sweep
+   * would have used, so the two can never disagree.
+   */
+  if (await expireDealIfLapsed(tx, d, user.userId, ctx.emit)) {
+    return refuse('WINDOW_LAPSED');
+  }
+
+  if (isTerminalState(d.state as DealState)) return refuse('DEAL_TERMINAL');
+  if (d.state === 'DISPUTED') return refuse('DEAL_DISPUTED');
+  if (d.viewer_role !== 'FIAT_SIDE') return refuse('NOT_FIAT_SIDE');
+  if (d.state === 'FIAT_CLAIMED') return refuse('ALREADY_CLAIMED');
+
+  /*
+   * ────────────────────────────────────────────────────────────────────
+   * SERIALISE ON THE CANONICAL UTR BEFORE READING IT.
+   *
+   * A constraint violation DOES abort the transaction, so a duplicate UTR
+   * must be *detected* rather than caught — otherwise PostgreSQL raises
+   * 23505, the transaction dies, and the rejection evidence dies with it.
+   *
+   * But a bare `SELECT` then `INSERT` is not safe against two claims
+   * carrying the SAME reference on DIFFERENT deals: each locks its own
+   * deal row, so nothing makes them contend, both read "no such UTR", and
+   * the second `INSERT` raises exactly the 23505 the check was meant to
+   * avoid. `UNIQUE(utr)` still protects correctness — nobody reuses a
+   * bank reference — but the loser gets an opaque driver error instead of
+   * `UTR_ALREADY_USED`, and loses their audit row.
+   *
+   * A transaction-scoped advisory lock keyed on the canonical UTR makes
+   * the two contend deterministically. The winner inserts; the loser
+   * blocks, then reads the committed row and is refused properly.
+   *
+   * LOCK ORDER — always, everywhere in this file:
+   *     1. deal row      (`SELECT ... FOR UPDATE OF d`)
+   *     2. UTR advisory  (`pg_advisory_xact_lock`)
+   * Deadlock is impossible because a claim holds exactly one deal row, and
+   * two claims on the same deal serialise on the deal lock before either
+   * reaches the advisory one. `8201` namespaces this lock class so it can
+   * never collide with an advisory lock taken for another purpose.
+   * ────────────────────────────────────────────────────────────────────
+   */
+  await tx.query(`SELECT pg_advisory_xact_lock(8201, hashtext($1))`, [utr]);
+
+  const { rows: utrRows } = await tx.query(
+    `SELECT deal_id FROM sandbox.payment_claim WHERE utr = $1`,
+    [utr],
+  );
+  if (utrRows[0]) {
+    return refuse(utrRows[0].deal_id === dealId ? 'ALREADY_CLAIMED' : 'UTR_ALREADY_USED');
+  }
+  const { rows: existing } = await tx.query(
+    `SELECT 1 FROM sandbox.payment_claim WHERE deal_id = $1`,
+    [dealId],
+  );
+  if (existing[0]) return refuse('ALREADY_CLAIMED');
+
+  await tx.query(
+    `INSERT INTO sandbox.payment_claim (deal_id, claimed_by, utr, note)
+     VALUES ($1,$2,$3,$4)`,
+    [dealId, user.userId, utr, note?.trim() || null],
+  );
+
+  const cas = await tx.query(
+    `UPDATE sandbox.deal
+        SET state='FIAT_CLAIMED', version=version+1,
+            action_deadline = now() + ($2 || ' minutes')::interval
+      WHERE deal_id=$1 AND state='FIAT_PENDING'`,
+    [dealId, String(CONFIRM_WINDOW_MINUTES)],
+  );
+  if (cas.rowCount !== 1) return refuse('ALREADY_CLAIMED');
+
+  await systemLine(tx, dealId, `Payment marked sent · reference ${utr}`);
+  await notify(
+    tx,
+    d.counterparty_id,
+    dealId,
+    'ACTION',
+    'Payment marked as sent',
+    `${user.displayName} says the INR is on its way. Check your account, then confirm.`,
+  );
+
+  await ctx.audit({
+    actorId: user.userId,
+    action: 'PAYMENT_CLAIM',
+    subjectKind: 'deal',
+    subjectId: dealId,
+    fromState: 'FIAT_PENDING',
+    toState: 'FIAT_CLAIMED',
+    outcome: 'OK',
+    detail: { utrLength: utr.length },
+  });
+  await ctx.emit({
+    type: 'deal.payment_claimed',
+    subjectKind: 'deal',
+    subjectId: dealId,
+    payload: { utrLength: utr.length },
+  });
+
+  return accept({ dealId });
+}
+
 export async function submitPaymentClaim(
   user: SessionUser,
   dealId: string,
   utrRaw: string,
   note?: string,
 ): Promise<DealView> {
-  const utr = utrRaw.trim().toUpperCase();
-  if (!UTR_PATTERN.test(utr)) {
-    throw new SandboxFailure('UTR_INVALID', FAILURE_COPY.UTR_INVALID.reason);
-  }
-
-  await withTransaction(async (tx) => {
-    const { rows } = await tx.query(
-      `SELECT d.*, p.role AS viewer_role,
-              other.user_id AS counterparty_id
-         FROM sandbox.deal d
-         JOIN sandbox.participant p ON p.deal_id = d.deal_id AND p.user_id = $2
-         JOIN sandbox.participant other ON other.deal_id = d.deal_id AND other.user_id <> $2
-        WHERE d.deal_id = $1
-        FOR UPDATE OF d`,
-      [dealId, user.userId],
-    );
-    const d = rows[0];
-    if (!d) throw new SandboxFailure('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
-
-    const fail = async (code: SandboxError): Promise<never> => {
-      await auditRejection({
-        actorId: user.userId,
-        action: 'PAYMENT_CLAIM',
-        subjectKind: 'deal',
-        subjectId: dealId,
-        fromState: d.state,
-        outcome: code,
-      });
-      throw new SandboxFailure(code, FAILURE_COPY[code].reason);
-    };
-
-    if (isTerminalState(d.state as DealState)) await fail('DEAL_TERMINAL');
-    if (d.state === 'DISPUTED') await fail('DEAL_DISPUTED');
-    if (d.viewer_role !== 'FIAT_SIDE') await fail('NOT_FIAT_SIDE');
-    if (d.state === 'FIAT_CLAIMED') await fail('ALREADY_CLAIMED');
-
-    try {
-      await tx.query(
-        `INSERT INTO sandbox.payment_claim (deal_id, claimed_by, utr, note)
-         VALUES ($1,$2,$3,$4)`,
-        [dealId, user.userId, utr, note?.trim() || null],
-      );
-    } catch (err) {
-      const code = (err as { constraint?: string }).constraint;
-      if (code === 'payment_claim_utr_uq') await fail('UTR_ALREADY_USED');
-      if (code === 'payment_claim_deal_uq') await fail('ALREADY_CLAIMED');
-      throw err;
-    }
-
-    const cas = await tx.query(
-      `UPDATE sandbox.deal
-          SET state='FIAT_CLAIMED', version=version+1,
-              action_deadline = now() + ($2 || ' minutes')::interval
-        WHERE deal_id=$1 AND state='FIAT_PENDING'`,
-      [dealId, String(CONFIRM_WINDOW_MINUTES)],
-    );
-    if (cas.rowCount !== 1) await fail('ALREADY_CLAIMED');
-
-    await systemLine(tx, dealId, `Payment marked sent · reference ${utr}`);
-    await notify(
-      tx,
-      d.counterparty_id,
-      dealId,
-      'ACTION',
-      'Payment marked as sent',
-      `${user.displayName} says the INR is on its way. Check your account, then confirm.`,
-    );
-
-    await audit(tx, {
-      actorId: user.userId,
-      action: 'PAYMENT_CLAIM',
-      subjectKind: 'deal',
-      subjectId: dealId,
-      fromState: 'FIAT_PENDING',
-      toState: 'FIAT_CLAIMED',
-      outcome: 'OK',
-      detail: { utrLength: utr.length },
-    });
-  });
-
+  const outcome = await withTransaction((tx) =>
+    submitPaymentClaimIn(boundaryContextFor(tx, newCommandId()), user, dealId, utrRaw, note),
+  );
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
   return getDeal(user, dealId);
 }
 
@@ -1002,8 +1607,13 @@ export async function submitPaymentClaim(
 const POINTS_PER_DEAL = 250;
 const POINTS_PER_REFERRAL = 500;
 
-export async function confirmReceipt(user: SessionUser, dealId: string): Promise<DealView> {
-  await withTransaction(async (tx) => {
+export async function confirmReceiptIn(
+  ctx: BoundaryContext,
+  user: SessionUser,
+  dealId: string,
+): Promise<Outcome<{ dealId: string }>> {
+  const tx = ctx.tx;
+  {
     const { rows } = await tx.query(
       `SELECT d.*, p.role AS viewer_role, c.claimed_by,
               other.user_id AS counterparty_id
@@ -1016,10 +1626,18 @@ export async function confirmReceipt(user: SessionUser, dealId: string): Promise
       [dealId, user.userId],
     );
     const d = rows[0];
-    if (!d) throw new SandboxFailure('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
+    if (!d) {
+      await auditEarlyRejection(tx, {
+        actorId: user.userId,
+        action: 'CONFIRM_RECEIPT',
+        outcome: 'NOT_A_PARTICIPANT',
+        attempted: { dealId },
+      });
+      return reject('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
+    }
 
-    const fail = async (code: SandboxError): Promise<never> => {
-      await auditRejection({
+    const refuse = async (code: SandboxError): Promise<Rejected> => {
+      await auditRejectionInTx(tx, {
         actorId: user.userId,
         action: 'CONFIRM_RECEIPT',
         subjectKind: 'deal',
@@ -1027,15 +1645,15 @@ export async function confirmReceipt(user: SessionUser, dealId: string): Promise
         fromState: d.state,
         outcome: code,
       });
-      throw new SandboxFailure(code, FAILURE_COPY[code].reason);
+      return reject(code, FAILURE_COPY[code].reason);
     };
 
-    if (isTerminalState(d.state as DealState)) await fail('DEAL_TERMINAL');
-    if (d.state === 'DISPUTED') await fail('DEAL_DISPUTED');
-    if (d.viewer_role !== 'CRYPTO_SIDE') await fail('NOT_CRYPTO_SIDE');
-    if (d.state !== 'FIAT_CLAIMED') await fail('NOT_CLAIMED_YET');
+    if (isTerminalState(d.state as DealState)) return refuse('DEAL_TERMINAL');
+    if (d.state === 'DISPUTED') return refuse('DEAL_DISPUTED');
+    if (d.viewer_role !== 'CRYPTO_SIDE') return refuse('NOT_CRYPTO_SIDE');
+    if (d.state !== 'FIAT_CLAIMED') return refuse('NOT_CLAIMED_YET');
     // Defence in depth: the role check already excludes this.
-    if (d.claimed_by === user.userId) await fail('SELF_CONFIRM_FORBIDDEN');
+    if (d.claimed_by === user.userId) return refuse('SELF_CONFIRM_FORBIDDEN');
 
     await tx.query(
       `INSERT INTO sandbox.settlement_confirmation (deal_id, confirmed_by) VALUES ($1,$2)`,
@@ -1048,8 +1666,10 @@ export async function confirmReceipt(user: SessionUser, dealId: string): Promise
         WHERE deal_id=$1 AND state='FIAT_CLAIMED'`,
       [dealId],
     );
-    if (cas.rowCount !== 1) await fail('DEAL_TERMINAL');
+    if (cas.rowCount !== 1) return refuse('DEAL_TERMINAL');
 
+    // The locked value is released by the same adapter that locked it.
+    await getValueProtectionAdapter().release(dealId);
     await getEscrowService().release(dealId);
 
     // Both sides earn on a completed deal. `UNIQUE(user, deal, kind)` makes a
@@ -1075,7 +1695,7 @@ export async function confirmReceipt(user: SessionUser, dealId: string): Promise
       `${user.displayName} confirmed receipt. ${d.deal_code} is settled.`,
     );
 
-    await audit(tx, {
+    await ctx.audit({
       actorId: user.userId,
       action: 'CONFIRM_RECEIPT',
       subjectKind: 'deal',
@@ -1084,8 +1704,21 @@ export async function confirmReceipt(user: SessionUser, dealId: string): Promise
       toState: 'COMPLETED',
       outcome: 'OK',
     });
-  });
+    await ctx.emit({
+      type: 'deal.completed',
+      subjectKind: 'deal',
+      subjectId: dealId,
+      payload: { confirmedBy: user.userId },
+    });
+    return accept({ dealId });
+  }
+}
 
+export async function confirmReceipt(user: SessionUser, dealId: string): Promise<DealView> {
+  const outcome = await withTransaction((tx) =>
+    confirmReceiptIn(boundaryContextFor(tx, newCommandId()), user, dealId),
+  );
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
   return getDeal(user, dealId);
 }
 
@@ -1123,8 +1756,13 @@ async function qualifyReferral(tx: Tx, userId: string): Promise<void> {
  * 11. Cancel, before anyone has paid
  * ------------------------------------------------------------------ */
 
-export async function cancelDeal(user: SessionUser, dealId: string): Promise<DealView> {
-  await withTransaction(async (tx) => {
+export async function cancelDealIn(
+  ctx: BoundaryContext,
+  user: SessionUser,
+  dealId: string,
+): Promise<Outcome<{ dealId: string }>> {
+  const tx = ctx.tx;
+  {
     const { rows } = await tx.query(
       `SELECT d.*, p.role AS viewer_role, other.user_id AS counterparty_id
          FROM sandbox.deal d
@@ -1135,10 +1773,18 @@ export async function cancelDeal(user: SessionUser, dealId: string): Promise<Dea
       [dealId, user.userId],
     );
     const d = rows[0];
-    if (!d) throw new SandboxFailure('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
+    if (!d) {
+      await auditEarlyRejection(tx, {
+        actorId: user.userId,
+        action: 'DEAL_CANCEL',
+        outcome: 'NOT_A_PARTICIPANT',
+        attempted: { dealId },
+      });
+      return reject('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
+    }
 
-    const fail = async (code: SandboxError): Promise<never> => {
-      await auditRejection({
+    const refuse = async (code: SandboxError): Promise<Rejected> => {
+      await auditRejectionInTx(tx, {
         actorId: user.userId,
         action: 'DEAL_CANCEL',
         subjectKind: 'deal',
@@ -1146,14 +1792,15 @@ export async function cancelDeal(user: SessionUser, dealId: string): Promise<Dea
         fromState: d.state,
         outcome: code,
       });
-      throw new SandboxFailure(code, FAILURE_COPY[code].reason);
+      return reject(code, FAILURE_COPY[code].reason);
     };
 
-    if (isTerminalState(d.state as DealState)) await fail('DEAL_TERMINAL');
-    if (d.state === 'DISPUTED') await fail('DEAL_DISPUTED');
+    if (await expireDealIfLapsed(tx, d, user.userId, ctx.emit)) return refuse('WINDOW_LAPSED');
+    if (isTerminalState(d.state as DealState)) return refuse('DEAL_TERMINAL');
+    if (d.state === 'DISPUTED') return refuse('DEAL_DISPUTED');
     // Once a transfer is claimed, cancelling would strand it. That is a
     // dispute, not a cancellation, and the state machine says so.
-    if (d.state !== 'FIAT_PENDING') await fail('ALREADY_CLAIMED');
+    if (d.state !== 'FIAT_PENDING') return refuse('ALREADY_CLAIMED');
 
     const cas = await tx.query(
       `UPDATE sandbox.deal
@@ -1161,7 +1808,7 @@ export async function cancelDeal(user: SessionUser, dealId: string): Promise<Dea
         WHERE deal_id=$1 AND state='FIAT_PENDING'`,
       [dealId],
     );
-    if (cas.rowCount !== 1) await fail('DEAL_TERMINAL');
+    if (cas.rowCount !== 1) return refuse('DEAL_TERMINAL');
 
     await systemLine(tx, dealId, `Deal cancelled by ${user.displayName}. Nothing was transferred.`);
     await notify(
@@ -1173,7 +1820,7 @@ export async function cancelDeal(user: SessionUser, dealId: string): Promise<Dea
       `${user.displayName} cancelled ${d.deal_code} before any payment was made.`,
     );
 
-    await audit(tx, {
+    await ctx.audit({
       actorId: user.userId,
       action: 'DEAL_CANCEL',
       subjectKind: 'deal',
@@ -1182,8 +1829,16 @@ export async function cancelDeal(user: SessionUser, dealId: string): Promise<Dea
       toState: 'CANCELLED',
       outcome: 'OK',
     });
-  });
+    await ctx.emit({ type: 'deal.cancelled', subjectKind: 'deal', subjectId: dealId });
+    return accept({ dealId });
+  }
+}
 
+export async function cancelDeal(user: SessionUser, dealId: string): Promise<DealView> {
+  const outcome = await withTransaction((tx) =>
+    cancelDealIn(boundaryContextFor(tx, newCommandId()), user, dealId),
+  );
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
   return getDeal(user, dealId);
 }
 
@@ -1210,47 +1865,105 @@ async function listMessages(dealId: string, viewerId: string): Promise<readonly 
   }));
 }
 
+export async function postMessageIn(
+  ctx: BoundaryContext,
+  user: SessionUser,
+  dealId: string,
+  bodyRaw: string,
+): Promise<Outcome<{ messageId: string }>> {
+  const tx = ctx.tx;
+  const body = bodyRaw.trim();
+  if (!body) return reject('MESSAGE_EMPTY', FAILURE_COPY.MESSAGE_EMPTY.reason);
+  if (body.length > 2000) {
+    return reject('MESSAGE_EMPTY', 'That message is longer than 2000 characters.');
+  }
+
+  const { rows } = await tx.query(
+    `SELECT d.state, d.deal_code, other.user_id AS counterparty_id
+       FROM sandbox.deal d
+       JOIN sandbox.participant p ON p.deal_id = d.deal_id AND p.user_id = $2
+       JOIN sandbox.participant other ON other.deal_id = d.deal_id AND other.user_id <> $2
+      WHERE d.deal_id = $1`,
+    [dealId, user.userId],
+  );
+  const d = rows[0];
+  if (!d) {
+    await auditEarlyRejection(tx, {
+      actorId: user.userId,
+      action: 'MESSAGE_POST',
+      outcome: 'NOT_A_PARTICIPANT',
+      attempted: { dealId },
+    });
+    return reject('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
+  }
+  if (isTerminalState(d.state as DealState)) {
+    await auditRejectionInTx(tx, {
+      actorId: user.userId,
+      action: 'MESSAGE_POST',
+      subjectKind: 'deal',
+      subjectId: dealId,
+      fromState: d.state,
+      outcome: 'DEAL_TERMINAL',
+    });
+    return reject('DEAL_TERMINAL', FAILURE_COPY.DEAL_TERMINAL.reason);
+  }
+
+  const { rows: mRows } = await tx.query(
+    `INSERT INTO sandbox.deal_message (deal_id, author_id, kind, body)
+     VALUES ($1,$2,'CHAT',$3)
+     RETURNING message_id`,
+    [dealId, user.userId, body],
+  );
+  const messageId = mRows[0]!.message_id as string;
+
+  await notify(
+    tx,
+    d.counterparty_id,
+    dealId,
+    'INFO',
+    `New message on ${d.deal_code}`,
+    `${user.displayName}: ${body.slice(0, 90)}${body.length > 90 ? '…' : ''}`,
+  );
+
+  /*
+   * CHAT IS NOW AUDITED — TS-00 `AUD-P1-011`.
+   *
+   * Every other participant mutation wrote an audit row; this one did not,
+   * so dispute-relevant conversation sat outside the trail an operator
+   * actually reads. The BODY is deliberately not copied into the audit
+   * detail: the message itself already lives in `deal_message`, and
+   * duplicating private text into an append-only table that operators
+   * browse would widen disclosure rather than improve accountability.
+   * What is recorded is that this actor said something, when, and how
+   * much — which is what an investigation needs to correlate.
+   */
+  await ctx.audit({
+    actorId: user.userId,
+    action: 'MESSAGE_POST',
+    subjectKind: 'deal',
+    subjectId: dealId,
+    outcome: 'OK',
+    detail: { messageId, length: body.length },
+  });
+  await ctx.emit({
+    type: 'deal.message_posted',
+    subjectKind: 'deal',
+    subjectId: dealId,
+    payload: { messageId },
+  });
+
+  return accept({ messageId });
+}
+
 export async function postMessage(
   user: SessionUser,
   dealId: string,
   bodyRaw: string,
 ): Promise<DealView> {
-  const body = bodyRaw.trim();
-  if (!body) throw new SandboxFailure('MESSAGE_EMPTY', FAILURE_COPY.MESSAGE_EMPTY.reason);
-  if (body.length > 2000) {
-    throw new SandboxFailure('MESSAGE_EMPTY', 'That message is longer than 2000 characters.');
-  }
-
-  await withTransaction(async (tx) => {
-    const { rows } = await tx.query(
-      `SELECT d.state, d.deal_code, other.user_id AS counterparty_id
-         FROM sandbox.deal d
-         JOIN sandbox.participant p ON p.deal_id = d.deal_id AND p.user_id = $2
-         JOIN sandbox.participant other ON other.deal_id = d.deal_id AND other.user_id <> $2
-        WHERE d.deal_id = $1`,
-      [dealId, user.userId],
-    );
-    const d = rows[0];
-    if (!d) throw new SandboxFailure('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
-    if (isTerminalState(d.state as DealState)) {
-      throw new SandboxFailure('DEAL_TERMINAL', FAILURE_COPY.DEAL_TERMINAL.reason);
-    }
-
-    await tx.query(
-      `INSERT INTO sandbox.deal_message (deal_id, author_id, kind, body)
-       VALUES ($1,$2,'CHAT',$3)`,
-      [dealId, user.userId, body],
-    );
-    await notify(
-      tx,
-      d.counterparty_id,
-      dealId,
-      'INFO',
-      `New message on ${d.deal_code}`,
-      `${user.displayName}: ${body.slice(0, 90)}${body.length > 90 ? '…' : ''}`,
-    );
-  });
-
+  const outcome = await withTransaction((tx) =>
+    postMessageIn(boundaryContextFor(tx, newCommandId()), user, dealId, bodyRaw),
+  );
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
   return getDeal(user, dealId);
 }
 
@@ -1409,13 +2122,15 @@ async function getDispute(dealId: string, viewerId: string): Promise<DisputeView
  * nothing — the deal sits in DISPUTED until an operator rules, which is the
  * only transition out. No timer resolves it.
  */
-export async function raiseDispute(
+export async function raiseDisputeIn(
+  ctx: BoundaryContext,
   user: SessionUser,
   dealId: string,
   reason: DisputeReason,
   detail?: string,
-): Promise<DealView> {
-  await withTransaction(async (tx) => {
+): Promise<Outcome<{ dealId: string }>> {
+  const tx = ctx.tx;
+  {
     const { rows } = await tx.query(
       `SELECT d.*, p.role AS viewer_role, other.user_id AS counterparty_id
          FROM sandbox.deal d
@@ -1426,10 +2141,18 @@ export async function raiseDispute(
       [dealId, user.userId],
     );
     const d = rows[0];
-    if (!d) throw new SandboxFailure('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
+    if (!d) {
+      await auditEarlyRejection(tx, {
+        actorId: user.userId,
+        action: 'DISPUTE_RAISE',
+        outcome: 'NOT_A_PARTICIPANT',
+        attempted: { dealId },
+      });
+      return reject('NOT_A_PARTICIPANT', 'This deal is private to its two sides.');
+    }
 
-    const fail = async (code: SandboxError): Promise<never> => {
-      await auditRejection({
+    const refuse = async (code: SandboxError): Promise<Rejected> => {
+      await auditRejectionInTx(tx, {
         actorId: user.userId,
         action: 'DISPUTE_RAISE',
         subjectKind: 'deal',
@@ -1437,24 +2160,25 @@ export async function raiseDispute(
         fromState: d.state,
         outcome: code,
       });
-      throw new SandboxFailure(code, FAILURE_COPY[code].reason);
+      return reject(code, FAILURE_COPY[code].reason);
     };
 
-    if (isTerminalState(d.state as DealState)) await fail('DEAL_TERMINAL');
-    if (d.state === 'DISPUTED') await fail('ALREADY_DISPUTED');
+    if (isTerminalState(d.state as DealState)) return refuse('DEAL_TERMINAL');
+    if (d.state === 'DISPUTED') return refuse('ALREADY_DISPUTED');
 
-    try {
-      await tx.query(
-        `INSERT INTO sandbox.dispute (deal_id, raised_by, reason, detail)
-         VALUES ($1,$2,$3,$4)`,
-        [dealId, user.userId, reason, detail?.trim()?.slice(0, 2000) || null],
-      );
-    } catch (err) {
-      if ((err as { constraint?: string }).constraint === 'dispute_deal_uq') {
-        await fail('ALREADY_DISPUTED');
-      }
-      throw err;
-    }
+    // Detected, not caught: a raised constraint would abort the
+    // transaction and take the rejection evidence with it.
+    const { rows: priorDispute } = await tx.query(
+      `SELECT 1 FROM sandbox.dispute WHERE deal_id = $1`,
+      [dealId],
+    );
+    if (priorDispute[0]) return refuse('ALREADY_DISPUTED');
+
+    await tx.query(
+      `INSERT INTO sandbox.dispute (deal_id, raised_by, reason, detail)
+       VALUES ($1,$2,$3,$4)`,
+      [dealId, user.userId, reason, detail?.trim()?.slice(0, 2000) || null],
+    );
 
     await tx.query(
       `UPDATE sandbox.deal
@@ -1473,7 +2197,7 @@ export async function raiseDispute(
       'Release is paused while an operator reviews the case. Add anything that supports your side.',
     );
 
-    await audit(tx, {
+    await ctx.audit({
       actorId: user.userId,
       action: 'DISPUTE_RAISE',
       subjectKind: 'deal',
@@ -1483,8 +2207,26 @@ export async function raiseDispute(
       outcome: 'OK',
       detail: { reason },
     });
-  });
+    await ctx.emit({
+      type: 'deal.disputed',
+      subjectKind: 'deal',
+      subjectId: dealId,
+      payload: { reason },
+    });
+    return accept({ dealId });
+  }
+}
 
+export async function raiseDispute(
+  user: SessionUser,
+  dealId: string,
+  reason: DisputeReason,
+  detail?: string,
+): Promise<DealView> {
+  const outcome = await withTransaction((tx) =>
+    raiseDisputeIn(boundaryContextFor(tx, newCommandId()), user, dealId, reason, detail),
+  );
+  if (!outcome.ok) throw new SandboxFailure(outcome.code, outcome.message);
   return getDeal(user, dealId);
 }
 
@@ -1492,25 +2234,72 @@ export async function raiseDispute(
  * 15. Lapsed payment windows
  * ------------------------------------------------------------------ */
 
+export interface SweepResult {
+  readonly dealsExpired: number;
+  readonly quotesExpired: number;
+}
+
 /**
- * Move deals whose payment window has passed to EXPIRED.
+ * Close every lifecycle window that has passed.
  *
- * Called on read paths rather than by a scheduler, because this sandbox has
- * no worker. It is evaluated against the DATABASE clock and only ever affects
- * deals nobody has paid on — a claimed deal never expires, it disputes.
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THIS IS AN EXPLICIT ENTRY POINT, NOT A SIDE EFFECT OF RENDERING.  │
+ * │                                                                    │
+ * │  It used to be called from `src/app/app/layout.tsx`, so a          │
+ * │  financial lifecycle transition happened because somebody loaded a │
+ * │  page — meaning an idle system never expired anything, a busy one  │
+ * │  expired things at unpredictable moments, and a page render could  │
+ * │  mutate deals belonging to strangers. That call is gone.           │
+ * │                                                                    │
+ * │  Scheduling this is DEL-09's work (workers, leases, monitoring).   │
+ * │  DEL-02 owes the correct, idempotent, audited operation for a      │
+ * │  scheduler to call — and the guarantee that nothing else calls it. │
+ * │  Until then, boundaries expire their own row under lock on the way │
+ * │  past, so a user can never act on a deal whose window has closed.  │
+ * └────────────────────────────────────────────────────────────────────┘
+ *
+ * Each row is locked individually with `FOR UPDATE SKIP LOCKED`, so two
+ * concurrent sweeps divide the work instead of blocking on each other, and
+ * neither can expire a deal another transaction is mid-way through
+ * claiming.
  *
  * This releases nothing, refunds nothing and completes nothing. It records
  * that a window closed.
  */
-export async function sweepLapsedDeals(): Promise<number> {
-  const { rowCount } = await getPool().query(
-    `UPDATE sandbox.deal
-        SET state='EXPIRED', closed_at=now(), action_deadline=NULL, version=version+1
-      WHERE state='FIAT_PENDING'
-        AND action_deadline IS NOT NULL
-        AND action_deadline <= now() - interval '2 hours'`,
-  );
-  return rowCount ?? 0;
+export async function runLifecycleSweep(limit = 200): Promise<SweepResult> {
+  return withTransaction(async (tx) => {
+    const ctx = boundaryContextFor(tx, newCommandId());
+
+    const { rows: deals } = await tx.query(
+      `SELECT deal_id, state FROM sandbox.deal
+        WHERE state = 'FIAT_PENDING'
+          AND action_deadline IS NOT NULL
+          AND action_deadline <= now()
+        ORDER BY action_deadline ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED`,
+      [limit],
+    );
+    let dealsExpired = 0;
+    for (const d of deals) {
+      if (await expireDealIfLapsed(tx, d, null, ctx.emit)) dealsExpired += 1;
+    }
+
+    const { rows: quotes } = await tx.query(
+      `SELECT quote_id, state, TRUE AS is_expired FROM sandbox.quote
+        WHERE state = 'ISSUED' AND expires_at <= now()
+        ORDER BY expires_at ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED`,
+      [limit],
+    );
+    let quotesExpired = 0;
+    for (const q of quotes) {
+      if (await expireQuoteIfLapsed(tx, q, null, ctx.emit)) quotesExpired += 1;
+    }
+
+    return { dealsExpired, quotesExpired };
+  });
 }
 
 /* ------------------------------------------------------------------ *

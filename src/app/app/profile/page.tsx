@@ -1,13 +1,13 @@
-import { getChrome } from '@/server/sandbox/chrome';
+import { getChrome } from '@/services';
 import {
   dealsToNextLevel,
   getTrustProfile,
   listPaymentMethods,
   typicalResponseMinutes,
-} from '@/server/sandbox/identity';
-import { listDealsForUser } from '@/server/sandbox/service';
+} from '@/services';
+import { listDealsForUser } from '@/services';
 import { formatMinor } from '@/lib/format';
-import { MAX_INR_MINOR } from '@/server/sandbox/service';
+import { MAX_INR_MINOR } from '@/services';
 import { SCENARIO, type Scenario } from '@/lib/scenario';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon, type IconName } from '@/components/kit/Icon';

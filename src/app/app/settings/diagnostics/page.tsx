@@ -1,5 +1,5 @@
-import { getChrome } from '@/server/sandbox/chrome';
-import { telegramConfigured } from '@/server/telegram/verify';
+import { getChrome } from '@/services';
+import { telegramConfigured } from '@/services';
 import { MINI_APP_BASE, MINI_APP_PROBLEM, MINI_APP_RAW } from '@/lib/miniApp';
 import { publicOrigin } from '@/lib/publicUrl';
 import { AppHeader } from '@/components/kit/AppChrome';

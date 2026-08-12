@@ -42,7 +42,14 @@ export type SandboxError =
   | 'MESSAGE_EMPTY'
   | 'AMOUNT_INVALID'
   | 'AMOUNT_TOO_SMALL'
-  | 'AMOUNT_TOO_LARGE';
+  | 'AMOUNT_TOO_LARGE'
+  /* ---- DEL-02 boundary vocabulary ---------------------------------- */
+  | 'COMMAND_ID_INVALID'
+  | 'COMMAND_NOT_YOURS'
+  | 'IDEMPOTENCY_CONFLICT'
+  | 'FEE_EXCEEDS_AMOUNT'
+  | 'SCENARIO_UNAVAILABLE'
+  | 'ADAPTER_UNAVAILABLE';
 
 export class SandboxFailure extends Error {
   readonly code: SandboxError;
@@ -167,6 +174,30 @@ export const FAILURE_COPY: Readonly<
   AMOUNT_TOO_LARGE: {
     reason: 'That amount is above your current per-deal limit.',
     nextStep: 'Complete more deals or verify your identity to raise the limit.',
+  },
+  COMMAND_ID_INVALID: {
+    reason: 'That request was not addressed correctly.',
+    nextStep: 'Reload the page and try once more. Nothing was created.',
+  },
+  COMMAND_NOT_YOURS: {
+    reason: 'That request reference belongs to a different account.',
+    nextStep: 'Reload the page and submit again. Nothing was created or changed.',
+  },
+  IDEMPOTENCY_CONFLICT: {
+    reason: 'This request reuses the reference of a different, earlier request.',
+    nextStep: 'Reload the page and submit again. The earlier request is unaffected.',
+  },
+  FEE_EXCEEDS_AMOUNT: {
+    reason: 'With the receiver paying the fees, nothing would be left to receive.',
+    nextStep: 'Raise the amount, or set the sender to pay the fees.',
+  },
+  SCENARIO_UNAVAILABLE: {
+    reason: 'This kind of deal is not available on this deployment.',
+    nextStep: 'Choose an exchange instead. Nothing was created.',
+  },
+  ADAPTER_UNAVAILABLE: {
+    reason: 'This deployment cannot service that request.',
+    nextStep: 'Nothing was created or charged. Contact support if this persists.',
   },
 };
 
@@ -351,7 +382,23 @@ export interface DealView extends Terms {
   readonly messages: readonly DealMessage[];
   readonly evidence: readonly DealEvidence[];
   readonly dispute: DisputeView | null;
-  /** Where the INR should actually go. Present only to the paying side. */
+  /**
+   * Whether an authoritative locked-value fact exists for this deal.
+   *
+   * Server-computed and server-owned. The UI renders it; it never derives
+   * it from a state name, and it must never show payment instructions
+   * when this is false — `payTo` is already null in that case, so the
+   * flag exists to let a screen EXPLAIN the absence rather than render a
+   * blank where instructions were expected.
+   */
+  readonly valueLocked: boolean;
+  /**
+   * Where the INR should actually go.
+   *
+   * Present only to the paying side, and only once `valueLocked` is true
+   * (UX-01 §3, TS-01.4 I7). Null in production until DEL-04 provides a
+   * value-protection adapter that can assert a lock.
+   */
   readonly payTo: {
     readonly kind: 'UPI' | 'BANK' | 'WALLET';
     readonly label: string;

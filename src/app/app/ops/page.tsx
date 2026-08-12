@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { currentUser } from '@/server/sandbox/session';
-import { AT_RISK_MINUTES, countBy, deskQueue, type DeskFilter } from '@/server/sandbox/ops';
-import { getChrome } from '@/server/sandbox/chrome';
+import { currentUser } from '@/services';
+import { AT_RISK_MINUTES, countBy, deskQueue, type DeskFilter } from '@/services';
+import { getChrome } from '@/services';
 import { formatMinor } from '@/lib/format';
 import { DEAL_STATE } from '@/lib/dealPresenter';
 import { DISPUTE_REASON_COPY, type OperatorRow } from '@/lib/sandboxContract';

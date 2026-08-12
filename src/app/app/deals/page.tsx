@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { listDealsForUser } from '@/server/sandbox/service';
-import { getChrome } from '@/server/sandbox/chrome';
+import { listDealsForUser } from '@/services';
+import { getChrome } from '@/services';
 import { formatMinor } from '@/lib/format';
 import { DEAL_STATE } from '@/lib/dealPresenter';
 import { SCENARIO, type Scenario } from '@/lib/scenario';

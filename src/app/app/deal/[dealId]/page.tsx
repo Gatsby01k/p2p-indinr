@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
-import { FAILURE_COPY, SandboxFailure, getDeal } from '@/server/sandbox/service';
-import { getChrome } from '@/server/sandbox/chrome';
+import { FAILURE_COPY, SandboxFailure, getDeal } from '@/services';
+import { getChrome } from '@/services';
 import { DEAL_STATE, dealTitle } from '@/lib/dealPresenter';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { DealRoom } from '@/components/deal/DealRoom';

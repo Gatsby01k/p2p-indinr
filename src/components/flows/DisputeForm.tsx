@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { disputeAction } from '@/server/sandbox/actions';
+import { disputeAction } from '@/services/actions';
+import { useCommandId } from '@/lib/commandId';
 import {
   DISPUTE_REASON_COPY,
   FAILURE_COPY,
@@ -61,6 +62,7 @@ export function DisputeForm({
   canUpload: boolean;
 }) {
   const router = useRouter();
+  const command = useCommandId();
   const [pending, startTransition] = useTransition();
   const [reason, setReason] = useState<DisputeReason | null>(null);
   const [detail, setDetail] = useState('');
@@ -71,7 +73,8 @@ export function DisputeForm({
     startTransition(async () => {
       if (!reason) return;
       setFailure(null);
-      const result = await disputeAction(dealId, reason, detail);
+      const result = await disputeAction(command.next(), dealId, reason, detail);
+      command.settleIfDefinitive(result);
       if (result.ok) {
         setConfirming(false);
         router.push(`/app/deal/${dealId}`);

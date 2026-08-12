@@ -1,6 +1,6 @@
-import { getChrome } from '@/server/sandbox/chrome';
-import { getTrustProfile } from '@/server/sandbox/identity';
-import { updateProfileAction } from '@/server/sandbox/actions';
+import { getChrome } from '@/services';
+import { getTrustProfile } from '@/services';
+import { updateProfileAction } from '@/services/actions';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { ProfileForm } from '@/components/flows/ProfileForm';
