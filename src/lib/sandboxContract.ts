@@ -61,7 +61,9 @@ export type SandboxError =
   | 'MFA_NOT_ENROLLED'
   | 'SESSION_EXPIRED'
   | 'PERMISSION_DENIED'
-  | 'REVIEWER_CONFLICT';
+  | 'REVIEWER_CONFLICT'
+  /* ---- DEL-04 value protection -------------------------------------- */
+  | 'INSUFFICIENT_BALANCE';
 
 export class SandboxFailure extends Error {
   readonly code: SandboxError;
@@ -262,6 +264,10 @@ export const FAILURE_COPY: Readonly<
   REVIEWER_CONFLICT: {
     reason: 'A verification cannot be decided by the person it is about.',
     nextStep: 'Another reviewer must take this case.',
+  },
+  INSUFFICIENT_BALANCE: {
+    reason: 'There is not enough available balance to protect this deal.',
+    nextStep: 'Free up locked value or reduce the amount. Nothing was locked or charged.',
   },
 };
 

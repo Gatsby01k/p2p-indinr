@@ -17,7 +17,16 @@ import {
 } from '@/server/sandbox/service';
 import { ruleOnDisputeIn, type Ruling } from '@/server/sandbox/ops';
 import type { Principal } from '@/server/identity/rbac';
-import { isCommandId, runCommand } from '@/server/boundary/command';
+import { isCommandId, runCommand, writeAudit } from '@/server/boundary/command';
+import {
+  fundSandboxBalance,
+  lockDealValue,
+  refundDealValue,
+  releaseDealValue,
+  reverseLock,
+  type ValueLock,
+} from '@/server/ledger/valueProtection';
+import type { LedgerAsset } from '@/server/ledger/accounts';
 import { reject, type Outcome } from '@/server/boundary/outcome';
 import { DEFAULT_FEE_BEARER } from '@/server/adapters/policy';
 import { FAILURE_COPY } from '@/lib/sandboxContract';
@@ -295,5 +304,263 @@ export async function rulingCommand(
       ruling: r.ruling as Ruling,
       state: r.state as DealState,
     }),
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * DEL-04 — value protection
+ *
+ * Each of these runs through the SAME command boundary as every deal
+ * mutation, so the command record, the ledger entries, the value-lock
+ * row, the audit event and the outbox event are one transaction. There
+ * is no path that posts to the ledger outside it.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Credit a sandbox balance.
+ *
+ * ⚠ Sandbox only, and `ledger.fund` only. See `fundSandboxBalance` for
+ * why a function that invents money carries three separate guards.
+ */
+export async function fundSandboxCommand(
+  principal: Principal,
+  commandId: string,
+  input: { userId: string; asset: LedgerAsset; amountMinor: bigint },
+): Promise<Outcome<{ entryId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'LEDGER_FUND',
+    actorId: principal.userId,
+    payload: { userId: input.userId, asset: input.asset, amountMinor: input.amountMinor },
+    body: async (ctx) => {
+      const funded = await fundSandboxBalance(ctx.tx, principal, {
+        ...input,
+        commandId,
+      });
+      if (!funded.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'LEDGER_FUND',
+          subjectKind: 'user',
+          subjectId: input.userId,
+          outcome: funded.code,
+          detail: { asset: input.asset },
+        });
+        return funded;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'LEDGER_FUND',
+        subjectKind: 'user',
+        subjectId: input.userId,
+        outcome: 'OK',
+        detail: { entryId: funded.value.entryId, amountMinor: input.amountMinor.toString() },
+      });
+      await ctx.emit({
+        type: 'ledger.funded',
+        subjectKind: 'user',
+        subjectId: input.userId,
+        payload: { entryId: funded.value.entryId },
+      });
+      return funded;
+    },
+    encodeResult: (v) => ({ entryId: v.entryId }),
+    decodeResult: (r) => ({ entryId: String(r.entryId) }),
+  });
+}
+
+/** Lock a participant's available balance into a deal's escrow. */
+export async function lockValueCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { dealId: string; asset: LedgerAsset; amountMinor: bigint },
+): Promise<Outcome<ValueLock>> {
+  return runCommand({
+    commandId,
+    commandType: 'VALUE_LOCK',
+    actorId: user.userId,
+    payload: { dealId: input.dealId, asset: input.asset, amountMinor: input.amountMinor },
+    body: async (ctx) => {
+      // Participation is the authorization: only a seat in the deal may
+      // commit that deal's value. Re-derived here, not taken on trust.
+      const { rows } = await ctx.tx.query(
+        `SELECT 1 FROM sandbox.participant WHERE deal_id = $1 AND user_id = $2`,
+        [input.dealId, user.userId],
+      );
+      if (!rows[0]) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'VALUE_LOCK',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: 'NOT_A_PARTICIPANT',
+        });
+        return reject('NOT_A_PARTICIPANT', FAILURE_COPY.NOT_A_PARTICIPANT.reason);
+      }
+
+      const locked = await lockDealValue(ctx.tx, {
+        dealId: input.dealId,
+        ownerId: user.userId,
+        commandId,
+        asset: input.asset,
+        amountMinor: input.amountMinor,
+      });
+      if (!locked.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'VALUE_LOCK',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: locked.code,
+          detail: locked.detail ?? {},
+        });
+        return locked;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'VALUE_LOCK',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        toState: 'LOCKED',
+        outcome: 'OK',
+        detail: { lockId: locked.value.lockId, entryId: locked.value.lockEntryId },
+      });
+      await ctx.emit({
+        type: 'value.locked',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        payload: { lockId: locked.value.lockId, amountMinor: locked.value.amountMinor },
+      });
+      return locked;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as ValueLock,
+  });
+}
+
+async function settleValueCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { dealId: string; beneficiaryId: string },
+  settlement: 'RELEASED' | 'REFUNDED',
+): Promise<Outcome<ValueLock>> {
+  return runCommand({
+    commandId,
+    commandType: settlement === 'RELEASED' ? 'VALUE_RELEASE' : 'VALUE_REFUND',
+    actorId: user.userId,
+    payload: { dealId: input.dealId, beneficiaryId: input.beneficiaryId },
+    body: async (ctx) => {
+      const { rows } = await ctx.tx.query(
+        `SELECT 1 FROM sandbox.participant WHERE deal_id = $1 AND user_id = $2`,
+        [input.dealId, user.userId],
+      );
+      if (!rows[0]) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: settlement === 'RELEASED' ? 'VALUE_RELEASE' : 'VALUE_REFUND',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: 'NOT_A_PARTICIPANT',
+        });
+        return reject('NOT_A_PARTICIPANT', FAILURE_COPY.NOT_A_PARTICIPANT.reason);
+      }
+
+      const settled =
+        settlement === 'RELEASED'
+          ? await releaseDealValue(ctx.tx, { ...input, commandId })
+          : await refundDealValue(ctx.tx, { ...input, commandId });
+
+      const action = settlement === 'RELEASED' ? 'VALUE_RELEASE' : 'VALUE_REFUND';
+      if (!settled.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action,
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: settled.code,
+        });
+        return settled;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action,
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        fromState: 'LOCKED',
+        toState: settlement,
+        outcome: 'OK',
+        detail: { lockId: settled.value.lockId, entryId: settled.value.settleEntryId },
+      });
+      await ctx.emit({
+        type: settlement === 'RELEASED' ? 'value.released' : 'value.refunded',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        payload: { lockId: settled.value.lockId },
+      });
+      return settled;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as ValueLock,
+  });
+}
+
+export function releaseValueCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { dealId: string; beneficiaryId: string },
+): Promise<Outcome<ValueLock>> {
+  return settleValueCommand(user, commandId, input, 'RELEASED');
+}
+
+export function refundValueCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { dealId: string; beneficiaryId: string },
+): Promise<Outcome<ValueLock>> {
+  return settleValueCommand(user, commandId, input, 'REFUNDED');
+}
+
+/** Undo a lock by reversal. `ledger.reverse` only. */
+export async function reverseLockCommand(
+  principal: Principal,
+  commandId: string,
+  input: { dealId: string; reason: string },
+): Promise<Outcome<{ reversalEntryId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'VALUE_REVERSE',
+    actorId: principal.userId,
+    payload: { dealId: input.dealId, reason: input.reason.trim() },
+    body: async (ctx) => {
+      const reversed = await reverseLock(ctx.tx, principal, input);
+      if (!reversed.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'VALUE_REVERSE',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: reversed.code,
+        });
+        return reversed;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'VALUE_REVERSE',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        toState: 'REVERSED',
+        outcome: 'OK',
+        detail: { reversalEntryId: reversed.value.reversalEntryId, reason: input.reason.trim() },
+      });
+      await ctx.emit({
+        type: 'value.reversed',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        payload: { reversalEntryId: reversed.value.reversalEntryId },
+      });
+      return reversed;
+    },
+    encodeResult: (v) => ({ reversalEntryId: v.reversalEntryId }),
+    decodeResult: (r) => ({ reversalEntryId: String(r.reversalEntryId) }),
   });
 }

@@ -1365,7 +1365,21 @@ export async function getDeal(
    * regardless of what any row says.
    * ────────────────────────────────────────────────────────────────────
    */
-  const valueLocked = r.value_locked_at !== null && valueProtectionAvailable();
+  /*
+   * DEL-04 strengthens this: where a LEDGER lock exists for the deal, it
+   * must still be live. The `value_locked_at` fact says a lock was once
+   * asserted; the ledger says whether the value is still held. A deal
+   * whose escrow has been released or reversed must stop showing payment
+   * instructions immediately, and a deal with no ledger lock at all
+   * behaves exactly as DEL-02 accepted.
+   */
+  const { rows: ledgerLock } = await getPool().query(
+    `SELECT state FROM inrp2p.value_lock WHERE deal_id = $1`,
+    [dealId],
+  );
+  const ledgerHoldsValue = ledgerLock[0] === undefined || ledgerLock[0].state === 'LOCKED';
+
+  const valueLocked = r.value_locked_at !== null && valueProtectionAvailable() && ledgerHoldsValue;
   const mayDisclosePaymentInstructions = viewerRole === 'FIAT_SIDE' && valueLocked;
 
   const [messages, evidence, dispute, payTo] = options.summaryOnly

@@ -41,14 +41,25 @@ export type Permission =
   | 'ops.case.read'
   | 'deal.rule'
   | 'verification.review'
-  | 'role.grant';
+  | 'role.grant'
+  /* ---- DEL-04: direct ledger authority, never held by a customer ---- */
+  | 'ledger.fund'
+  | 'ledger.reverse';
 
 const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   OPERATOR: ['ops.queue.read', 'ops.case.read', 'deal.rule'],
   // Reviewers decide verification cases and see nothing financial.
   REVIEWER: ['verification.review'],
-  // Admin grants roles — and only ever through the out-of-band tool.
-  ADMIN: ['role.grant'],
+  /*
+   * Admin grants roles and holds the two direct ledger powers.
+   *
+   * `ledger.fund` conjures sandbox value and `ledger.reverse` undoes a
+   * financial entry. Neither belongs to an operator triaging disputes,
+   * let alone a customer — so they sit with ADMIN, which is granted only
+   * out of band and, like every sensitive permission, requires a
+   * satisfied second factor.
+   */
+  ADMIN: ['role.grant', 'ledger.fund', 'ledger.reverse'],
 };
 
 export interface Principal {
@@ -73,6 +84,8 @@ const MFA_REQUIRED: ReadonlySet<Permission> = new Set<Permission>([
   'deal.rule',
   'verification.review',
   'role.grant',
+  'ledger.fund',
+  'ledger.reverse',
 ]);
 
 export function permissionsFor(roles: readonly Role[]): readonly Permission[] {

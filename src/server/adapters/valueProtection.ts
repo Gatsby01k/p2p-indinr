@@ -38,8 +38,8 @@ export interface ValueProtectionAdapter {
    * Record that the value leg for this deal is locked.
    *
    * Returns the lock fact the caller writes to the deal inside its own
-   * transaction — the adapter never writes to the database itself, so a
-   * lock can never exist outside the transaction that created the deal.
+   * transaction — the adapter never opens one, so a lock can never exist
+   * outside the transaction that created the deal.
    */
   lock(input: {
     readonly dealId: string;
@@ -61,6 +61,20 @@ class SandboxValueProtection implements ValueProtectionAdapter {
   async release(): Promise<void> {
     /* Holds nothing, so there is nothing to release. Recorded by the caller. */
   }
+}
+
+/**
+ * The LEDGER-BACKED lock reference, for a deal whose value really moved.
+ *
+ * DEL-04 gives the sandbox a genuine internal ledger, so a deal that
+ * locks value now carries the lock id of a real double-entry movement
+ * rather than a synthetic string. The prefix stays `SBX-` for the same
+ * reason as before: the value in that ledger was never deposited by
+ * anybody, and no reference produced by this repository may be mistaken
+ * for custody of real funds.
+ */
+export function ledgerLockReference(lockId: string): string {
+  return `SBX-LEDGER-${lockId}`;
 }
 
 /**
