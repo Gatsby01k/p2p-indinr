@@ -122,10 +122,21 @@ export function newCommandId(): string {
  * Audit and outbox, bound to one transaction
  * ------------------------------------------------------------------ */
 
+/**
+ * What an audit or domain event is ABOUT.
+ *
+ * A closed union rather than a string, mirroring the CHECK constraints on
+ * `audit_event` and `outbox_event`. Adding a kind therefore requires
+ * touching the migration and this type together — which is the point: a
+ * trail that accepts any subject kind is a trail nobody can query with
+ * confidence.
+ */
+export type SubjectKind = 'link' | 'deal' | 'quote' | 'user' | 'payment';
+
 export interface AuditEvent {
   readonly actorId: string | null;
   readonly action: string;
-  readonly subjectKind: 'link' | 'deal' | 'quote' | 'user';
+  readonly subjectKind: SubjectKind;
   readonly subjectId: string;
   readonly fromState?: string | null;
   readonly toState?: string | null;
@@ -135,7 +146,7 @@ export interface AuditEvent {
 
 export interface DomainEvent {
   readonly type: string;
-  readonly subjectKind: 'link' | 'deal' | 'quote' | 'user';
+  readonly subjectKind: SubjectKind;
   readonly subjectId: string;
   readonly payload?: Record<string, unknown>;
 }

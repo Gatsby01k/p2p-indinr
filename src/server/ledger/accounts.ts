@@ -71,6 +71,20 @@ export function sandboxFundingSourceKey(asset: LedgerAsset = 'USDT'): AccountKey
 }
 
 /**
+ * The wallet a CONFIRMED external deposit lands in.
+ *
+ * Unlike `sandboxFundingSourceKey`, debiting this account is an honest
+ * claim: a watcher observed the transfer on chain and the confirmation
+ * policy was satisfied, so the custodian really does hold those tokens.
+ * The difference between these two functions is the difference between
+ * bookkeeping and a lie, which is why they are two functions with two
+ * names rather than one with a flag.
+ */
+export function depositWalletKey(asset: LedgerAsset = 'USDT'): AccountKey {
+  return { asset, family: 'wallet.deposit', scopeKind: 'custody', scopeId: '', shard: 0 };
+}
+
+/**
  * Materialize accounts and resolve their ids, in one round trip.
  *
  * The ids are selected as one row of N columns rather than by unnesting the

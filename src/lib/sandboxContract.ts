@@ -63,7 +63,23 @@ export type SandboxError =
   | 'PERMISSION_DENIED'
   | 'REVIEWER_CONFLICT'
   /* ---- DEL-04 value protection -------------------------------------- */
-  | 'INSUFFICIENT_BALANCE';
+  | 'INSUFFICIENT_BALANCE'
+  /* ---- DEL-05 payment rails ----------------------------------------- */
+  | 'VALUE_NOT_LOCKED'
+  | 'PAYMENT_INTENT_EXISTS'
+  | 'PAYMENT_INTENT_TERMINAL'
+  | 'PAYMENT_NOT_INSTRUCTED'
+  | 'RAIL_UNSUPPORTED'
+  | 'NETWORK_INVALID'
+  | 'REFERENCE_INVALID'
+  | 'REFERENCE_ALREADY_USED'
+  | 'AMOUNT_MISMATCH'
+  | 'ASSET_MISMATCH'
+  | 'BENEFICIARY_MISMATCH'
+  | 'WEBHOOK_UNVERIFIED'
+  | 'WEBHOOK_REPLAYED'
+  | 'OBSERVATION_UNMATCHED'
+  | 'CONFIRMATIONS_INSUFFICIENT';
 
 export class SandboxFailure extends Error {
   readonly code: SandboxError;
@@ -268,6 +284,81 @@ export const FAILURE_COPY: Readonly<
   INSUFFICIENT_BALANCE: {
     reason: 'There is not enough available balance to protect this deal.',
     nextStep: 'Free up locked value or reduce the amount. Nothing was locked or charged.',
+  },
+
+  /* ---- DEL-05 payment rails ------------------------------------------ *
+   *
+   * Two audiences read these sentences, and they need different things.
+   *
+   * A PAYER needs to know whether to send money and what to do instead.
+   * So every message that could be read as "your transfer is fine" is
+   * written so it cannot be: an unmatched observation says the payment is
+   * not settled, not that it is "being processed".
+   *
+   * An ATTACKER reads them too. The webhook failures deliberately say the
+   * same thing for a wrong signature, a stale timestamp and a replay:
+   * the specific reason is audited, not returned.
+   */
+
+  VALUE_NOT_LOCKED: {
+    reason: 'Payment instructions are unavailable until the deal value is locked.',
+    nextStep: 'Lock the value for this deal first. Do not send any money yet.',
+  },
+  PAYMENT_INTENT_EXISTS: {
+    reason: 'A payment is already running for this deal on that rail.',
+    nextStep: 'Use the existing payment. Sending twice will not settle twice.',
+  },
+  PAYMENT_INTENT_TERMINAL: {
+    reason: 'That payment has already finished and cannot change.',
+    nextStep: 'Open the deal to see the recorded outcome.',
+  },
+  PAYMENT_NOT_INSTRUCTED: {
+    reason: 'No payment instruction has been issued for this deal yet.',
+    nextStep: 'Request the payment instruction before reporting a transfer.',
+  },
+  RAIL_UNSUPPORTED: {
+    reason: 'That payment rail is not available.',
+    nextStep: 'Use a supported rail for this deal.',
+  },
+  NETWORK_INVALID: {
+    reason: 'That network does not belong to this payment rail.',
+    nextStep: 'Check the network. Sending on the wrong network loses the funds permanently.',
+  },
+  REFERENCE_INVALID: {
+    reason: 'That payment reference is not in a recognised format.',
+    nextStep: 'Copy the reference exactly as your bank or wallet shows it.',
+  },
+  REFERENCE_ALREADY_USED: {
+    reason: 'That payment reference has already been recorded.',
+    nextStep: 'A reference identifies one transfer and cannot be reused. Check the deal.',
+  },
+  AMOUNT_MISMATCH: {
+    reason: 'The amount reported does not match the amount this payment requires.',
+    nextStep: 'Nothing was settled. Contact support with the deal and the reference.',
+  },
+  ASSET_MISMATCH: {
+    reason: 'The asset reported does not match the asset this payment requires.',
+    nextStep: 'Nothing was settled. Contact support with the deal and the reference.',
+  },
+  BENEFICIARY_MISMATCH: {
+    reason: 'The payment did not arrive at the destination this deal issued.',
+    nextStep: 'Nothing was settled. Contact support before sending anything further.',
+  },
+  WEBHOOK_UNVERIFIED: {
+    reason: 'That provider event could not be verified.',
+    nextStep: 'The event was recorded and refused. No payment state changed.',
+  },
+  WEBHOOK_REPLAYED: {
+    reason: 'That provider event has already been processed.',
+    nextStep: 'The first delivery was applied. Redelivery changes nothing.',
+  },
+  OBSERVATION_UNMATCHED: {
+    reason: 'That report does not correspond to any payment awaiting settlement.',
+    nextStep: 'The report was recorded for review. The payment is NOT settled.',
+  },
+  CONFIRMATIONS_INSUFFICIENT: {
+    reason: 'The transfer has been seen but does not yet have enough confirmations.',
+    nextStep: 'Wait for the network to confirm. The payment is not settled yet.',
   },
 };
 

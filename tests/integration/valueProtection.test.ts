@@ -134,7 +134,7 @@ describe('sandbox funding is explicitly sandbox-only', () => {
     expect(Number(rows[0]!.b)).toBeGreaterThanOrEqual(500_000);
   });
 
-  it('NO custodial wallet ever holds a sandbox balance', async () => {
+  it('NO custodial wallet is EVER touched by conjured value', async () => {
     const user = await signInSandbox(`vp-wallet-${unique()}@example.com`);
     await fund(user, 250_000n);
     const { dealId } = await liveDeal();
@@ -142,13 +142,41 @@ describe('sandbox funding is explicitly sandbox-only', () => {
     await lockValueCommand(alice, newCommandId(), { dealId, asset: 'USDT', amountMinor: 20_000n });
     await releaseValueCommand(alice, newCommandId(), { dealId, beneficiaryId: bob.userId });
 
-    // Not "small", not "negative" — zero. Nothing in this repository may
-    // claim custody of an asset nobody deposited.
+    /*
+     * The claim is precise, and it has to be.
+     *
+     * DEL-05 gives `wallet.deposit` a legitimate balance: a watcher
+     * observed a transfer on chain and the confirmation policy was
+     * satisfied, so the custodian really does hold those tokens. What
+     * must NEVER happen is a wallet balance created by the funding path,
+     * because that value was conjured and claiming custody of it would
+     * be a lie. So the assertion is not "wallets are empty" — it is that
+     * NO posting on any wallet account belongs to a funding entry.
+     */
     const { rows } = await getPool().query(
-      `SELECT family, balance_minor::text AS b FROM inrp2p_read.account_balance
-        WHERE family LIKE 'wallet.%' AND balance_minor <> 0`,
+      `SELECT a.family, p.amount_minor::text AS amount
+         FROM inrp2p.posting p
+         JOIN inrp2p.ledger_account a ON a.account_id = p.account_id
+         JOIN inrp2p.journal_entry e  ON e.entry_id   = p.entry_id
+        WHERE a.family LIKE 'wallet.%' AND e.journal_code = 'JD-SBX-FUND'`,
     );
     expect(rows).toEqual([]);
+
+    // And every wallet balance that DOES exist came from a confirmed
+    // external observation — nothing else may put value there.
+    const { rows: sources } = await getPool().query(
+      `SELECT DISTINCT e.journal_code
+         FROM inrp2p.posting p
+         JOIN inrp2p.ledger_account a ON a.account_id = p.account_id
+         JOIN inrp2p.journal_entry e  ON e.entry_id   = p.entry_id
+        WHERE a.family LIKE 'wallet.%'`,
+    );
+    expect(sources.map((s) => s.journal_code).sort()).toEqual(
+      expect.arrayContaining([] as string[]),
+    );
+    for (const s of sources) {
+      expect(['JD-DEP-CONFIRM', 'JD-REVERSAL']).toContain(s.journal_code);
+    }
   });
 
   it('refuses in production', async () => {

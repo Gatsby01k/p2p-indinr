@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 import {
   cancelDealIn,
   closeDealLinkIn,
@@ -27,6 +28,21 @@ import {
   type ValueLock,
 } from '@/server/ledger/valueProtection';
 import type { LedgerAsset } from '@/server/ledger/accounts';
+import {
+  issueInstruction,
+  openIntent,
+  redactInstruction,
+  type PaymentInstruction,
+  type PaymentIntent,
+} from '@/server/rails/intents';
+import {
+  ingestProviderEvent,
+  recordClientEvidence,
+  type IngestResult,
+  type ProviderEvent,
+} from '@/server/rails/observations';
+import { redactReference, type Network, type Rail } from '@/lib/railReference';
+import type { SignedDelivery } from '@/server/rails/webhook';
 import { reject, type Outcome } from '@/server/boundary/outcome';
 import { DEFAULT_FEE_BEARER } from '@/server/adapters/policy';
 import { FAILURE_COPY } from '@/lib/sandboxContract';
@@ -562,5 +578,321 @@ export async function reverseLockCommand(
     },
     encodeResult: (v) => ({ reversalEntryId: v.reversalEntryId }),
     decodeResult: (r) => ({ reversalEntryId: String(r.reversalEntryId) }),
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * DEL-05 — payment rails
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THE COMMANDS THAT TOUCH REAL MONEY, AND WHAT EACH ONE CLAIMS.     │
+ * │                                                                    │
+ * │  `openPaymentIntent`       — "someone should pay X." Claims nothing.│
+ * │  `issuePaymentInstruction` — "pay it HERE." Requires a live lock.  │
+ * │  `submitPaymentEvidence`   — "I say I paid." Claims nothing, ever. │
+ * │  `ingestRailEvent`         — "the provider says money moved." The  │
+ * │                              ONLY path that may confirm and post.  │
+ * │                                                                    │
+ * │  Every one of them commits its audit row and its outbox event in   │
+ * │  the same transaction as its effect, through the DEL-02 boundary.  │
+ * └────────────────────────────────────────────────────────────────────┘
+ * ------------------------------------------------------------------ */
+
+export async function openPaymentIntentCommand(
+  user: SessionUser,
+  commandId: string,
+  input: {
+    dealId: string;
+    rail: Rail;
+    network: Network;
+    direction: 'COLLECT' | 'PAYOUT';
+    payeeId: string;
+    amountMinor: bigint;
+    expiresInSeconds?: number;
+  },
+): Promise<Outcome<PaymentIntent>> {
+  return runCommand({
+    commandId,
+    commandType: 'PAYMENT_INTENT_OPEN',
+    actorId: user.userId,
+    payload: {
+      dealId: input.dealId,
+      rail: input.rail,
+      network: input.network,
+      direction: input.direction,
+      payeeId: input.payeeId,
+      amountMinor: input.amountMinor,
+    },
+    body: async (ctx) => {
+      const opened = await openIntent(ctx.tx, {
+        dealId: input.dealId,
+        rail: input.rail,
+        network: input.network,
+        direction: input.direction,
+        // The ACTOR is the payer. A caller cannot open a demand against
+        // somebody else — that would be inventing an obligation.
+        payerId: user.userId,
+        payeeId: input.payeeId,
+        amountMinor: input.amountMinor,
+        expiresInSeconds: input.expiresInSeconds ?? 3600,
+      });
+      if (!opened.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'PAYMENT_INTENT_OPEN',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: opened.code,
+          detail: opened.detail ?? {},
+        });
+        return opened;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'PAYMENT_INTENT_OPEN',
+        subjectKind: 'payment',
+        subjectId: opened.value.intentId,
+        toState: 'REQUESTED',
+        outcome: 'OK',
+        detail: {
+          dealId: input.dealId,
+          rail: input.rail,
+          network: input.network,
+          amountMinor: opened.value.amountMinor,
+        },
+      });
+      await ctx.emit({
+        type: 'payment.intent_opened',
+        subjectKind: 'payment',
+        subjectId: opened.value.intentId,
+        payload: { dealId: input.dealId, rail: input.rail, amountMinor: opened.value.amountMinor },
+      });
+      return opened;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as PaymentIntent,
+  });
+}
+
+/**
+ * Issue the instruction.
+ *
+ * The audit detail and the outbox payload carry the REDACTED
+ * instruction. An audit row holding the destination account in full is a
+ * second copy of the sensitive data, sitting in a table more people can
+ * read than the instruction itself.
+ */
+export async function issuePaymentInstructionCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { intentId: string },
+): Promise<Outcome<PaymentInstruction>> {
+  return runCommand({
+    commandId,
+    commandType: 'PAYMENT_INSTRUCTION_ISSUE',
+    actorId: user.userId,
+    payload: { intentId: input.intentId },
+    body: async (ctx) => {
+      const issued = await issueInstruction(ctx.tx, user.userId, input.intentId);
+      if (!issued.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'PAYMENT_INSTRUCTION_ISSUE',
+          subjectKind: 'payment',
+          subjectId: input.intentId,
+          outcome: issued.code,
+          detail: issued.detail ?? {},
+        });
+        return issued;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'PAYMENT_INSTRUCTION_ISSUE',
+        subjectKind: 'payment',
+        subjectId: input.intentId,
+        toState: 'INSTRUCTED',
+        outcome: 'OK',
+        detail: redactInstruction(issued.value),
+      });
+      await ctx.emit({
+        type: 'payment.instruction_issued',
+        subjectKind: 'payment',
+        subjectId: input.intentId,
+        payload: redactInstruction(issued.value),
+      });
+      return issued;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as PaymentInstruction,
+  });
+}
+
+/**
+ * Record what the payer says they did.
+ *
+ * The result deliberately carries `settles: false`. A caller rendering
+ * this response cannot accidentally show "payment confirmed", because the
+ * only field it has says the opposite.
+ */
+export async function submitPaymentEvidenceCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { intentId: string; reference: string },
+): Promise<Outcome<{ observationId: string; settles: false }>> {
+  return runCommand({
+    commandId,
+    commandType: 'PAYMENT_EVIDENCE_SUBMIT',
+    actorId: user.userId,
+    payload: { intentId: input.intentId, reference: input.reference.trim().toUpperCase() },
+    body: async (ctx) => {
+      const recorded = await recordClientEvidence(ctx.tx, {
+        actorId: user.userId,
+        intentId: input.intentId,
+        reference: input.reference,
+      });
+      if (!recorded.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'PAYMENT_EVIDENCE_SUBMIT',
+          subjectKind: 'payment',
+          subjectId: input.intentId,
+          outcome: recorded.code,
+        });
+        return recorded;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'PAYMENT_EVIDENCE_SUBMIT',
+        subjectKind: 'payment',
+        subjectId: input.intentId,
+        outcome: 'OK',
+        // Redacted: a UTR is a payment credential in practice.
+        detail: {
+          observationId: recorded.value.observationId,
+          reference: redactReference(input.reference.trim().toUpperCase()),
+          settles: false,
+        },
+      });
+      await ctx.emit({
+        type: 'payment.evidence_submitted',
+        subjectKind: 'payment',
+        subjectId: input.intentId,
+        payload: { observationId: recorded.value.observationId, settles: false },
+      });
+      return recorded;
+    },
+    encodeResult: (v) => ({ observationId: v.observationId, settles: false }),
+    decodeResult: (r) => ({ observationId: String(r.observationId), settles: false }),
+  });
+}
+
+/**
+ * A stable command id for one provider delivery.
+ *
+ * UUIDv5-shaped and derived from (provider, event id), so a redelivery
+ * computes the SAME id and meets the DEL-02 idempotency record rather
+ * than starting a second execution. A random id here would make the
+ * command boundary useless in exactly the case where it matters most.
+ */
+export function railEventCommandId(providerKey: string, providerEventId: string): string {
+  const bytes = createHash('sha256')
+    .update(`rail-event ${providerKey} ${providerEventId}`)
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join('-');
+}
+
+/**
+ * Ingest a signed provider or watcher event.
+ *
+ * `actorId` is null, deliberately: a provider is not a user of this
+ * system and must not inherit anybody's authority. Its authorization is
+ * the signature, checked inside `ingestProviderEvent`, and nothing else.
+ *
+ * The command id is derived from the provider event id, so the DEL-02
+ * boundary deduplicates redeliveries a SECOND time — independently of
+ * `rail_event`'s uniqueness. Two mechanisms, because a duplicated
+ * confirmation posts value twice.
+ */
+export async function ingestRailEventCommand(
+  delivery: SignedDelivery,
+  event: ProviderEvent,
+  options: { now?: Date; source?: 'PROVIDER_WEBHOOK' | 'CHAIN_WATCHER' } = {},
+): Promise<Outcome<IngestResult>> {
+  const commandId = railEventCommandId(delivery.providerKey, event.providerEventId);
+  return runCommand({
+    commandId,
+    commandType: 'RAIL_EVENT_INGEST',
+    actorId: null,
+    /*
+     * The payload covers the BODY, not just the event id.
+     *
+     * Without the digest, an attacker who captured one delivery could
+     * resend its id with edited contents and the boundary would see an
+     * identical payload hash — an "identical replay" — and hand back the
+     * FIRST delivery's success. With it, the same id carrying different
+     * bytes is an `IDEMPOTENCY_CONFLICT`, refused before the body runs.
+     */
+    payload: {
+      providerKey: delivery.providerKey,
+      providerEventId: event.providerEventId,
+      bodyDigest: createHash('sha256').update(delivery.rawBody).digest('hex'),
+    },
+    body: async (ctx) => {
+      const ingested = await ingestProviderEvent(ctx.tx, delivery, event, options);
+      if (!ingested.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: null,
+          action: 'RAIL_EVENT_INGEST',
+          subjectKind: 'payment',
+          // A refused event may have matched nothing at all, in which
+          // case the delivery itself is the subject.
+          subjectId: (ingested.detail?.observationId as string | undefined) ?? commandId,
+          outcome: ingested.code,
+          detail: { providerKey: delivery.providerKey, ...(ingested.detail ?? {}) },
+        });
+        return ingested;
+      }
+      await ctx.audit({
+        actorId: null,
+        action: 'RAIL_EVENT_INGEST',
+        subjectKind: 'payment',
+        subjectId: ingested.value.intentId ?? commandId,
+        toState: ingested.value.state,
+        outcome: 'OK',
+        detail: {
+          providerKey: delivery.providerKey,
+          matchOutcome: ingested.value.matchOutcome,
+          ledgerEntryId: ingested.value.ledgerEntryId,
+        },
+      });
+      await ctx.emit({
+        type:
+          ingested.value.state === 'CONFIRMED'
+            ? 'payment.confirmed'
+            : ingested.value.state === 'REVERSED'
+              ? 'payment.reversed'
+              : 'payment.observed',
+        subjectKind: 'payment',
+        subjectId: ingested.value.intentId ?? commandId,
+        payload: {
+          matchOutcome: ingested.value.matchOutcome,
+          state: ingested.value.state,
+          ledgerEntryId: ingested.value.ledgerEntryId,
+        },
+      });
+      return ingested;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as IngestResult,
   });
 }
