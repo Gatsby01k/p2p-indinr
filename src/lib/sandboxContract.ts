@@ -79,7 +79,25 @@ export type SandboxError =
   | 'WEBHOOK_UNVERIFIED'
   | 'WEBHOOK_REPLAYED'
   | 'OBSERVATION_UNMATCHED'
-  | 'CONFIRMATIONS_INSUFFICIENT';
+  | 'CONFIRMATIONS_INSUFFICIENT'
+  /* ---- DEL-06 deal room, evidence and disputes ---------------------- */
+  | 'CASE_ALREADY_OPEN'
+  | 'CASE_NOT_OPEN'
+  | 'CASE_TERMINAL'
+  | 'CASE_STALE'
+  | 'STATEMENT_TOO_SHORT'
+  | 'PROPOSAL_EXISTS'
+  | 'PROPOSAL_NOT_FOUND'
+  | 'PROPOSAL_STALE'
+  | 'SELF_APPROVAL_FORBIDDEN'
+  | 'DEAL_FROZEN'
+  | 'EVIDENCE_NOT_READY'
+  | 'EVIDENCE_REJECTED'
+  | 'CAPABILITY_INVALID'
+  | 'CAPABILITY_EXPIRED'
+  | 'CAPABILITY_CONSUMED'
+  | 'MESSAGE_TOO_LONG'
+  | 'INCIDENT_RAISED';
 
 export class SandboxFailure extends Error {
   readonly code: SandboxError;
@@ -359,6 +377,84 @@ export const FAILURE_COPY: Readonly<
   CONFIRMATIONS_INSUFFICIENT: {
     reason: 'The transfer has been seen but does not yet have enough confirmations.',
     nextStep: 'Wait for the network to confirm. The payment is not settled yet.',
+  },
+
+  /* ---- DEL-06 deal room, evidence and disputes ----------------------- *
+   *
+   * A dispute is the moment somebody believes they have been wronged and
+   * real money is involved, so these sentences avoid two failure modes.
+   * They never imply an outcome the system has not decided — no
+   * "we'll get your money back" — and they never leave a person unsure
+   * whether their complaint was recorded.
+   */
+
+  CASE_ALREADY_OPEN: {
+    reason: 'A dispute is already open for this deal.',
+    nextStep: 'Add to the existing dispute instead of opening a second one.',
+  },
+  CASE_NOT_OPEN: {
+    reason: 'There is no open dispute for this deal.',
+    nextStep: 'Open a dispute first if something is wrong.',
+  },
+  CASE_TERMINAL: {
+    reason: 'That dispute has already been resolved.',
+    nextStep: 'Open the deal to see the recorded outcome and the reasoning.',
+  },
+  CASE_STALE: {
+    reason: 'The case changed while this was being decided.',
+    nextStep: 'Reload the case and review it again before deciding.',
+  },
+  STATEMENT_TOO_SHORT: {
+    reason: 'Explain what went wrong in at least a sentence.',
+    nextStep: 'The other side and the reviewer both read this. Give them the facts.',
+  },
+  PROPOSAL_EXISTS: {
+    reason: 'A resolution is already proposed and waiting for approval.',
+    nextStep: 'Approve or reject the outstanding proposal before making another.',
+  },
+  PROPOSAL_NOT_FOUND: {
+    reason: 'That resolution proposal does not exist or is no longer outstanding.',
+    nextStep: 'Reload the case.',
+  },
+  PROPOSAL_STALE: {
+    reason: 'That proposal was made against an earlier version of the case.',
+    nextStep: 'Reject it and propose again against the current facts.',
+  },
+  SELF_APPROVAL_FORBIDDEN: {
+    reason: 'You cannot approve a resolution you proposed yourself.',
+    nextStep: 'A second authorised reviewer must approve it.',
+  },
+  DEAL_FROZEN: {
+    reason: 'This deal is under dispute and cannot be changed until it is resolved.',
+    nextStep: 'Add your evidence to the dispute. A reviewer decides what happens next.',
+  },
+  EVIDENCE_NOT_READY: {
+    reason: 'That file has not finished being checked yet.',
+    nextStep: 'Try again shortly. Files are scanned before anybody can open them.',
+  },
+  EVIDENCE_REJECTED: {
+    reason: 'That file was refused and cannot be opened.',
+    nextStep: 'Upload a valid PDF or image.',
+  },
+  CAPABILITY_INVALID: {
+    reason: 'That download link is not valid.',
+    nextStep: 'Open the deal and request the file again.',
+  },
+  CAPABILITY_EXPIRED: {
+    reason: 'That download link has expired.',
+    nextStep: 'Request the file again. Links are short-lived on purpose.',
+  },
+  CAPABILITY_CONSUMED: {
+    reason: 'That download link has already been used.',
+    nextStep: 'Request the file again.',
+  },
+  MESSAGE_TOO_LONG: {
+    reason: 'That message is longer than 2000 characters.',
+    nextStep: 'Shorten it, or attach the detail as evidence.',
+  },
+  INCIDENT_RAISED: {
+    reason: 'This deal needs manual review before anything further can happen.',
+    nextStep: 'Support has been notified with the full record. Nothing was changed.',
   },
 };
 

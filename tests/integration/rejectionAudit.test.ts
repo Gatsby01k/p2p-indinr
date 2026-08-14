@@ -13,7 +13,12 @@ import {
   joinCommand,
   messageCommand,
   rulingCommand,
+  openDisputeCaseCommand,
+  proposeRulingCommand,
+  approveRulingCommand,
 } from '@/services/commands';
+import { grantRole, permissionsFor } from '@/server/identity/rbac';
+import { lockedDeal } from './support/rails';
 
 /**
  * The complete rejection contract.
@@ -38,6 +43,8 @@ let creator: SessionUser;
 let joiner: SessionUser;
 let outsider: SessionUser;
 let operator: OperatorFixture;
+/** The CHECKER. Maker-checker needs a second, differently-granted person. */
+let reviewer: OperatorFixture;
 
 const unique = () => Math.random().toString(36).slice(2, 10);
 const original = { nodeEnv: process.env.NODE_ENV, sandbox: process.env.INRP2P_SANDBOX };
@@ -53,6 +60,23 @@ beforeAll(async () => {
   joiner = await signInSandbox(`rej-joiner-${unique()}@example.com`);
   outsider = await signInSandbox(`rej-outsider-${unique()}@example.com`);
   operator = await makeOperator(`ops@rej-${unique()}.example.com`);
+
+  reviewer = await makeOperator(`rej-reviewer-${unique()}@example.com`);
+  await grantRole({
+    userId: reviewer.user.userId,
+    role: 'REVIEWER',
+    grantedBy: null,
+    via: 'CLI',
+    reason: 'Maker-checker fixture: the second pair of eyes.',
+  });
+  reviewer = {
+    ...reviewer,
+    principal: {
+      ...reviewer.principal,
+      roles: ['REVIEWER'],
+      permissions: permissionsFor(['REVIEWER']),
+    },
+  };
 });
 
 async function openLink(actor: SessionUser = creator): Promise<string> {
@@ -559,66 +583,84 @@ describe('boundary-level rejections', () => {
  * Operator ruling — now command-bound
  * ------------------------------------------------------------------ */
 
-describe('dispute ruling runs through the command boundary', () => {
-  async function disputedDeal(): Promise<string> {
-    const { dealId } = await liveDeal();
-    expect(
-      (
-        await disputeCommand(
-          creator,
-          newCommandId(),
-          dealId,
-          'PAYMENT_NOT_RECEIVED',
-          'nothing came',
-        )
-      ).ok,
-    ).toBe(true);
-    return dealId;
+describe('a dispute ruling needs two people and moves real value', () => {
+  /*
+   * REWRITTEN FOR DEL-06.
+   *
+   * These cases used to drive `rulingCommand` — one operator, one call,
+   * a status edit and no ledger movement. DEL-06 withdrew that: a ruling
+   * is now proposed by one authorised person, approved by a DIFFERENT
+   * one, and the approval settles the DEL-04 lock. The assertions below
+   * are the same PROPERTIES — atomicity, replay, conflict, refusal
+   * recording, concurrency — against the boundary that replaced it.
+   */
+  async function disputedLockedDeal() {
+    const dealId = await lockedDeal(creator, joiner, 100_000n);
+    const opened = await openDisputeCaseCommand(creator, newCommandId(), {
+      dealId,
+      category: 'PAYMENT_NOT_RECEIVED',
+      statement: 'The transfer never arrived and my counterparty insists that it did.',
+    });
+    if (!opened.ok) throw new Error(`case fixture: ${opened.code}`);
+    return { dealId, caseId: opened.value.caseId, version: opened.value.version };
   }
 
-  it('rules, audits and emits deal.ruled atomically', async () => {
-    const dealId = await disputedDeal();
+  async function proposed(disposition: 'RELEASE' | 'REFUND' = 'REFUND') {
+    const base = await disputedLockedDeal();
+    const p = await proposeRulingCommand(operator.principal, newCommandId(), {
+      caseId: base.caseId,
+      disposition,
+      rationale: 'The evidence supports the payer; the protected value goes back.',
+      caseVersion: base.version,
+    });
+    if (!p.ok) throw new Error(`proposal fixture: ${p.code}`);
+    return { ...base, proposalId: p.value.proposalId };
+  }
+
+  it('resolves, audits and emits atomically', async () => {
+    const { dealId, caseId, proposalId } = await proposed('REFUND');
     const commandId = newCommandId();
 
-    const outcome = await rulingCommand(
-      operator.principal,
-      commandId,
-      dealId,
-      'REFUNDED',
-      'Evidence supports the payer; returning the protected value.',
-    );
+    const outcome = await approveRulingCommand(reviewer.principal, commandId, { proposalId });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.value.state).toBe('REFUNDED');
+    expect(outcome.value.disposition).toBe('REFUND');
 
     const { rows } = await getPool().query(`SELECT state FROM sandbox.deal WHERE deal_id = $1`, [
       dealId,
     ]);
-    expect(rows[0]!.state).toBe('REFUNDED');
+    expect(rows[0]!.state).toBe('CANCELLED');
 
     const { rows: audits } = await getPool().query(
-      `SELECT from_state, to_state, outcome FROM sandbox.audit_event
-        WHERE subject_id = $1 AND action = 'DISPUTE_RULE' AND outcome = 'OK'`,
-      [dealId],
+      `SELECT to_state, outcome FROM sandbox.audit_event
+        WHERE subject_id = $1 AND action = 'DISPUTE_APPROVE' AND outcome = 'OK'`,
+      [caseId],
     );
     expect(audits).toHaveLength(1);
-    expect(audits[0]!.from_state).toBe('DISPUTED');
+    expect(audits[0]!.to_state).toBe('RESOLVED');
 
     const { rows: events } = await getPool().query(
       `SELECT event_type FROM sandbox.outbox_event WHERE event_key LIKE $1`,
       [`${commandId}:%`],
     );
-    expect(events.map((e) => e.event_type)).toEqual(['deal.ruled']);
+    expect(events.map((e) => e.event_type)).toEqual(['dispute.resolved']);
     expect((await readCommand(commandId))?.status).toBe('SUCCEEDED');
+
+    // And the value genuinely moved, which the old ruling never did.
+    const { rows: lock } = await getPool().query(
+      `SELECT state, settle_entry_id FROM inrp2p.value_lock WHERE deal_id = $1`,
+      [dealId],
+    );
+    expect(lock[0]!.state).toBe('REFUNDED');
+    expect(lock[0]!.settle_entry_id).not.toBeNull();
   });
 
-  it('replays an identical ruling with the original result', async () => {
-    const dealId = await disputedDeal();
+  it('replays an identical approval with the original result', async () => {
+    const { proposalId } = await proposed('RELEASE');
     const commandId = newCommandId();
-    const reason = 'Both sides agree the transfer never arrived at all.';
 
-    const first = await rulingCommand(operator.principal, commandId, dealId, 'CANCELLED', reason);
-    const replay = await rulingCommand(operator.principal, commandId, dealId, 'CANCELLED', reason);
+    const first = await approveRulingCommand(reviewer.principal, commandId, { proposalId });
+    const replay = await approveRulingCommand(reviewer.principal, commandId, { proposalId });
     expect(first.ok && replay.ok).toBe(true);
     if (!first.ok || !replay.ok) return;
     expect(replay.value).toEqual(first.value);
@@ -630,36 +672,39 @@ describe('dispute ruling runs through the command boundary', () => {
     expect(rows[0]!.n).toBe(1);
   });
 
-  it('refuses the same command id carrying a different ruling', async () => {
-    const dealId = await disputedDeal();
+  it('refuses the same command id carrying a different proposal', async () => {
+    const first = await proposed('RELEASE');
+    const second = await proposed('REFUND');
     const commandId = newCommandId();
-    const reason = 'The evidence is clear enough to decide this now.';
 
     expect(
-      (await rulingCommand(operator.principal, commandId, dealId, 'RELEASED', reason)).ok,
+      (
+        await approveRulingCommand(reviewer.principal, commandId, {
+          proposalId: first.proposalId,
+        })
+      ).ok,
     ).toBe(true);
-    const conflicting = await rulingCommand(
-      operator.principal,
-      commandId,
-      dealId,
-      'REFUNDED',
-      reason,
-    );
+
+    const conflicting = await approveRulingCommand(reviewer.principal, commandId, {
+      proposalId: second.proposalId,
+    });
     expect(conflicting.ok).toBe(false);
     if (conflicting.ok) return;
     expect(conflicting.code).toBe('IDEMPOTENCY_CONFLICT');
 
-    const { rows } = await getPool().query(`SELECT state FROM sandbox.deal WHERE deal_id = $1`, [
-      dealId,
-    ]);
-    expect(rows[0]!.state).toBe('COMPLETED');
+    // The second case is untouched: a conflicting replay decides nothing.
+    const { rows } = await getPool().query(
+      `SELECT state FROM sandbox.dispute_case WHERE case_id = $1`,
+      [second.caseId],
+    );
+    expect(rows[0]!.state).toBe('UNDER_REVIEW');
   });
 
   it('refuses a non-operator, and records the refusal', async () => {
-    const dealId = await disputedDeal();
+    const { caseId, version } = await disputedLockedDeal();
     const commandId = newCommandId();
 
-    const outcome = await rulingCommand(
+    const outcome = await proposeRulingCommand(
       // A signed-in person with no grant and no factor.
       {
         userId: joiner.userId,
@@ -669,9 +714,12 @@ describe('dispute ruling runs through the command boundary', () => {
         mfaEnrolled: false,
       },
       commandId,
-      dealId,
-      'RELEASED',
-      'I would like this released to me please.',
+      {
+        caseId,
+        disposition: 'RELEASE',
+        rationale: 'I would very much like this released to me please, thank you.',
+        caseVersion: version,
+      },
     );
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
@@ -679,55 +727,75 @@ describe('dispute ruling runs through the command boundary', () => {
     await expectRejectionContract({
       commandId,
       code: 'PERMISSION_DENIED',
-      action: 'DISPUTE_RULE',
-      subjectId: dealId,
+      action: 'DISPUTE_PROPOSE',
+      subjectId: caseId,
     });
 
-    const { rows } = await getPool().query(`SELECT state FROM sandbox.deal WHERE deal_id = $1`, [
-      dealId,
-    ]);
-    expect(rows[0]!.state).toBe('DISPUTED');
+    const { rows } = await getPool().query(
+      `SELECT state FROM sandbox.dispute_case WHERE case_id = $1`,
+      [caseId],
+    );
+    expect(rows[0]!.state).toBe('OPEN');
   });
 
-  it('serialises concurrent rulings: exactly one wins', async () => {
-    const dealId = await disputedDeal();
-    const reason = 'Concurrent ruling attempt from two operator sessions.';
+  it('serialises concurrent approvals: exactly one wins', async () => {
+    const { dealId, proposalId } = await proposed('RELEASE');
+    const second = await makeOperator(`ra-reviewer2-${unique()}@example.com`);
+    await grantRole({
+      userId: second.user.userId,
+      role: 'REVIEWER',
+      grantedBy: null,
+      via: 'CLI',
+      reason: 'Concurrency fixture.',
+    });
+    const secondPrincipal = {
+      ...second.principal,
+      roles: ['REVIEWER'] as const,
+      permissions: permissionsFor(['REVIEWER']),
+    };
 
     const attempts = await Promise.all([
-      rulingCommand(operator.principal, newCommandId(), dealId, 'RELEASED', reason),
-      rulingCommand(operator.principal, newCommandId(), dealId, 'REFUNDED', reason),
-      rulingCommand(operator.principal, newCommandId(), dealId, 'CANCELLED', reason),
+      approveRulingCommand(reviewer.principal, newCommandId(), { proposalId }),
+      approveRulingCommand(secondPrincipal, newCommandId(), { proposalId }),
     ]);
     expect(attempts.filter((a) => a.ok)).toHaveLength(1);
 
     const { rows } = await getPool().query(
-      `SELECT count(*)::int AS n FROM sandbox.audit_event
-        WHERE subject_id = $1 AND action='DISPUTE_RULE' AND outcome='OK'`,
+      `SELECT count(*)::int AS n FROM inrp2p.journal_entry
+        WHERE journal_code IN ('JD-RELEASE','JD-REFUND')
+          AND entry_key_json->>'dealId' = $1`,
       [dealId],
     );
-    expect(rows[0]!.n).toBe(1);
+    expect(rows[0]!.n, 'exactly one settlement entry').toBe(1);
   });
 
-  it('is unavailable in production until DEL-06', async () => {
-    const dealId = await disputedDeal();
-    (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
-    delete process.env.INRP2P_SANDBOX;
-
+  it('the withdrawn single-operator ruling refuses and records it', async () => {
+    const { dealId } = await disputedLockedDeal();
     const commandId = newCommandId();
+
     const outcome = await rulingCommand(
       operator.principal,
       commandId,
       dealId,
       'RELEASED',
-      'Attempting a ruling on a production deployment.',
+      'Attempting to end a dispute single-handedly, as DEL-02 allowed.',
     );
-    expect(outcome.ok).toBe(false);
+    expect(outcome.ok, 'one person can no longer end a dispute').toBe(false);
     if (outcome.ok) return;
-    expect(outcome.code).toBe('ADAPTER_UNAVAILABLE');
+    expect(outcome.code).toBe('PERMISSION_DENIED');
+    expect(outcome.message).toContain('two people');
 
+    // The deal is untouched and the refusal is in the trail.
     const { rows } = await getPool().query(`SELECT state FROM sandbox.deal WHERE deal_id = $1`, [
       dealId,
     ]);
     expect(rows[0]!.state).toBe('DISPUTED');
+
+    const { rows: audits } = await getPool().query(
+      `SELECT outcome FROM sandbox.audit_event
+        WHERE subject_id = $1 AND action='DISPUTE_RULE' AND outcome='PERMISSION_DENIED'`,
+      [dealId],
+    );
+    expect(audits.length).toBeGreaterThanOrEqual(1);
   });
 });

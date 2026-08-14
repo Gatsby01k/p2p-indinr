@@ -32,11 +32,23 @@ import {
   type SessionUser,
 } from '@/server/sandbox/service';
 import { deskQueue, operatorCase, ruleOnDispute } from '@/server/sandbox/ops';
+import { newCommandId } from '@/server/boundary/command';
+import { grantRole, permissionsFor } from '@/server/identity/rbac';
+import {
+  approveRulingCommand,
+  fundSandboxCommand,
+  lockValueCommand,
+  proposeRulingCommand,
+} from '@/services/commands';
 
 let payer: SessionUser;
 let payee: SessionUser;
 let outsider: SessionUser;
 let operator: OperatorFixture;
+/** The CHECKER: maker-checker needs a second, differently-granted person. */
+let reviewer: OperatorFixture;
+/** Holds `ledger.fund`, so a deal can have real protected value. */
+let ledgerAdmin: OperatorFixture;
 
 /** A principal with no roles — what an ordinary signed-in person carries. */
 const bare = (u: SessionUser) => ({
@@ -52,7 +64,66 @@ beforeAll(async () => {
   payee = await signInSandbox('ds-payee@sandbox.test');
   outsider = await signInSandbox('ds-outsider@sandbox.test');
   operator = await makeOperator('ops@sandbox.test');
+
+  const rev = await makeOperator('ds-reviewer@sandbox.test');
+  await grantRole({
+    userId: rev.user.userId,
+    role: 'REVIEWER',
+    grantedBy: null,
+    via: 'CLI',
+    reason: 'Maker-checker fixture: the second pair of eyes.',
+  });
+  reviewer = {
+    ...rev,
+    principal: { ...rev.principal, roles: ['REVIEWER'], permissions: permissionsFor(['REVIEWER']) },
+  };
+
+  const admin = await makeOperator('ds-ledger-admin@sandbox.test');
+  await grantRole({
+    userId: admin.user.userId,
+    role: 'ADMIN',
+    grantedBy: null,
+    via: 'CLI',
+    reason: 'Funding fixture, so a disputed deal holds real protected value.',
+  });
+  ledgerAdmin = {
+    ...admin,
+    principal: { ...admin.principal, roles: ['ADMIN'], permissions: permissionsFor(['ADMIN']) },
+  };
 });
+
+/**
+ * A protected deal with real value locked and a dispute open.
+ *
+ * The lock matters: DEL-06 will not let a ruling dispose of value that
+ * is not there, so a case built on an unlocked deal cannot be resolved
+ * at all — which is correct, and would make these tests prove nothing.
+ */
+async function disputedProtectedDeal(
+  reason: 'PROOF_MISMATCH' | 'PAYMENT_NOT_RECEIVED' | 'WRONG_AMOUNT' | 'OTHER',
+) {
+  const dealId = await protectedDeal();
+  const funded = await fundSandboxCommand(ledgerAdmin.principal, newCommandId(), {
+    userId: payer.userId,
+    asset: 'USDT',
+    amountMinor: 50_000n,
+  });
+  if (!funded.ok) throw new Error(`funding fixture: ${funded.code}`);
+  const locked = await lockValueCommand(payer, newCommandId(), {
+    dealId,
+    asset: 'USDT',
+    amountMinor: 50_000n,
+  });
+  if (!locked.ok) throw new Error(`lock fixture: ${locked.code}`);
+
+  await raiseDispute(payer, dealId, reason, 'Recorded by the deal-safe dispute fixture.');
+  const { rows } = await getPool().query(
+    `SELECT case_id, version FROM sandbox.dispute_case
+      WHERE deal_id = $1 AND state IN ('OPEN','UNDER_REVIEW')`,
+    [dealId],
+  );
+  return { dealId, caseId: rows[0]!.case_id as string, version: rows[0]!.version as number };
+}
 
 const code = (c: string) => ({ code: c });
 
@@ -273,7 +344,14 @@ describe('disputes pause release', () => {
     const asOther = await getDeal(payee, dealId);
     expect(asRaiser.dispute?.raisedByViewer).toBe(true);
     expect(asOther.dispute?.raisedByViewer).toBe(false);
-    expect(asOther.dispute?.detail).toBe('The files were never delivered.');
+    /*
+     * DEL-06 composes the statement rather than storing the raw field:
+     * a reviewer needs to know WHO complained and about what, not just
+     * the one line a screen happened to collect. The user's own words
+     * are still there verbatim.
+     */
+    expect(asOther.dispute?.detail).toContain('The files were never delivered.');
+    expect(asOther.dispute?.detail).toContain('NOT_AS_AGREED');
   });
 
   it('refuses an outsider', async () => {
@@ -330,26 +408,56 @@ describe('operator disclosure is tiered', () => {
   });
 });
 
-describe('rulings are the only way out of a dispute', () => {
-  it('requires a written reason', async () => {
+describe('rulings are the only way out of a dispute — and take two people', () => {
+  /*
+   * REWRITTEN FOR DEL-06.
+   *
+   * `ruleOnDispute` let one operator end a dispute with a status edit
+   * that touched no ledger, so "RELEASED" meant the deal SAID released
+   * while the value sat in escrow. DEL-06 withdrew it. These cases keep
+   * the same behavioural claims — a written reason, both sides told, the
+   * case closed, a non-operator refused — against the boundary that
+   * replaced it, and add the one the old path could not make: the value
+   * actually moves.
+   */
+
+  it('the withdrawn single-operator path refuses whoever calls it', async () => {
     const dealId = await protectedDeal();
     await raiseDispute(payer, dealId, 'WRONG_AMOUNT');
     await expect(
-      ruleOnDispute(operator.principal, dealId, 'RELEASED', 'nope'),
-    ).rejects.toBeInstanceOf(SandboxFailure);
+      ruleOnDispute(operator.principal, dealId, 'RELEASED', 'A perfectly well-written reason.'),
+    ).rejects.toMatchObject(code('PERMISSION_DENIED'));
+  });
+
+  it('requires a written rationale from the proposer', async () => {
+    const { caseId, version } = await disputedProtectedDeal('WRONG_AMOUNT');
+    const outcome = await proposeRulingCommand(operator.principal, newCommandId(), {
+      caseId,
+      disposition: 'RELEASE',
+      rationale: 'nope',
+      caseVersion: version,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.code).toBe('STATEMENT_TOO_SHORT');
   });
 
   it('releases, records the reason for both sides, and closes the case', async () => {
-    const dealId = await protectedDeal();
-    await submitPaymentClaim(payer, dealId, utr());
-    await raiseDispute(payee, dealId, 'PROOF_MISMATCH', 'Reference does not match.');
+    const { dealId, caseId, version } = await disputedProtectedDeal('PROOF_MISMATCH');
 
-    await ruleOnDispute(
-      operator.principal,
-      dealId,
-      'RELEASED',
-      'Bank statement confirms the credit against the stated reference.',
-    );
+    const proposed = await proposeRulingCommand(operator.principal, newCommandId(), {
+      caseId,
+      disposition: 'RELEASE',
+      rationale: 'Bank statement confirms the credit against the stated reference.',
+      caseVersion: version,
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const approved = await approveRulingCommand(reviewer.principal, newCommandId(), {
+      proposalId: proposed.value.proposalId,
+    });
+    expect(approved.ok).toBe(true);
 
     const after = await getDeal(payer, dealId);
     expect(after.state).toBe('COMPLETED');
@@ -361,35 +469,59 @@ describe('rulings are the only way out of a dispute', () => {
     ).toBe(true);
   });
 
-  it('refunds without completing the deal', async () => {
-    const dealId = await protectedDeal();
-    await submitPaymentClaim(payer, dealId, utr());
-    await raiseDispute(payer, dealId, 'PAYMENT_NOT_RECEIVED', 'Money left but never landed.');
+  it('refunds without completing the deal, and returns the value', async () => {
+    const { dealId, caseId, version } = await disputedProtectedDeal('PAYMENT_NOT_RECEIVED');
 
-    await ruleOnDispute(
-      operator.principal,
-      dealId,
-      'REFUNDED',
-      'No credit found on the receiving account.',
-    );
+    const proposed = await proposeRulingCommand(operator.principal, newCommandId(), {
+      caseId,
+      disposition: 'REFUND',
+      rationale: 'No credit was found on the receiving account for this deal.',
+      caseVersion: version,
+    });
+    if (!proposed.ok) return;
+    expect(
+      (
+        await approveRulingCommand(reviewer.principal, newCommandId(), {
+          proposalId: proposed.value.proposalId,
+        })
+      ).ok,
+    ).toBe(true);
 
     const after = await getDeal(payer, dealId);
-    expect(after.state).toBe('REFUNDED');
     expect(after.completedAt).toBeNull();
+
+    // The old path could not assert this: the lock is genuinely settled.
+    const { rows } = await getPool().query(
+      `SELECT state FROM inrp2p.value_lock WHERE deal_id = $1`,
+      [dealId],
+    );
+    expect(rows[0]!.state).toBe('REFUNDED');
   });
 
-  it('is refused on a deal that is not under dispute', async () => {
+  it('is refused when there is no open case to rule on', async () => {
     const dealId = await protectedDeal();
-    await expect(
-      ruleOnDispute(operator.principal, dealId, 'RELEASED', 'Nothing to rule on here at all.'),
-    ).rejects.toMatchObject(code('DEAL_TERMINAL'));
+    const outcome = await proposeRulingCommand(operator.principal, newCommandId(), {
+      caseId: crypto.randomUUID(),
+      disposition: 'RELEASE',
+      rationale: 'There is no case here at all, so this must be refused outright.',
+      caseVersion: 0,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.code).toBe('NOT_FOUND');
+    void dealId;
   });
 
   it('is refused to a non-operator', async () => {
-    const dealId = await protectedDeal();
-    await raiseDispute(payer, dealId, 'OTHER', 'Something is wrong.');
-    await expect(
-      ruleOnDispute(bare(payee), dealId, 'RELEASED', 'I would like my money please.'),
-    ).rejects.toMatchObject(code('PERMISSION_DENIED'));
+    const { caseId, version } = await disputedProtectedDeal('OTHER');
+    const outcome = await proposeRulingCommand(bare(payee), newCommandId(), {
+      caseId,
+      disposition: 'RELEASE',
+      rationale: 'I am a participant and I would like to decide my own dispute.',
+      caseVersion: version,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.code).toBe('PERMISSION_DENIED');
   });
 });

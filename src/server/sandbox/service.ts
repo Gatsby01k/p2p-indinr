@@ -17,6 +17,7 @@ import {
   type BoundaryContext,
 } from '@/server/boundary/command';
 import { accept, reject, type Outcome, type Rejected } from '@/server/boundary/outcome';
+import { openCase } from '@/server/room/disputes';
 import { feesFor, settlementFor } from '@/lib/fees';
 import {
   CONFIRM_WINDOW_MINUTES,
@@ -2191,26 +2192,50 @@ export async function raiseDisputeIn(
     if (isTerminalState(d.state as DealState)) return refuse('DEAL_TERMINAL');
     if (d.state === 'DISPUTED') return refuse('ALREADY_DISPUTED');
 
-    // Detected, not caught: a raised constraint would abort the
-    // transaction and take the rejection evidence with it.
-    const { rows: priorDispute } = await tx.query(
-      `SELECT 1 FROM sandbox.dispute WHERE deal_id = $1`,
-      [dealId],
-    );
-    if (priorDispute[0]) return refuse('ALREADY_DISPUTED');
+    /*
+     * DELEGATED TO THE DEL-06 CASE BOUNDARY.
+     *
+     * This used to insert into `sandbox.dispute` and set the deal state
+     * itself. That table is now a view over `dispute_case`, and — more
+     * importantly — a dispute is no longer just a flag: it carries a
+     * statement, an immutable snapshot of the facts at the time, and a
+     * version that a maker-checker ruling is anchored to.
+     *
+     * Keeping a second insert path here would have been exactly the
+     * competing state machine DEL-06 forbids, so this entry point stays
+     * (the accepted DEL-02 screens call it) and the DECIDING moved.
+     */
+    /*
+     * The statement is COMPOSED here, not passed straight through.
+     *
+     * The accepted DEL-02 screen takes an optional one-line detail, and
+     * DEL-06 requires a statement long enough for a reviewer to act on.
+     * Tightening the UI field would change accepted DEL-02 semantics, so
+     * this path builds a complete sentence from what it genuinely knows
+     * — who complained, about what, and their words if they wrote any.
+     * The explicit DEL-06 command keeps the stricter minimum, because
+     * there the caller is choosing to open a case.
+     */
+    const written = detail?.trim() ?? '';
+    const statement =
+      `${user.displayName} reported a problem with this deal (${reason}). ` +
+      (written.length > 0 ? written : 'No further detail was given at the time.');
 
-    await tx.query(
-      `INSERT INTO sandbox.dispute (deal_id, raised_by, reason, detail)
-       VALUES ($1,$2,$3,$4)`,
-      [dealId, user.userId, reason, detail?.trim()?.slice(0, 2000) || null],
-    );
-
-    await tx.query(
-      `UPDATE sandbox.deal
-          SET state='DISPUTED', action_deadline=NULL, version=version+1
-        WHERE deal_id=$1`,
-      [dealId],
-    );
+    const opened = await openCase(tx, {
+      actorId: user.userId,
+      dealId,
+      category: reason,
+      statement,
+    });
+    if (!opened.ok) {
+      await auditEarlyRejection(tx, {
+        actorId: user.userId,
+        action: 'DISPUTE_RAISE',
+        outcome: opened.code,
+        attempted: { dealId, reason },
+      });
+      return opened;
+    }
 
     await systemLine(tx, dealId, `Problem reported by ${user.displayName}. Release is paused.`);
     await notify(
@@ -2230,13 +2255,13 @@ export async function raiseDisputeIn(
       fromState: d.state,
       toState: 'DISPUTED',
       outcome: 'OK',
-      detail: { reason },
+      detail: { reason, caseId: opened.value.caseId },
     });
     await ctx.emit({
       type: 'deal.disputed',
-      subjectKind: 'deal',
-      subjectId: dealId,
-      payload: { reason },
+      subjectKind: 'case',
+      subjectId: opened.value.caseId,
+      payload: { reason, dealId },
     });
     return accept({ dealId });
   }

@@ -109,13 +109,18 @@ describe('a rejected command replays its exact original result', () => {
     expect(replay.message).toBe('refused on execution 1');
   });
 
-  it('replays a real ruling validation refusal verbatim', async () => {
+  it('replays a real bespoke refusal verbatim', async () => {
     /*
-     * The ruling boundary refuses a short reason with wording of its own —
-     * "Write at least a sentence explaining the ruling. It is shown to
-     * both sides." — which appears in no `FAILURE_COPY` entry. This is the
-     * production case the old code got wrong: it replayed the generic
-     * `NOT_FOUND` copy instead.
+     * The withdrawn single-operator ruling refuses with wording of its
+     * own — it names the maker-checker path that replaced it — and that
+     * sentence appears in no `FAILURE_COPY` entry. This is the
+     * production case the old code got wrong: it rebuilt the message
+     * from the generic copy for the CODE and so replayed something the
+     * first caller never saw.
+     *
+     * (It used to assert against the ruling's short-reason validation.
+     * DEL-06 withdrew that path before the validation could run, so the
+     * bespoke sentence moved — the PROPERTY under test did not.)
      */
     const dealId = newCommandId(); // a well-formed but unknown deal id
     const commandId = newCommandId();
@@ -129,8 +134,8 @@ describe('a rejected command replays its exact original result', () => {
     );
     expect(first.ok).toBe(false);
     if (first.ok) return;
-    expect(first.message).toContain('at least a sentence');
-    expect(first.message).not.toBe(FAILURE_COPY.NOT_FOUND.reason);
+    expect(first.message).toContain('two people');
+    expect(first.message).not.toBe(FAILURE_COPY.PERMISSION_DENIED.reason);
 
     // Identical arguments → an identical replay, not a conflict.
     const replay = await rulingCommand(

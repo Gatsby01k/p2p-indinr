@@ -19,6 +19,7 @@ import {
 import { ruleOnDisputeIn, type Ruling } from '@/server/sandbox/ops';
 import type { Principal } from '@/server/identity/rbac';
 import { isCommandId, runCommand, writeAudit } from '@/server/boundary/command';
+import { withTransaction } from '@/server/db/pool';
 import {
   fundSandboxBalance,
   lockDealValue,
@@ -42,6 +43,27 @@ import {
   type ProviderEvent,
 } from '@/server/rails/observations';
 import { redactReference, type Network, type Rail } from '@/lib/railReference';
+import {
+  addCaseNote,
+  approveResolution,
+  assertNotFrozen,
+  openCase,
+  proposeResolution,
+  rejectProposal,
+  type CaseCategory,
+  type Disposition,
+  type DisputeCase,
+  type Proposal,
+  type RulingResult,
+} from '@/server/room/disputes';
+import { postMessage, redactMessage, type DealMessage } from '@/server/room/chat';
+import {
+  beginUpload,
+  completeUpload,
+  requestDownload,
+  type Capability,
+  type EvidenceRecord,
+} from '@/server/room/evidence';
 import type { SignedDelivery } from '@/server/rails/webhook';
 import { reject, type Outcome } from '@/server/boundary/outcome';
 import { DEFAULT_FEE_BEARER } from '@/server/adapters/policy';
@@ -481,6 +503,32 @@ async function settleValueCommand(
         return reject('NOT_A_PARTICIPANT', FAILURE_COPY.NOT_A_PARTICIPANT.reason);
       }
 
+      /*
+       * THE DEL-06 FREEZE.
+       *
+       * DEL-04 shipped these two commands checking participation and
+       * nothing else, which was correct then and is a hole now: a
+       * participant could settle the very value their counterparty is
+       * disputing, straight past the case. The other lifecycle paths
+       * (claim, confirm, cancel) already refuse a DISPUTED deal; these
+       * did not, because they predate the case boundary.
+       *
+       * Checked AFTER the participant lookup so a stranger still learns
+       * nothing about whether the deal is disputed.
+       */
+      const unfrozen = await assertNotFrozen(ctx.tx, input.dealId);
+      if (!unfrozen.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: settlement === 'RELEASED' ? 'VALUE_RELEASE' : 'VALUE_REFUND',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: 'DEAL_FROZEN',
+          detail: unfrozen.detail ?? {},
+        });
+        return unfrozen;
+      }
+
       const settled =
         settlement === 'RELEASED'
           ? await releaseDealValue(ctx.tx, { ...input, commandId })
@@ -894,5 +942,507 @@ export async function ingestRailEventCommand(
     },
     encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
     decodeResult: (r) => r as unknown as IngestResult,
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * DEL-06 — deal room, chat, evidence and disputes
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  WHAT EACH COMMAND IS ALLOWED TO CHANGE.                           │
+ * │                                                                    │
+ * │  `postDealMessage`     — one row of conversation. Nothing else.    │
+ * │  `beginEvidenceUpload` — a reservation. No bytes, no state.        │
+ * │  `completeEvidenceUpload` — bytes + a scan verdict. No deal state. │
+ * │  `openDisputeCase`     — FREEZES the deal. Chooses no outcome.     │
+ * │  `proposeRulingCommand`— a recommendation. Moves nothing.          │
+ * │  `approveRulingCommand`— the ONLY one that moves value, and only   │
+ * │                          through the accepted DEL-04 boundary.     │
+ * │                                                                    │
+ * │  Each commits its audit and outbox rows in the same transaction    │
+ * │  as its effect, through the DEL-02 command boundary.               │
+ * └────────────────────────────────────────────────────────────────────┘
+ * ------------------------------------------------------------------ */
+
+export async function postDealMessageCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { dealId: string; body: string },
+): Promise<Outcome<DealMessage>> {
+  return runCommand({
+    commandId,
+    commandType: 'DEAL_MESSAGE_POST',
+    actorId: user.userId,
+    payload: { dealId: input.dealId, body: input.body },
+    body: async (ctx) => {
+      const posted = await postMessage(ctx.tx, {
+        actorId: user.userId,
+        dealId: input.dealId,
+        body: input.body,
+        commandId,
+      });
+      if (!posted.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'DEAL_MESSAGE_POST',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: posted.code,
+          detail: posted.detail ?? {},
+        });
+        return posted;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'DEAL_MESSAGE_POST',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        outcome: 'OK',
+        // The message BODY is not audited. It is already stored, in an
+        // append-only table, and copying it here would put private
+        // conversation in a second place with different access rules.
+        detail: { messageId: posted.value.messageId, seq: posted.value.seq },
+      });
+      await ctx.emit({
+        type: 'deal.message_posted',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        payload: { messageId: posted.value.messageId, seq: posted.value.seq },
+      });
+      return posted;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as DealMessage,
+  });
+}
+
+export async function redactMessageCommand(
+  principal: Principal,
+  commandId: string,
+  input: { messageId: string; reason: string },
+): Promise<Outcome<{ redactionId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'DEAL_MESSAGE_REDACT',
+    actorId: principal.userId,
+    payload: { messageId: input.messageId, reason: input.reason },
+    body: async (ctx) => {
+      const done = await redactMessage(ctx.tx, principal, input);
+      if (!done.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'DEAL_MESSAGE_REDACT',
+          subjectKind: 'deal',
+          subjectId: input.messageId,
+          outcome: done.code,
+        });
+        return done;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'DEAL_MESSAGE_REDACT',
+        subjectKind: 'deal',
+        subjectId: input.messageId,
+        outcome: 'OK',
+        detail: { redactionId: done.value.redactionId, reason: input.reason },
+      });
+      return done;
+    },
+    encodeResult: (v) => ({ redactionId: v.redactionId }),
+    decodeResult: (r) => ({ redactionId: String(r.redactionId) }),
+  });
+}
+
+/* ---- Evidence ---- */
+
+export async function beginEvidenceUploadCommand(
+  principal: Principal,
+  commandId: string,
+  input: {
+    dealId: string;
+    caseId?: string | null;
+    filename: string;
+    mediaType: string;
+    byteSize: number;
+    supersedes?: string | null;
+  },
+): Promise<Outcome<{ evidence: EvidenceRecord; capability: Capability }>> {
+  return runCommand({
+    commandId,
+    commandType: 'EVIDENCE_UPLOAD_BEGIN',
+    actorId: principal.userId,
+    payload: {
+      dealId: input.dealId,
+      filename: input.filename,
+      mediaType: input.mediaType,
+      byteSize: input.byteSize,
+    },
+    body: async (ctx) => {
+      const begun = await beginUpload(ctx.tx, principal, input);
+      if (!begun.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'EVIDENCE_UPLOAD_BEGIN',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: begun.code,
+        });
+        return begun;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'EVIDENCE_UPLOAD_BEGIN',
+        subjectKind: 'evidence',
+        subjectId: begun.value.evidence.evidenceId,
+        toState: 'PENDING',
+        outcome: 'OK',
+        // The capability TOKEN is never audited. An audit row that
+        // carries a live download credential is a second copy of the
+        // thing the capability model exists to keep scarce.
+        detail: {
+          dealId: input.dealId,
+          mediaType: input.mediaType,
+          byteSize: input.byteSize,
+        },
+      });
+      return begun;
+    },
+    /*
+     * The capability is NOT part of the stored result.
+     *
+     * A replay must not hand back a live token: the token was minted for
+     * one attempt and a second caller replaying the command id would
+     * otherwise inherit it. The replay returns the evidence row and an
+     * obviously spent capability, so a caller that needs a new one asks.
+     */
+    encodeResult: (v) => ({ evidence: v.evidence }) as unknown as Record<string, unknown>,
+    decodeResult: (r) =>
+      ({
+        evidence: r.evidence,
+        capability: { token: '', capabilityId: '', expiresAt: new Date(0).toISOString() },
+      }) as unknown as { evidence: EvidenceRecord; capability: Capability },
+  });
+}
+
+export async function completeEvidenceUploadCommand(
+  principal: Principal,
+  commandId: string,
+  input: { token: string; bytes: Buffer },
+): Promise<Outcome<EvidenceRecord>> {
+  return runCommand({
+    commandId,
+    commandType: 'EVIDENCE_UPLOAD_COMPLETE',
+    actorId: principal.userId,
+    // The token is hashed into the payload rather than stored in it: the
+    // command record is readable by anybody who can read the table.
+    payload: { tokenDigest: createHash('sha256').update(input.token).digest('hex') },
+    body: async (ctx) => {
+      const done = await completeUpload(ctx.tx, input);
+      if (!done.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'EVIDENCE_UPLOAD_COMPLETE',
+          subjectKind: 'user',
+          subjectId: principal.userId,
+          outcome: done.code,
+        });
+        return done;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'EVIDENCE_UPLOAD_COMPLETE',
+        subjectKind: 'evidence',
+        subjectId: done.value.evidenceId,
+        toState: done.value.state,
+        outcome: 'OK',
+        // The HASH, never the content. Raw evidence bytes must not reach
+        // an audit row, a log line or an outbox payload.
+        detail: { contentHash: done.value.contentHash, state: done.value.state },
+      });
+      await ctx.emit({
+        type: done.value.state === 'READY' ? 'evidence.ready' : 'evidence.rejected',
+        subjectKind: 'evidence',
+        subjectId: done.value.evidenceId,
+        payload: { dealId: done.value.dealId, state: done.value.state },
+      });
+      return done;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as EvidenceRecord,
+  });
+}
+
+/**
+ * Ask for a download link.
+ *
+ * Deliberately NOT a `runCommand`: issuing a capability is a read-side
+ * authorization decision that must re-run every single time. Routing it
+ * through the idempotency record would mean a replayed command id
+ * returned a capability minted under an authorization that may since have
+ * been revoked — the exact thing this boundary exists to prevent.
+ */
+export async function requestEvidenceDownload(
+  principal: Principal,
+  evidenceId: string,
+): Promise<Outcome<Capability>> {
+  return withTransaction(async (tx) => {
+    const issued = await requestDownload(tx, principal, evidenceId);
+    await writeAudit(tx, {
+      actorId: principal.userId,
+      action: 'EVIDENCE_DOWNLOAD_REQUEST',
+      subjectKind: 'evidence',
+      subjectId: evidenceId,
+      outcome: issued.ok ? 'OK' : issued.code,
+    });
+    return issued;
+  });
+}
+
+/* ---- Disputes ---- */
+
+export async function openDisputeCaseCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { dealId: string; category: CaseCategory; statement: string },
+): Promise<Outcome<DisputeCase>> {
+  return runCommand({
+    commandId,
+    commandType: 'DISPUTE_CASE_OPEN',
+    actorId: user.userId,
+    payload: { dealId: input.dealId, category: input.category, statement: input.statement },
+    body: async (ctx) => {
+      const opened = await openCase(ctx.tx, {
+        actorId: user.userId,
+        dealId: input.dealId,
+        category: input.category,
+        statement: input.statement,
+      });
+      if (!opened.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'DISPUTE_CASE_OPEN',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: opened.code,
+          detail: opened.detail ?? {},
+        });
+        return opened;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'DISPUTE_CASE_OPEN',
+        subjectKind: 'case',
+        subjectId: opened.value.caseId,
+        toState: 'OPEN',
+        outcome: 'OK',
+        detail: { dealId: input.dealId, category: input.category },
+      });
+      await ctx.emit({
+        type: 'dispute.opened',
+        subjectKind: 'case',
+        subjectId: opened.value.caseId,
+        payload: { dealId: input.dealId, category: input.category },
+      });
+      return opened;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as DisputeCase,
+  });
+}
+
+export async function proposeRulingCommand(
+  principal: Principal,
+  commandId: string,
+  input: { caseId: string; disposition: Disposition; rationale: string; caseVersion: number },
+): Promise<Outcome<Proposal>> {
+  return runCommand({
+    commandId,
+    commandType: 'DISPUTE_PROPOSE',
+    actorId: principal.userId,
+    payload: {
+      caseId: input.caseId,
+      disposition: input.disposition,
+      rationale: input.rationale,
+      caseVersion: input.caseVersion,
+    },
+    body: async (ctx) => {
+      const proposed = await proposeResolution(ctx.tx, principal, input);
+      if (!proposed.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'DISPUTE_PROPOSE',
+          subjectKind: 'case',
+          subjectId: input.caseId,
+          outcome: proposed.code,
+          detail: proposed.detail ?? {},
+        });
+        return proposed;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'DISPUTE_PROPOSE',
+        subjectKind: 'case',
+        subjectId: input.caseId,
+        toState: 'UNDER_REVIEW',
+        outcome: 'OK',
+        detail: {
+          proposalId: proposed.value.proposalId,
+          disposition: proposed.value.disposition,
+        },
+      });
+      await ctx.emit({
+        type: 'dispute.proposed',
+        subjectKind: 'case',
+        subjectId: input.caseId,
+        payload: {
+          proposalId: proposed.value.proposalId,
+          disposition: proposed.value.disposition,
+        },
+      });
+      return proposed;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as Proposal,
+  });
+}
+
+export async function rejectRulingCommand(
+  principal: Principal,
+  commandId: string,
+  input: { proposalId: string; note: string },
+): Promise<Outcome<Proposal>> {
+  return runCommand({
+    commandId,
+    commandType: 'DISPUTE_PROPOSAL_REJECT',
+    actorId: principal.userId,
+    payload: { proposalId: input.proposalId, note: input.note },
+    body: async (ctx) => {
+      const done = await rejectProposal(ctx.tx, principal, input);
+      if (!done.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'DISPUTE_PROPOSAL_REJECT',
+          subjectKind: 'case',
+          subjectId: input.proposalId,
+          outcome: done.code,
+        });
+        return done;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'DISPUTE_PROPOSAL_REJECT',
+        subjectKind: 'case',
+        subjectId: done.value.caseId,
+        outcome: 'OK',
+        detail: { proposalId: input.proposalId, note: input.note },
+      });
+      return done;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as Proposal,
+  });
+}
+
+/**
+ * Approve a proposal and execute the ruling.
+ *
+ * This is the single command in DEL-06 that moves value, and it does so
+ * only through the accepted DEL-04 release/refund boundary. Command
+ * record, case resolution, proposal decision, deal transition, ledger
+ * entry, audit and outbox all commit together or not at all.
+ */
+export async function approveRulingCommand(
+  principal: Principal,
+  commandId: string,
+  input: { proposalId: string; note?: string },
+): Promise<Outcome<RulingResult>> {
+  return runCommand({
+    commandId,
+    commandType: 'DISPUTE_APPROVE',
+    actorId: principal.userId,
+    payload: { proposalId: input.proposalId },
+    body: async (ctx) => {
+      const ruled = await approveResolution(ctx.tx, principal, {
+        proposalId: input.proposalId,
+        commandId,
+        note: input.note,
+      });
+      if (!ruled.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'DISPUTE_APPROVE',
+          subjectKind: 'case',
+          subjectId: input.proposalId,
+          outcome: ruled.code,
+          detail: ruled.detail ?? {},
+        });
+        return ruled;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'DISPUTE_APPROVE',
+        subjectKind: 'case',
+        subjectId: ruled.value.caseId,
+        toState: 'RESOLVED',
+        outcome: 'OK',
+        detail: {
+          proposalId: ruled.value.proposalId,
+          disposition: ruled.value.disposition,
+          dealState: ruled.value.dealState,
+          settleEntryId: ruled.value.settleEntryId,
+        },
+      });
+      await ctx.emit({
+        type: 'dispute.resolved',
+        subjectKind: 'case',
+        subjectId: ruled.value.caseId,
+        payload: {
+          disposition: ruled.value.disposition,
+          dealState: ruled.value.dealState,
+        },
+      });
+      return ruled;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as RulingResult,
+  });
+}
+
+export async function addCaseNoteCommand(
+  principal: Principal,
+  commandId: string,
+  input: { caseId: string; body: string },
+): Promise<Outcome<{ noteId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'CASE_NOTE_ADD',
+    actorId: principal.userId,
+    payload: { caseId: input.caseId, body: input.body },
+    body: async (ctx) => {
+      const added = await addCaseNote(ctx.tx, principal, input);
+      if (!added.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'CASE_NOTE_ADD',
+          subjectKind: 'case',
+          subjectId: input.caseId,
+          outcome: added.code,
+        });
+        return added;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'CASE_NOTE_ADD',
+        subjectKind: 'case',
+        subjectId: input.caseId,
+        outcome: 'OK',
+        // The note BODY stays in `case_note`, which participants cannot
+        // read. Copying it into the audit trail would defeat that.
+        detail: { noteId: added.value.noteId },
+      });
+      return added;
+    },
+    encodeResult: (v) => ({ noteId: v.noteId }),
+    decodeResult: (r) => ({ noteId: String(r.noteId) }),
   });
 }

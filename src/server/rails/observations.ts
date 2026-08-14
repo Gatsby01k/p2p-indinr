@@ -5,6 +5,7 @@ import { accept, reject, type Outcome } from '@/server/boundary/outcome';
 import { FAILURE_COPY } from '@/lib/sandboxContract';
 import { getUsdtRailAdapter } from '@/server/adapters/usdtRail';
 import { dealEscrowKey, depositWalletKey, ensureAccounts } from '@/server/ledger/accounts';
+import { raiseIncident, valueStillDisposable } from '@/server/room/incidents';
 import { verifyDelivery, type SignedDelivery } from './webhook';
 import {
   assetForRail,
@@ -441,6 +442,47 @@ async function applyObservation(
         ledgerEntryId: null,
       });
     }
+    /*
+     * ┌──────────────────────────────────────────────────────────────┐
+     * │  IF THE VALUE HAS ALREADY BEEN DISPOSED OF, STOP.            │
+     * │                                                              │
+     * │  The deposit funded a deal escrow. If that escrow has since  │
+     * │  been RELEASED to the counterparty or REFUNDED, the value is │
+     * │  in somebody's balance and it is theirs. Reversing the        │
+     * │  deposit entry now would drive that balance negative — which │
+     * │  DEL-04's constraint refuses outright — or, worse, would     │
+     * │  silently take money back from a person who did nothing      │
+     * │  wrong.                                                      │
+     * │                                                              │
+     * │  So this raises an INCIDENT and changes nothing. A human     │
+     * │  decides. That is the honest answer, and the alternatives    │
+     * │  are inventing value or quietly debiting a user.             │
+     * └──────────────────────────────────────────────────────────────┘
+     */
+    if (!(await valueStillDisposable(tx, dealId))) {
+      const observationId = await writeObservation(
+        tx,
+        draft('REFUSED_REORG_AFTER_DISPOSAL', false),
+      );
+      const incident = await raiseIncident(tx, {
+        dealId,
+        kind: 'REORG_AFTER_DISPOSAL',
+        detail: {
+          intentId,
+          observationId,
+          reference: input.draft('probe', false).reference,
+          ledgerEntryId: input.intentRow.ledger_entry_id ?? null,
+          note:
+            'A chain reorganisation withdrew a deposit whose value had already ' +
+            'been released or refunded. Nothing was reversed automatically.',
+        },
+      });
+      return reject('INCIDENT_RAISED', FAILURE_COPY.INCIDENT_RAISED.reason, {
+        observationId,
+        incidentId: incident.incidentId,
+      });
+    }
+
     /*
      * The ledger entry is NOT deleted and NOT edited — it is REVERSED
      * with a DEL-04 reversal, so both the belief and its withdrawal stay

@@ -397,12 +397,27 @@ const RULING_STATE: Readonly<Record<Ruling, DealState>> = {
 };
 
 /**
- * Rule on a dispute.
+ * Rule on a dispute — WITHDRAWN in DEL-06.
  *
- * The ONLY way out of DISPUTED. Three outcomes, all of them a person's
- * decision, all of them recorded with the operator's identity and a
- * mandatory written reason — an unexplained ruling on someone's money is not
- * an acceptable artefact.
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THIS FUNCTION USED TO LET ONE PERSON END A DISPUTE ALONE.         │
+ * │                                                                    │
+ * │  It checked `deal.rule` and a second factor, wrote a resolution,   │
+ * │  moved the deal to a terminal state — and touched no ledger at     │
+ * │  all, so "RELEASED" was a status edit rather than a movement of    │
+ * │  value. Both halves of that are unacceptable now:                  │
+ * │                                                                    │
+ * │    · a ruling disposes of somebody's money and must be proposed    │
+ * │      by one authorised person and approved by a DIFFERENT one;     │
+ * │    · a disposition must actually settle the DEL-04 lock, or the    │
+ * │      deal says "released" while the value sits in escrow.          │
+ * │                                                                    │
+ * │  The entry point is KEPT and made to refuse rather than deleted,   │
+ * │  because deleting it would turn a caller that still exists into a  │
+ * │  compile error somewhere and a silent gap somewhere else. It       │
+ * │  refuses loudly, names the replacement, and — critically — is now  │
+ * │  incapable of terminating a deal.                                  │
+ * └────────────────────────────────────────────────────────────────────┘
  */
 export async function ruleOnDisputeIn(
   ctx: BoundaryContext,
@@ -412,6 +427,34 @@ export async function ruleOnDisputeIn(
   reason: string,
 ): Promise<Outcome<{ dealId: string; ruling: Ruling; state: DealState }>> {
   const tx = ctx.tx;
+
+  /*
+   * Refused BEFORE any authorization check, deliberately.
+   *
+   * There is no combination of role and factor that makes a
+   * single-person ruling acceptable, so asking "are you allowed?" would
+   * imply that some caller is. The refusal is audited so an operator
+   * hitting an old screen leaves a trace an on-call engineer can find.
+   */
+  await tx.query(
+    `INSERT INTO sandbox.audit_event
+       (actor_id, action, subject_kind, subject_id, outcome, detail)
+     VALUES ($1,'DISPUTE_RULE','deal',$2,'PERMISSION_DENIED',$3)`,
+    [
+      principal.userId,
+      dealId,
+      JSON.stringify({
+        ruling,
+        reason: 'Single-operator rulings were withdrawn in DEL-06.',
+      }),
+    ],
+  );
+  return reject(
+    'PERMISSION_DENIED',
+    'A dispute is resolved by two people: one authorised operator proposes a ' +
+      'release or refund, and a different authorised reviewer approves it. ' +
+      'Single-operator rulings are no longer accepted.',
+  );
 
   const refuse = async (code: SandboxError, message: string): Promise<Rejected> => {
     await tx.query(

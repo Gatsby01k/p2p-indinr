@@ -44,12 +44,44 @@ export type Permission =
   | 'role.grant'
   /* ---- DEL-04: direct ledger authority, never held by a customer ---- */
   | 'ledger.fund'
-  | 'ledger.reverse';
+  | 'ledger.reverse'
+  /* ---- DEL-06: dispute investigation, split maker from checker ------ *
+   *
+   * `case.propose` and `case.approve` are SEPARATE permissions held by
+   * the SAME role, and that is not redundant. Maker-checker is enforced
+   * by identity — a proposal and its approval must come from different
+   * people — but keeping the two authorities distinct means a future
+   * role can be granted one without the other. A single `case.rule`
+   * permission would make that impossible to express later, and the
+   * moment it became necessary somebody would widen the existing one.
+   */
+  | 'case.queue.read'
+  | 'case.read'
+  | 'case.evidence.read'
+  | 'case.propose'
+  | 'case.approve';
 
 const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
-  OPERATOR: ['ops.queue.read', 'ops.case.read', 'deal.rule'],
+  /*
+   * An operator investigates and PROPOSES. It does not approve.
+   *
+   * Giving one role both halves of maker-checker would leave the
+   * separation resting entirely on "these are two different people",
+   * which is true until somebody has two accounts. `case.approve` sits
+   * with REVIEWER, so approving a colleague's proposal requires a grant
+   * an operator does not hold.
+   */
+  OPERATOR: [
+    'ops.queue.read',
+    'ops.case.read',
+    'deal.rule',
+    'case.queue.read',
+    'case.read',
+    'case.evidence.read',
+    'case.propose',
+  ],
   // Reviewers decide verification cases and see nothing financial.
-  REVIEWER: ['verification.review'],
+  REVIEWER: ['verification.review', 'case.queue.read', 'case.read', 'case.approve'],
   /*
    * Admin grants roles and holds the two direct ledger powers.
    *
@@ -86,6 +118,11 @@ const MFA_REQUIRED: ReadonlySet<Permission> = new Set<Permission>([
   'role.grant',
   'ledger.fund',
   'ledger.reverse',
+  'case.queue.read',
+  'case.read',
+  'case.evidence.read',
+  'case.propose',
+  'case.approve',
 ]);
 
 export function permissionsFor(roles: readonly Role[]): readonly Permission[] {

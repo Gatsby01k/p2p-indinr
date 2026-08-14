@@ -5,6 +5,28 @@ import { getPool } from '@/server/db/pool';
 import { newCommandId } from '@/server/boundary/command';
 import { rulingCommand } from '@/services/commands';
 import { deskQueue, operatorCase, ruleOnDispute } from '@/server/sandbox/ops';
+import { fundSandboxCommand, lockValueCommand, proposeRulingCommand } from '@/services/commands';
+import type { Principal } from '@/server/identity/rbac';
+
+/** Holds `ledger.fund`, so a disputed deal can hold real value. */
+let ledgerAdmin: Principal;
+
+/**
+ * The live case behind a disputed deal.
+ *
+ * DEL-06 rulings are anchored to a case and its version, so the
+ * authority tests below need both — and reading them from the database
+ * rather than threading them through fixtures keeps each test honest
+ * about what the server actually holds.
+ */
+async function caseFor(dealId: string): Promise<{ caseId: string; version: number }> {
+  const { rows } = await getPool().query(
+    `SELECT case_id, version FROM sandbox.dispute_case
+      WHERE deal_id = $1 AND state IN ('OPEN','UNDER_REVIEW')`,
+    [dealId],
+  );
+  return { caseId: rows[0]!.case_id as string, version: rows[0]!.version as number };
+}
 import {
   attachEvidence,
   createDealLink,
@@ -51,13 +73,48 @@ beforeAll(async () => {
   alice = await signInSandbox(`opa-alice-${unique()}@example.com`);
   bob = await signInSandbox(`opa-bob-${unique()}@example.com`);
   operator = await makeOperator(`opa-ops-${unique()}@example.com`);
+
+  const admin = await makeOperator(`opa-ledger-${unique()}@example.com`);
+  await grantRole({
+    userId: admin.user.userId,
+    role: 'ADMIN',
+    grantedBy: null,
+    via: 'CLI',
+    reason: 'Funding fixture, so a disputed deal holds real protected value.',
+  });
+  ledgerAdmin = {
+    ...admin.principal,
+    roles: ['ADMIN'],
+    permissions: permissionsFor(['ADMIN']),
+  };
 });
 
-/** A disputed deal an operator would legitimately need to see. */
+/**
+ * A disputed deal with REAL value locked behind it.
+ *
+ * The lock is not decoration: DEL-06 refuses to recommend a disposition
+ * for value that is not there, so a case on an unlocked deal is
+ * unresolvable — correct behaviour, and it would make an authority test
+ * pass for the wrong reason.
+ */
 async function disputedDeal(): Promise<string> {
   const quote = await issueProtectedQuote(alice, 300_000n);
   const link = await createDealLink(alice, quote.quoteId, 'PAY');
   const join = await joinDealLink(bob, link.publicId);
+
+  const funded = await fundSandboxCommand(ledgerAdmin, newCommandId(), {
+    userId: alice.userId,
+    asset: 'USDT',
+    amountMinor: 40_000n,
+  });
+  if (!funded.ok) throw new Error(`funding fixture: ${funded.code}`);
+  const locked = await lockValueCommand(alice, newCommandId(), {
+    dealId: join.dealId,
+    asset: 'USDT',
+    amountMinor: 40_000n,
+  });
+  if (!locked.ok) throw new Error(`lock fixture: ${locked.code}`);
+
   await raiseDispute(alice, join.dealId, 'PAYMENT_NOT_RECEIVED', 'Nothing arrived.');
   return join.dealId;
 }
@@ -163,13 +220,19 @@ describe('operator boundaries require a live grant AND a satisfied factor', () =
     const weak = await makeOperatorWithoutMfa(`opa-nomfa5-${unique()}@example.com`);
     const commandId = newCommandId();
 
-    const outcome = await rulingCommand(
-      weak.principal,
-      commandId,
-      dealId,
-      'RELEASED',
-      'Attempting a ruling without a second factor.',
-    );
+    /*
+     * Asserted against the DEL-06 PROPOSE boundary. The old
+     * `rulingCommand` now refuses everybody, so it can no longer
+     * distinguish "no factor" from "no authority" — and a test that
+     * cannot tell those apart is not testing the factor.
+     */
+    const { caseId, version } = await caseFor(dealId);
+    const outcome = await proposeRulingCommand(weak.principal, commandId, {
+      caseId,
+      disposition: 'RELEASE',
+      rationale: 'Attempting a ruling without a second factor enrolled at all.',
+      caseVersion: version,
+    });
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(outcome.code).toBe('MFA_NOT_ENROLLED');
@@ -181,8 +244,8 @@ describe('operator boundaries require a live grant AND a satisfied factor', () =
     expect(rows[0]!.state).toBe('DISPUTED');
     const { rows: audits } = await getPool().query(
       `SELECT 1 FROM sandbox.audit_event
-        WHERE subject_id = $1 AND action='DISPUTE_RULE' AND outcome='MFA_NOT_ENROLLED'`,
-      [dealId],
+        WHERE subject_id = $1 AND action='DISPUTE_PROPOSE' AND outcome='MFA_NOT_ENROLLED'`,
+      [caseId],
     );
     expect(audits.length).toBeGreaterThanOrEqual(1);
   });
@@ -201,13 +264,13 @@ describe('operator boundaries require a live grant AND a satisfied factor', () =
     await expect(deskQueue(halfway)).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
     await expect(operatorCase(halfway, dealId)).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
 
-    const outcome = await rulingCommand(
-      halfway,
-      newCommandId(),
-      dealId,
-      'RELEASED',
-      'Ruling from a session that has not answered the factor.',
-    );
+    const { caseId, version } = await caseFor(dealId);
+    const outcome = await proposeRulingCommand(halfway, newCommandId(), {
+      caseId,
+      disposition: 'RELEASE',
+      rationale: 'The account has a factor but this session has not answered it.',
+      caseVersion: version,
+    });
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(outcome.code).toBe('MFA_REQUIRED');
@@ -218,13 +281,13 @@ describe('operator boundaries require a live grant AND a satisfied factor', () =
     await expect(deskQueue(operator.principal)).resolves.toBeInstanceOf(Array);
     await expect(operatorCase(operator.principal, dealId)).resolves.toMatchObject({ dealId });
 
-    const outcome = await rulingCommand(
-      operator.principal,
-      newCommandId(),
-      dealId,
-      'REFUNDED',
-      'Evidence supports the payer; returning the protected value.',
-    );
+    const { caseId, version } = await caseFor(dealId);
+    const outcome = await proposeRulingCommand(operator.principal, newCommandId(), {
+      caseId,
+      disposition: 'REFUND',
+      rationale: 'Evidence supports the payer; recommending the protected value returns.',
+      caseVersion: version,
+    });
     expect(outcome.ok).toBe(true);
   });
 
