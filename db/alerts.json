@@ -1,0 +1,145 @@
+{
+  "$comment": [
+    "Executable alert rules: each carries the SQL that evaluates it, so a",
+    "rule is checkable rather than described. NO DESTINATION IS",
+    "CONFIGURED — no provider has credentials in this repository, and",
+    "claiming an alert is wired when nothing receives it is worse than",
+    "having no alert at all. `scripts/check-alerts.mjs` evaluates these",
+    "and prints what fired.",
+    "",
+    "Thresholds are STARTING POINTS chosen to be quiet on a healthy",
+    "sandbox. Real ones come from production baselines that do not exist",
+    "yet, and inventing them here would be inventing an SLA."
+  ],
+  "destination": null,
+  "rules": [
+    {
+      "id": "ledger-invariant",
+      "severity": "critical",
+      "runbook": "7",
+      "description": "The ledger does not sum to zero for some asset.",
+      "query": "SELECT count(*)::int AS value FROM (SELECT asset FROM inrp2p.posting GROUP BY asset HAVING sum(amount_minor) <> 0) t",
+      "firesWhen": "value > 0"
+    },
+    {
+      "id": "reorg-after-disposal",
+      "severity": "critical",
+      "runbook": "8",
+      "description": "A chain reorg withdrew value that had already been released.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.deal_incident WHERE kind = 'REORG_AFTER_DISPOSAL' AND state <> 'CLOSED'",
+      "firesWhen": "value > 0"
+    },
+    {
+      "id": "migration-mismatch",
+      "severity": "critical",
+      "runbook": "1",
+      "description": "The database schema version is not what any application build expects.",
+      "query": "SELECT coalesce((SELECT version FROM sandbox.schema_state), 0)::int AS value",
+      "firesWhen": "value <> 13"
+    },
+    {
+      "id": "webhook-auth-failures",
+      "severity": "high",
+      "runbook": "6",
+      "description": "Repeated unverified provider deliveries: a forgery or a rotated secret.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.rail_event WHERE accepted = FALSE AND received_at > now() - interval '15 minutes'",
+      "firesWhen": "value >= 20"
+    },
+    {
+      "id": "outbox-dead-letter",
+      "severity": "high",
+      "runbook": "5",
+      "description": "Events that failed every retry and are no longer being attempted.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.outbox_event WHERE state = 'DEAD_LETTER'",
+      "firesWhen": "value > 0"
+    },
+    {
+      "id": "outbox-backlog",
+      "severity": "medium",
+      "runbook": "5",
+      "description": "Pending events are not being drained; the scheduler may not be calling the worker.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.outbox_event WHERE state = 'PENDING' AND next_attempt_at < now() - interval '15 minutes'",
+      "firesWhen": "value >= 50"
+    },
+    {
+      "id": "payment-confirmation-lag",
+      "severity": "high",
+      "runbook": "4",
+      "description": "Instructed payments are not reaching confirmation.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.payment_intent WHERE state IN ('INSTRUCTED','OBSERVED') AND instructed_at < now() - interval '2 hours'",
+      "firesWhen": "value >= 10"
+    },
+    {
+      "id": "auth-failure-spike",
+      "severity": "high",
+      "runbook": "3",
+      "description": "Elevated authentication failures: credential stuffing or a broken client.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.audit_event WHERE action LIKE 'AUTH%' AND outcome <> 'OK' AND occurred_at > now() - interval '15 minutes'",
+      "firesWhen": "value >= 100"
+    },
+    {
+      "id": "rejected-posting-spike",
+      "severity": "high",
+      "runbook": "7",
+      "description": "A spike in refused ledger commands.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.command WHERE status = 'REJECTED' AND outcome_code IN ('INSUFFICIENT_BALANCE','IDEMPOTENCY_CONFLICT') AND completed_at > now() - interval '15 minutes'",
+      "firesWhen": "value >= 50"
+    },
+    {
+      "id": "corridor-paused",
+      "severity": "medium",
+      "runbook": "10",
+      "description": "A control scope is paused. Informational, and worth knowing about.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.control_switch WHERE paused",
+      "firesWhen": "value > 0"
+    },
+    {
+      "id": "risk-hold-backlog",
+      "severity": "medium",
+      "runbook": "5",
+      "description": "Risk holds are accumulating without being reviewed.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.risk_hold WHERE active AND placed_at < now() - interval '24 hours'",
+      "firesWhen": "value >= 10"
+    },
+    {
+      "id": "compliance-queue-age",
+      "severity": "medium",
+      "runbook": "5",
+      "description": "Operational cases are past their SLA.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.ops_case WHERE state IN ('OPEN','ASSIGNED','ESCALATED') AND sla_due_at < now()",
+      "firesWhen": "value >= 5"
+    },
+    {
+      "id": "dispute-queue-age",
+      "severity": "medium",
+      "runbook": "5",
+      "description": "Disputes are sitting unresolved.",
+      "query": "SELECT count(*)::int AS value FROM sandbox.dispute_case WHERE state IN ('OPEN','UNDER_REVIEW') AND opened_at < now() - interval '48 hours'",
+      "firesWhen": "value >= 5"
+    },
+    {
+      "id": "db-connection-saturation",
+      "severity": "high",
+      "runbook": "2",
+      "description": "The database is close to its connection limit.",
+      "query": "SELECT (count(*) * 100 / greatest((SELECT setting::int FROM pg_settings WHERE name = 'max_connections'), 1))::int AS value FROM pg_stat_activity",
+      "firesWhen": "value >= 80"
+    },
+    {
+      "id": "mandatory-adapter-unavailable",
+      "severity": "critical",
+      "runbook": "1",
+      "description": "A mandatory production adapter is unavailable. Evaluated by the readiness check, not by SQL — no provider is configured in this repository, so in production this fires by design.",
+      "query": null,
+      "firesWhen": "readiness reports any mandatory adapter check as FAIL"
+    },
+    {
+      "id": "backup-drill-failure",
+      "severity": "critical",
+      "runbook": "11",
+      "description": "The recovery drill failed. Evaluated by the drill's own exit code in CI, not by SQL.",
+      "query": null,
+      "firesWhen": "npm run drill:recovery exits non-zero"
+    }
+  ]
+}

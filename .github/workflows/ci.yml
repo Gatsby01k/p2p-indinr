@@ -1,0 +1,167 @@
+name: CI
+
+# ┌──────────────────────────────────────────────────────────────────┐
+# │  NO PRODUCTION SECRETS. NOT ONE.                                 │
+# │                                                                  │
+# │  Every job here runs against the embedded sandbox PostgreSQL and │
+# │  the sandbox adapters. A pull request from a fork must be able to│
+# │  run this in full, which it can only do if nothing here needs a  │
+# │  credential — and a CI that needs production secrets is a CI     │
+# │  that leaks them to anybody who can open a PR.                   │
+# └──────────────────────────────────────────────────────────────────┘
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push supersedes the first: CI on a stale commit tells nobody
+# anything useful and holds a runner while it says it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Explicitly NOT production: a job that inherited production mode would
+  # exercise the fail-closed paths and prove nothing about the product.
+  INRP2P_MODE: test
+  SANDBOX_PG_PORT: '55440'
+
+jobs:
+  static:
+    name: Format, lint, types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # `npm ci` and not `npm install`: the lockfile is the contract, and
+      # a job that silently resolves a different tree tests a different
+      # application from the one that ships.
+      - run: npm ci
+      - name: Whitespace
+        run: git diff --check
+      - name: Format
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+      - name: Types
+        run: npm run typecheck
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - run: npx vitest run
+
+  integration:
+    name: Integration, migrations and privileges
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+
+      - name: Empty-database migrations
+        run: npm run db:reset
+
+      - name: Validators
+        run: |
+          npm run manifest:check
+          node scripts/check-schema.mjs
+          node scripts/coverage-manifest.mjs
+
+      - name: Integration tests
+        env:
+          DATABASE_URL: postgres://inrp2p_sandbox:sandbox-local-only@127.0.0.1:55440/inrp2p_sandbox
+        run: npx vitest run --config vitest.integration.config.ts
+
+      # AFTER the integration suite, so the drill runs against
+      # representative data rather than an empty schema — a green
+      # recovery on an empty database proves the plumbing and nothing
+      # about the data.
+      - name: Recovery drill
+        env:
+          DATABASE_URL: postgres://inrp2p_sandbox:sandbox-local-only@127.0.0.1:55440/inrp2p_sandbox
+        run: npm run drill:recovery
+
+  upgrade:
+    name: Upgrade migration from the DEL-08 baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - name: Migrate at the baseline, seed, then upgrade
+        env:
+          SANDBOX_PG_PORT: '55441'
+          DATABASE_URL: postgres://inrp2p_sandbox:sandbox-local-only@127.0.0.1:55441/inrp2p_sandbox
+        run: node scripts/upgrade-drill.mjs
+
+  supply-chain:
+    name: Audits, secrets and SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+
+      # The acceptance target: no critical or high, in either scope.
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Full dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Lockfile is in sync
+        run: |
+          npm install --package-lock-only
+          git diff --exit-code package-lock.json
+
+      - name: Secret scan
+        run: npm run secrets:scan
+
+      - name: SBOM
+        run: npm run sbom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - run: npm run build
+      - name: Build metadata
+        run: |
+          {
+            echo "commit=${{ github.sha }}"
+            echo "ref=${{ github.ref }}"
+            echo "node=$(node --version)"
+            echo "builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > build-metadata.txt
+          find .next -name '*.js' -type f -print0 | sort -z \
+            | xargs -0 sha256sum | sha256sum | awk '{print "artifactChecksum="$1}' \
+            >> build-metadata.txt
+          cat build-metadata.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: build-metadata.txt

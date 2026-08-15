@@ -20,7 +20,13 @@
     "db:migrate": "node scripts/db.mjs migrate",
     "db:reset": "node scripts/db.mjs reset",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "screens:journey": "node scripts/journey-screens.mjs"
+    "screens:journey": "node scripts/journey-screens.mjs",
+    "roles:provision": "node scripts/provision-roles.mjs",
+    "drill:recovery": "node scripts/recovery-drill.mjs",
+    "secrets:scan": "node scripts/secret-scan.mjs",
+    "sbom": "node scripts/sbom.mjs",
+    "drill:upgrade": "node scripts/upgrade-drill.mjs",
+    "alerts:check": "node scripts/check-alerts.mjs"
   },
   "comment:overrides": [
     "@tailwindcss/postcss@4.0.0 declares '@tailwindcss/oxide': '^4.0.0' and",
@@ -34,7 +40,12 @@
   ],
   "overrides": {
     "@tailwindcss/oxide": "4.0.0",
-    "@tailwindcss/node": "4.0.0"
+    "@tailwindcss/node": "4.0.0",
+    "postcss": "^8.5.26",
+    "sharp": "^0.35.3",
+    "nanoid": "^3.3.18",
+    "vite": "^6.4.3",
+    "esbuild": "^0.25.0"
   },
   "dependencies": {
     "next": "15.5.22",
@@ -55,13 +66,13 @@
     "@types/react": "19.0.7",
     "@types/react-dom": "19.0.3",
     "@vitejs/plugin-react": "4.3.4",
-    "eslint": "9.18.0",
+    "eslint": "^9.39.5",
     "eslint-config-next": "15.5.22",
     "jsdom": "25.0.1",
     "prettier": "3.4.2",
     "tailwindcss": "4.0.0",
     "typescript": "5.7.3",
-    "vitest": "2.1.8"
+    "vitest": "^3.2.6"
   },
   "engines": {
     "node": "22.x"

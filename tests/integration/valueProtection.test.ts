@@ -162,17 +162,22 @@ describe('sandbox funding is explicitly sandbox-only', () => {
     );
     expect(rows).toEqual([]);
 
-    // And every wallet balance that DOES exist came from a confirmed
-    // external observation — nothing else may put value there.
+    /*
+     * And every wallet balance that PRODUCT CODE created came from a
+     * confirmed external observation — nothing else may put value there.
+     *
+     * `TEST_%` journals are excluded because `ledgerCore.test.ts` posts
+     * synthetic balanced entries to arbitrary accounts to exercise the
+     * schema's own constraints. Including them would make this assertion
+     * depend on which suite ran first, which is a property of the test
+     * runner rather than of the product.
+     */
     const { rows: sources } = await getPool().query(
       `SELECT DISTINCT e.journal_code
          FROM inrp2p.posting p
          JOIN inrp2p.ledger_account a ON a.account_id = p.account_id
          JOIN inrp2p.journal_entry e  ON e.entry_id   = p.entry_id
-        WHERE a.family LIKE 'wallet.%'`,
-    );
-    expect(sources.map((s) => s.journal_code).sort()).toEqual(
-      expect.arrayContaining([] as string[]),
+        WHERE a.family LIKE 'wallet.%' AND e.journal_code NOT LIKE 'TEST\\_%'`,
     );
     for (const s of sources) {
       expect(['JD-DEP-CONFIRM', 'JD-REVERSAL']).toContain(s.journal_code);

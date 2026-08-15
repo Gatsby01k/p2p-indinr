@@ -19,6 +19,7 @@
  * fixtures only and can be deleted at any time.
  */
 
+import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -266,7 +267,34 @@ async function migrate() {
         return;
       }
     }
+    /*
+     * RECORD THE SCHEMA VERSION AND ITS CHECKSUM.
+     *
+     * The application compares this at readiness and refuses to serve if
+     * it does not match what the build expects — a web process running
+     * against a database it was not built for is how a "successful"
+     * deploy silently writes the wrong shape.
+     *
+     * The checksum covers the CONTENT of every applied migration, not
+     * just their names, so a file edited after it was applied is caught
+     * rather than assumed identical.
+     */
+    const digest = createHash('sha256');
+    for (const f of files) digest.update(readFileSync(path.join(dir, f)));
+    const checksum = digest.digest('hex');
+    const version = files.length;
+
+    await client.query(
+      `INSERT INTO sandbox.schema_state (singleton, version, checksum, applied_at)
+       VALUES (TRUE, $1, $2, now())
+       ON CONFLICT (singleton) DO UPDATE
+         SET version = EXCLUDED.version, checksum = EXCLUDED.checksum,
+             applied_at = EXCLUDED.applied_at`,
+      [version, checksum],
+    );
+
     console.log(applied ? `${applied} migration(s) applied` : 'schema up to date');
+    console.log(`schema v${version} checksum ${checksum.slice(0, 12)}…`);
   } finally {
     await client.end();
   }
