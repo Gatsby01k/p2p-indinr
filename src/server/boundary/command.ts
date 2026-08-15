@@ -139,7 +139,8 @@ export type SubjectKind =
   | 'payment'
   | 'case'
   | 'evidence'
-  | 'policy';
+  | 'policy'
+  | 'control';
 
 export interface AuditEvent {
   readonly actorId: string | null;

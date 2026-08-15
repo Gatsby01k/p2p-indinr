@@ -222,6 +222,38 @@ export async function lockDealValue(
     return accept(prior);
   }
 
+  /*
+   * THE DEL-08 ENFORCEMENT GATE, before value moves.
+   *
+   * Locking value is the moment a customer commits funds, so it carries
+   * both a risk decision and the per-transaction and daily volume
+   * limits. Consumed atomically, so two concurrent locks cannot both
+   * pass a limit they jointly exceed.
+   */
+  {
+    const { enforce } = await import('@/server/risk/engine');
+    const gate = await enforce(tx, {
+      point: 'VALUE_LOCK',
+      subjectKind: 'user',
+      subjectId: input.ownerId,
+      actorId: input.ownerId,
+      commandId: input.commandId,
+      signals: { amountMinor: input.amountMinor },
+    });
+    if (!gate.ok) return gate;
+
+    const { consumeLimit } = await import('@/server/risk/limits');
+    for (const limitKey of ['deal.value.per_txn', 'deal.value.daily'] as const) {
+      const consumed = await consumeLimit(tx, {
+        limitKey,
+        scopeId: input.ownerId,
+        consumptionKey: `${limitKey}:${input.commandId}`,
+        amount: input.amountMinor,
+      });
+      if (!consumed.ok) return consumed;
+    }
+  }
+
   const [party, escrow] = await ensureAccounts(tx, [
     partyBalanceKey(input.ownerId, input.asset),
     dealEscrowKey(input.dealId, input.asset),
@@ -320,6 +352,24 @@ async function settleLock(
     if (lock.settle_command_id === input.commandId) return accept(mapLock(lock));
     return reject('DEAL_TERMINAL', 'That deal’s locked value has already been settled.');
   }
+
+  /*
+   * THE DEL-08 ENFORCEMENT GATE.
+   *
+   * Read on THIS transaction, after the lock row is held and before any
+   * posting. A hold placed a millisecond ago stops this settlement, and
+   * a paused SETTLEMENT scope stops every settlement — neither depends
+   * on a screen having hidden a button.
+   */
+  const { enforce } = await import('@/server/risk/engine');
+  const gate = await enforce(tx, {
+    point: input.settlement === 'RELEASED' ? 'ESCROW_RELEASE' : 'ESCROW_REFUND',
+    subjectKind: 'deal',
+    subjectId: input.dealId,
+    actorId: input.beneficiaryId,
+    commandId: input.commandId,
+  });
+  if (!gate.ok) return gate;
 
   const asset = lock.asset as LedgerAsset;
   const amount = toBigInt(lock.amount_minor as string);

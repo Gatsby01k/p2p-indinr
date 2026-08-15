@@ -29,6 +29,21 @@ import {
 import { priceQuote as priceUnderPolicy } from '@/server/commerce/pricing';
 import { attributeReferral, grantPremium, revokePremium } from '@/server/commerce/entitlements';
 import type { EconomicSummary } from '@/lib/feeMath';
+import { pause, releaseHold, resume, type ControlScope } from '@/server/risk/controls';
+import {
+  approve as approveOps,
+  claimCase,
+  openCase as openOpsCase,
+  propose as proposeOps,
+  resolveCase,
+  type ApprovalKind,
+  // Aliased: DEL-06 already exports a `Disposition` (RELEASE | REFUND)
+  // and this one is a case OUTCOME. Two different vocabularies that
+  // happen to share a word.
+  type Disposition as CaseDisposition,
+  type OpsCase,
+} from '@/server/risk/cases';
+import { evaluateRewardFor, type GrantOutcome } from '@/server/risk/rewardOrchestration';
 import {
   fundSandboxBalance,
   lockDealValue,
@@ -1767,5 +1782,458 @@ export async function revokePremiumCommand(
     },
     encodeResult: (v) => ({ grantId: v.grantId }),
     decodeResult: (r) => ({ grantId: String(r.grantId) }),
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * DEL-08 — risk, compliance and operator operations
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  EVERY HIGH-IMPACT ACTION HERE TAKES TWO PEOPLE, AND THE SECOND    │
+ * │  ONE'S AUTHORITY IS CHECKED AT EXECUTION.                          │
+ * │                                                                    │
+ * │  Pausing is the exception, deliberately: stopping is the safe      │
+ * │  direction and an incident must not wait for a colleague. Starting │
+ * │  again is not.                                                     │
+ * └────────────────────────────────────────────────────────────────────┘
+ * ------------------------------------------------------------------ */
+
+export async function pauseControlCommand(
+  principal: Principal,
+  commandId: string,
+  input: { scope: ControlScope; target?: string | null; reason: string },
+): Promise<Outcome<{ switchId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'CONTROL_PAUSE',
+    actorId: principal.userId,
+    payload: { scope: input.scope, target: input.target ?? null, reason: input.reason },
+    body: async (ctx) => {
+      const paused = await pause(ctx.tx, principal, input);
+      if (!paused.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'CONTROL_PAUSE',
+          subjectKind: 'control',
+          subjectId: commandId,
+          outcome: paused.code,
+        });
+        return paused;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'CONTROL_PAUSE',
+        subjectKind: 'control',
+        subjectId: paused.value.switchId,
+        toState: 'PAUSED',
+        outcome: 'OK',
+        detail: { scope: input.scope, target: input.target ?? null, reason: input.reason },
+      });
+      await ctx.emit({
+        type: 'control.paused',
+        subjectKind: 'control',
+        subjectId: paused.value.switchId,
+        payload: { scope: input.scope, target: input.target ?? null },
+      });
+      return accept({ switchId: paused.value.switchId });
+    },
+    encodeResult: (v) => ({ switchId: v.switchId }),
+    decodeResult: (r) => ({ switchId: String(r.switchId) }),
+  });
+}
+
+export async function proposeApprovalCommand(
+  principal: Principal,
+  commandId: string,
+  input: {
+    actionKind: ApprovalKind;
+    targetRef: string;
+    rationale: string;
+    payload?: Record<string, unknown>;
+  },
+): Promise<Outcome<{ approvalId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'OPS_APPROVAL_PROPOSE',
+    actorId: principal.userId,
+    payload: { actionKind: input.actionKind, targetRef: input.targetRef },
+    body: async (ctx) => {
+      const proposed = await proposeOps(ctx.tx, principal, input);
+      if (!proposed.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'OPS_APPROVAL_PROPOSE',
+          subjectKind: 'control',
+          subjectId: input.targetRef,
+          outcome: proposed.code,
+        });
+        return proposed;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'OPS_APPROVAL_PROPOSE',
+        subjectKind: 'control',
+        subjectId: input.targetRef,
+        outcome: 'OK',
+        detail: { approvalId: proposed.value.approvalId, actionKind: input.actionKind },
+      });
+      return accept({ approvalId: proposed.value.approvalId });
+    },
+    encodeResult: (v) => ({ approvalId: v.approvalId }),
+    decodeResult: (r) => ({ approvalId: String(r.approvalId) }),
+  });
+}
+
+export async function approveOpsActionCommand(
+  principal: Principal,
+  commandId: string,
+  input: { approvalId: string; note?: string },
+): Promise<Outcome<{ approvalId: string; actionKind: ApprovalKind; targetRef: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'OPS_APPROVAL_APPROVE',
+    actorId: principal.userId,
+    payload: { approvalId: input.approvalId },
+    body: async (ctx) => {
+      const approved = await approveOps(ctx.tx, principal, input);
+      if (!approved.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'OPS_APPROVAL_APPROVE',
+          subjectKind: 'control',
+          subjectId: input.approvalId,
+          outcome: approved.code,
+        });
+        return approved;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'OPS_APPROVAL_APPROVE',
+        subjectKind: 'control',
+        subjectId: approved.value.targetRef,
+        toState: 'APPROVED',
+        outcome: 'OK',
+        detail: { approvalId: input.approvalId, actionKind: approved.value.actionKind },
+      });
+      return accept({
+        approvalId: approved.value.approvalId,
+        actionKind: approved.value.actionKind,
+        targetRef: approved.value.targetRef,
+      });
+    },
+    encodeResult: (v) => ({ ...v }),
+    decodeResult: (r) => ({
+      approvalId: String(r.approvalId),
+      actionKind: r.actionKind as ApprovalKind,
+      targetRef: String(r.targetRef),
+    }),
+  });
+}
+
+/** Resume a paused control. Needs a DIFFERENT person's approval. */
+export async function resumeControlCommand(
+  principal: Principal,
+  commandId: string,
+  input: { switchId: string; approvalId: string; reason: string },
+): Promise<Outcome<{ switchId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'CONTROL_RESUME',
+    actorId: principal.userId,
+    payload: { switchId: input.switchId, approvalId: input.approvalId },
+    body: async (ctx) => {
+      const resumed = await resume(ctx.tx, principal, input);
+      if (!resumed.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'CONTROL_RESUME',
+          subjectKind: 'control',
+          subjectId: input.switchId,
+          outcome: resumed.code,
+        });
+        return resumed;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'CONTROL_RESUME',
+        subjectKind: 'control',
+        subjectId: input.switchId,
+        toState: 'RESUMED',
+        outcome: 'OK',
+        detail: { approvalId: input.approvalId },
+      });
+      await ctx.emit({
+        type: 'control.resumed',
+        subjectKind: 'control',
+        subjectId: input.switchId,
+        payload: { scope: resumed.value.scope },
+      });
+      return accept({ switchId: resumed.value.switchId });
+    },
+    encodeResult: (v) => ({ switchId: v.switchId }),
+    decodeResult: (r) => ({ switchId: String(r.switchId) }),
+  });
+}
+
+export async function releaseHoldCommand(
+  principal: Principal,
+  commandId: string,
+  input: { holdId: string; approvalId: string; reason: string },
+): Promise<Outcome<{ holdId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'RISK_HOLD_RELEASE',
+    actorId: principal.userId,
+    payload: { holdId: input.holdId, approvalId: input.approvalId },
+    body: async (ctx) => {
+      const released = await releaseHold(ctx.tx, principal, input);
+      if (!released.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'RISK_HOLD_RELEASE',
+          subjectKind: 'control',
+          subjectId: input.holdId,
+          outcome: released.code,
+        });
+        return released;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'RISK_HOLD_RELEASE',
+        subjectKind: 'control',
+        subjectId: input.holdId,
+        outcome: 'OK',
+        detail: { approvalId: input.approvalId, reason: input.reason },
+      });
+      return released;
+    },
+    encodeResult: (v) => ({ holdId: v.holdId }),
+    decodeResult: (r) => ({ holdId: String(r.holdId) }),
+  });
+}
+
+/**
+ * Grant a reward for a completed deal, through the abuse controls.
+ *
+ * This is the DEL-07 orchestration that was deliberately deferred: a
+ * qualifying deal is evaluated for abuse signals, put through the risk
+ * engine, checked against velocity, and granted exactly once. The tests
+ * call THIS, never an insert.
+ */
+export async function evaluateRewardCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { dealId: string; campaignId: string },
+): Promise<Outcome<GrantOutcome>> {
+  return runCommand({
+    commandId,
+    commandType: 'REWARD_EVALUATE',
+    actorId: user.userId,
+    payload: { dealId: input.dealId, campaignId: input.campaignId },
+    body: async (ctx) => {
+      const evaluated = await evaluateRewardFor(ctx.tx, {
+        dealId: input.dealId,
+        userId: user.userId,
+        campaignId: input.campaignId,
+        commandId,
+      });
+      if (!evaluated.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'REWARD_EVALUATE',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: evaluated.code,
+          detail: evaluated.detail ?? {},
+        });
+        return evaluated;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'REWARD_EVALUATE',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        outcome: 'OK',
+        detail: {
+          granted: evaluated.value.granted,
+          grantId: evaluated.value.grantId,
+          opsCaseId: evaluated.value.opsCaseId,
+          reasonCodes: evaluated.value.reasonCodes,
+        },
+      });
+      if (evaluated.value.granted) {
+        await ctx.emit({
+          type: 'reward.granted',
+          subjectKind: 'user',
+          subjectId: user.userId,
+          payload: { grantId: evaluated.value.grantId, dealId: input.dealId },
+        });
+      }
+      return evaluated;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as GrantOutcome,
+  });
+}
+
+export async function claimOpsCaseCommand(
+  principal: Principal,
+  commandId: string,
+  input: { opsCaseId: string; expectedVersion?: number },
+): Promise<Outcome<OpsCase>> {
+  return runCommand({
+    commandId,
+    commandType: 'OPS_CASE_CLAIM',
+    actorId: principal.userId,
+    payload: { opsCaseId: input.opsCaseId, expectedVersion: input.expectedVersion ?? null },
+    body: async (ctx) => {
+      const claimed = await claimCase(ctx.tx, principal, input);
+      if (!claimed.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'OPS_CASE_CLAIM',
+          subjectKind: 'case',
+          subjectId: input.opsCaseId,
+          outcome: claimed.code,
+        });
+        return claimed;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'OPS_CASE_CLAIM',
+        subjectKind: 'case',
+        subjectId: input.opsCaseId,
+        outcome: 'OK',
+      });
+      return claimed;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as OpsCase,
+  });
+}
+
+export async function resolveOpsCaseCommand(
+  principal: Principal,
+  commandId: string,
+  input: {
+    opsCaseId: string;
+    disposition: CaseDisposition;
+    note: string;
+    expectedVersion: number;
+    approvalId?: string | null;
+  },
+): Promise<Outcome<OpsCase>> {
+  return runCommand({
+    commandId,
+    commandType: 'OPS_CASE_RESOLVE',
+    actorId: principal.userId,
+    payload: {
+      opsCaseId: input.opsCaseId,
+      disposition: input.disposition,
+      expectedVersion: input.expectedVersion,
+    },
+    body: async (ctx) => {
+      const resolved = await resolveCase(ctx.tx, principal, input);
+      if (!resolved.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'OPS_CASE_RESOLVE',
+          subjectKind: 'case',
+          subjectId: input.opsCaseId,
+          outcome: resolved.code,
+          detail: resolved.detail ?? {},
+        });
+        return resolved;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'OPS_CASE_RESOLVE',
+        subjectKind: 'case',
+        subjectId: input.opsCaseId,
+        toState: 'RESOLVED',
+        outcome: 'OK',
+        detail: { disposition: input.disposition },
+      });
+      await ctx.emit({
+        type: 'ops.case_resolved',
+        subjectKind: 'case',
+        subjectId: input.opsCaseId,
+        payload: { disposition: input.disposition },
+      });
+      return resolved;
+    },
+    encodeResult: (v) => ({ ...v }) as unknown as Record<string, unknown>,
+    decodeResult: (r) => r as unknown as OpsCase,
+  });
+}
+
+/**
+ * Record a post-settlement complaint.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  IT CREATES A CASE. IT MOVES NO MONEY, EVER.                       │
+ * │                                                                    │
+ * │  A complaint about a finished deal is worth investigating, and it  │
+ * │  is NOT a mechanism to reverse a settlement. Automatically clawing │
+ * │  back value on a customer's say-so would let anybody undo any deal │
+ * │  by complaining about it. Nothing in this function touches a lock, │
+ * │  a ledger entry or a deal state, and it imports nothing that could.│
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export async function raisePostSettlementComplaintCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { dealId: string; summary: string },
+): Promise<Outcome<{ opsCaseId: string; financialEffect: 'NONE' }>> {
+  return runCommand({
+    commandId,
+    commandType: 'POST_SETTLEMENT_COMPLAINT',
+    actorId: user.userId,
+    payload: { dealId: input.dealId, summary: input.summary },
+    body: async (ctx) => {
+      const { rows } = await ctx.tx.query(
+        `SELECT 1 FROM sandbox.participant WHERE deal_id = $1 AND user_id = $2`,
+        [input.dealId, user.userId],
+      );
+      if (!rows[0]) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'POST_SETTLEMENT_COMPLAINT',
+          subjectKind: 'deal',
+          subjectId: input.dealId,
+          outcome: 'NOT_A_PARTICIPANT',
+        });
+        return reject('NOT_A_PARTICIPANT', FAILURE_COPY.NOT_A_PARTICIPANT.reason);
+      }
+
+      const opened = await openOpsCase(ctx.tx, {
+        kind: 'POST_SETTLEMENT_COMPLAINT',
+        subjectKind: 'deal',
+        subjectId: input.dealId,
+        correlationKey: `complaint:${input.dealId}:${user.userId}`,
+        summary: input.summary.slice(0, 2000),
+        reasonCodes: ['POST_SETTLEMENT'],
+        priority: 40,
+      });
+      if (!opened.ok) return opened;
+
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'POST_SETTLEMENT_COMPLAINT',
+        subjectKind: 'case',
+        subjectId: opened.value.opsCase.opsCaseId,
+        outcome: 'OK',
+        detail: { dealId: input.dealId, financialEffect: 'NONE' },
+      });
+      return accept({
+        opsCaseId: opened.value.opsCase.opsCaseId,
+        financialEffect: 'NONE' as const,
+      });
+    },
+    encodeResult: (v) => ({ opsCaseId: v.opsCaseId, financialEffect: 'NONE' }),
+    decodeResult: (r) => ({
+      opsCaseId: String(r.opsCaseId),
+      financialEffect: 'NONE' as const,
+    }),
   });
 }

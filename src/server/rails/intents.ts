@@ -282,12 +282,32 @@ export async function issueInstruction(
     return reject('PAYMENT_INTENT_TERMINAL', FAILURE_COPY.PAYMENT_INTENT_TERMINAL.reason);
   }
 
-  // THE GATE. Live, not remembered.
+  // THE DEL-04 GATE. Live, not remembered.
   const lockId = await valueLockIsLive(tx, intent.dealId);
   if (lockId === null) {
     return reject('VALUE_NOT_LOCKED', FAILURE_COPY.VALUE_NOT_LOCKED.reason, {
       dealId: intent.dealId,
     });
+  }
+
+  /*
+   * THE DEL-08 GATE. Also live.
+   *
+   * Disclosing a payment destination is the last reversible moment
+   * before a customer sends real money, so a hold on the payer or a
+   * paused INSTRUCTION_DISCLOSE scope stops it here — inside the
+   * transaction, not by hiding the panel.
+   */
+  {
+    const { enforce } = await import('@/server/risk/engine');
+    const gate = await enforce(tx, {
+      point: 'INSTRUCTION_DISCLOSE',
+      subjectKind: 'user',
+      subjectId: actorId,
+      actorId,
+      signals: { rail: intent.rail, amountMinor: BigInt(intent.amountMinor) },
+    });
+    if (!gate.ok) return gate;
   }
 
   const existing = await tx.query(
@@ -416,6 +436,21 @@ export async function readInstruction(
   if (intent.payerId !== actorId) {
     return reject('NOT_A_PARTICIPANT', FAILURE_COPY.NOT_A_PARTICIPANT.reason);
   }
+
+  // Re-checked on every READ too: a hold placed after issuance must
+  // close an instruction that was legitimately disclosed an hour ago.
+  {
+    const { enforce } = await import('@/server/risk/engine');
+    const gate = await enforce(tx, {
+      point: 'INSTRUCTION_DISCLOSE',
+      subjectKind: 'user',
+      subjectId: actorId,
+      actorId,
+      signals: { rail: intent.rail },
+    });
+    if (!gate.ok) return gate;
+  }
+
   if (await valueLockIsLive(tx, intent.dealId)) {
     const { rows: instr } = await tx.query(
       `SELECT instruction_id, provider_key, destination, destination_detail, reference

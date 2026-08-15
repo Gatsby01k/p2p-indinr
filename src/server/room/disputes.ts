@@ -500,6 +500,28 @@ export async function approveResolution(
     });
   }
 
+  /*
+   * THE DEL-08 GATE.
+   *
+   * A ruling disposes of customer value, so a hold on the deal or a
+   * paused SETTLEMENT scope stops it — even with a valid proposal and a
+   * valid approver. Risk cannot APPROVE anything here; it can only
+   * refuse, which is the only direction a control plane should move a
+   * money decision.
+   */
+  {
+    const { enforce } = await import('@/server/risk/engine');
+    const gate = await enforce(tx, {
+      point: 'DISPUTE_RESOLVE',
+      subjectKind: 'deal',
+      subjectId: kase.dealId,
+      actorId: principal.userId,
+      commandId: input.commandId,
+      signals: { disposition: proposal.disposition },
+    });
+    if (!gate.ok) return gate;
+  }
+
   /* ---- The disposition needs something real to dispose of ---- */
 
   const lock = await lockForDeal(kase.dealId);

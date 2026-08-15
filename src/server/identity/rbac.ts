@@ -71,7 +71,17 @@ export type Permission =
   | 'fee.policy.propose'
   | 'fee.policy.approve'
   | 'reward.campaign.manage'
-  | 'premium.grant';
+  | 'premium.grant'
+  /* ---- DEL-08: the control plane, split maker from checker ---------- */
+  | 'risk.queue.read'
+  | 'risk.case.read'
+  | 'risk.case.work'
+  | 'risk.policy.draft'
+  | 'risk.policy.propose'
+  | 'risk.policy.approve'
+  | 'control.pause'
+  | 'control.resume.approve'
+  | 'compliance.export';
 
 const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   /*
@@ -93,6 +103,18 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     'case.propose',
     'fee.policy.draft',
     'fee.policy.propose',
+    /*
+     * An operator INVESTIGATES and PROPOSES. It also holds `control.pause`,
+     * deliberately: pausing is the safe direction and an incident at 03:00
+     * must not wait for a second person to wake up. Resuming is a separate
+     * permission it does NOT hold.
+     */
+    'risk.queue.read',
+    'risk.case.read',
+    'risk.case.work',
+    'risk.policy.draft',
+    'risk.policy.propose',
+    'control.pause',
   ],
   // Reviewers decide verification cases and see nothing financial.
   REVIEWER: [
@@ -101,6 +123,11 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     'case.read',
     'case.approve',
     'fee.policy.approve',
+    // The CHECKER half of every DEL-08 two-person control.
+    'risk.queue.read',
+    'risk.case.read',
+    'risk.policy.approve',
+    'control.resume.approve',
   ],
   /*
    * Admin grants roles and holds the two direct ledger powers.
@@ -148,6 +175,15 @@ const MFA_REQUIRED: ReadonlySet<Permission> = new Set<Permission>([
   'fee.policy.approve',
   'reward.campaign.manage',
   'premium.grant',
+  'risk.queue.read',
+  'risk.case.read',
+  'risk.case.work',
+  'risk.policy.draft',
+  'risk.policy.propose',
+  'risk.policy.approve',
+  'control.pause',
+  'control.resume.approve',
+  'compliance.export',
 ]);
 
 export function permissionsFor(roles: readonly Role[]): readonly Permission[] {

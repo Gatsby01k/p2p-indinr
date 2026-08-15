@@ -566,6 +566,28 @@ async function applyObservation(
 
   /* ---- 8. CONFIRMED. The one transition that may post to the ledger. ---- */
 
+  /*
+   * THE DEL-08 GATE, immediately before the posting.
+   *
+   * A paused RAIL_CONFIRM scope stops confirmations platform-wide —
+   * which is exactly what an operator reaches for when a provider is
+   * sending nonsense. The observation is still RECORDED either way: a
+   * pause must not lose the report that a transfer arrived.
+   */
+  {
+    const { enforce } = await import('@/server/risk/engine');
+    const gate = await enforce(tx, {
+      point: 'RAIL_OBSERVE',
+      subjectKind: 'payment',
+      subjectId: intentId,
+      signals: { rail: event.rail, amountMinor: BigInt(input.amountMinor) },
+    });
+    if (!gate.ok) {
+      await writeObservation(tx, draft('HELD_BY_CONTROL', false));
+      return gate;
+    }
+  }
+
   const observationId = await writeObservation(tx, draft('APPLIED_CONFIRMED', true));
   const entryId = await postConfirmedValue(tx, {
     intentId,

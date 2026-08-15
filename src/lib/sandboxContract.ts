@@ -115,7 +115,20 @@ export type SandboxError =
   | 'REWARD_ALREADY_REDEEMED'
   | 'REWARD_EXPIRED'
   | 'REWARD_SELECTION_INVALID'
-  | 'CAMPAIGN_UNAVAILABLE';
+  | 'CAMPAIGN_UNAVAILABLE'
+  /* ---- DEL-08 risk, compliance and operator operations -------------- */
+  | 'RISK_HELD'
+  | 'RISK_REJECTED'
+  | 'RISK_STEP_UP'
+  | 'RISK_POLICY_UNAVAILABLE'
+  | 'CONTROL_PAUSED'
+  | 'LIMIT_EXCEEDED'
+  | 'SCREENING_UNAVAILABLE'
+  | 'SCREENING_UNVERIFIED'
+  | 'SCREENING_STALE'
+  | 'CASE_LEASE_LOST'
+  | 'APPROVAL_REQUIRED'
+  | 'EXPORT_UNAVAILABLE';
 
 export class SandboxFailure extends Error {
   readonly code: SandboxError;
@@ -551,6 +564,69 @@ export const FAILURE_COPY: Readonly<
   CAMPAIGN_UNAVAILABLE: {
     reason: 'That reward campaign is not running on this deployment.',
     nextStep: 'Nothing was granted or charged.',
+  },
+
+  /* ---- DEL-08 risk, compliance and operator operations --------------- *
+   *
+   * These sentences are read by somebody whose money has just stopped
+   * moving, so they carry two obligations. They must say plainly that
+   * NOTHING WAS TAKEN — a held payment is not a lost one — and they
+   * must not accuse: the system has applied a control, it has not
+   * concluded that the person did anything.
+   *
+   * They also say as little as possible about WHY. A refusal that
+   * explains which rule fired is a refusal somebody can tune their next
+   * attempt against; the reason codes are in the case, where a person
+   * with the authority to see them can.
+   */
+
+  RISK_HELD: {
+    reason: 'This is on hold while we check something.',
+    nextStep: 'Nothing has been taken or sent. Support can tell you more.',
+  },
+  RISK_REJECTED: {
+    reason: 'We cannot proceed with this request.',
+    nextStep: 'Nothing has been taken or sent. Contact support if you think this is wrong.',
+  },
+  RISK_STEP_UP: {
+    reason: 'This needs an extra confirmation before it can go ahead.',
+    nextStep: 'Complete the additional check and try again.',
+  },
+  RISK_POLICY_UNAVAILABLE: {
+    reason: 'The controls for this action are not configured on this deployment.',
+    nextStep: 'Nothing was changed. This is a configuration fault, not a decision about you.',
+  },
+  CONTROL_PAUSED: {
+    reason: 'This is temporarily paused.',
+    nextStep: 'Nothing was taken or sent. Existing deals and balances are unaffected.',
+  },
+  LIMIT_EXCEEDED: {
+    reason: 'This would go past a limit on your account.',
+    nextStep: 'Nothing was taken. Try a smaller amount, or wait for the window to reset.',
+  },
+  SCREENING_UNAVAILABLE: {
+    reason: 'A required check cannot be performed on this deployment.',
+    nextStep: 'Nothing was changed. No screening provider is connected here.',
+  },
+  SCREENING_UNVERIFIED: {
+    reason: 'A check result could not be verified.',
+    nextStep: 'It was recorded and refused. Nothing was changed.',
+  },
+  SCREENING_STALE: {
+    reason: 'A required check is out of date.',
+    nextStep: 'A fresh check is needed before this can go ahead.',
+  },
+  CASE_LEASE_LOST: {
+    reason: 'That case is assigned to somebody else now.',
+    nextStep: 'Reload the queue. Your lease expired or was reassigned.',
+  },
+  APPROVAL_REQUIRED: {
+    reason: 'That action needs a second authorised person to approve it.',
+    nextStep: 'Propose it, then ask a colleague with the right permission to approve.',
+  },
+  EXPORT_UNAVAILABLE: {
+    reason: 'That export is not available.',
+    nextStep: 'It may have expired or already been retrieved. Request a new one.',
   },
 };
 
