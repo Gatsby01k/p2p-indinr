@@ -59,7 +59,19 @@ export type Permission =
   | 'case.read'
   | 'case.evidence.read'
   | 'case.propose'
-  | 'case.approve';
+  | 'case.approve'
+  /* ---- DEL-07: commercial policy, split maker from checker ---------- *
+   *
+   * Activating a fee schedule changes what every future customer pays,
+   * so it carries the same maker-checker split as a dispute ruling and
+   * for the same reason. `fee.policy.draft` is separate again: authoring
+   * a proposal for review is not the same authority as putting it live.
+   */
+  | 'fee.policy.draft'
+  | 'fee.policy.propose'
+  | 'fee.policy.approve'
+  | 'reward.campaign.manage'
+  | 'premium.grant';
 
 const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
   /*
@@ -79,9 +91,17 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     'case.read',
     'case.evidence.read',
     'case.propose',
+    'fee.policy.draft',
+    'fee.policy.propose',
   ],
   // Reviewers decide verification cases and see nothing financial.
-  REVIEWER: ['verification.review', 'case.queue.read', 'case.read', 'case.approve'],
+  REVIEWER: [
+    'verification.review',
+    'case.queue.read',
+    'case.read',
+    'case.approve',
+    'fee.policy.approve',
+  ],
   /*
    * Admin grants roles and holds the two direct ledger powers.
    *
@@ -91,7 +111,7 @@ const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
    * out of band and, like every sensitive permission, requires a
    * satisfied second factor.
    */
-  ADMIN: ['role.grant', 'ledger.fund', 'ledger.reverse'],
+  ADMIN: ['role.grant', 'ledger.fund', 'ledger.reverse', 'reward.campaign.manage', 'premium.grant'],
 };
 
 export interface Principal {
@@ -123,6 +143,11 @@ const MFA_REQUIRED: ReadonlySet<Permission> = new Set<Permission>([
   'case.evidence.read',
   'case.propose',
   'case.approve',
+  'fee.policy.draft',
+  'fee.policy.propose',
+  'fee.policy.approve',
+  'reward.campaign.manage',
+  'premium.grant',
 ]);
 
 export function permissionsFor(roles: readonly Role[]): readonly Permission[] {

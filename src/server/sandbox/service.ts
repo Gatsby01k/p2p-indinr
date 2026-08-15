@@ -18,6 +18,7 @@ import {
 } from '@/server/boundary/command';
 import { accept, reject, type Outcome, type Rejected } from '@/server/boundary/outcome';
 import { openCase } from '@/server/room/disputes';
+import { priceQuote as priceUnderPolicy, snapshotQuote } from '@/server/commerce/pricing';
 import { feesFor, settlementFor } from '@/lib/fees';
 import {
   CONFIRM_WINDOW_MINUTES,
@@ -348,8 +349,16 @@ const SANDBOX_RATE_DEN = REFERENCE_RATE.den;
 export const SANDBOX_RATE = { num: SANDBOX_RATE_NUM, den: SANDBOX_RATE_DEN } as const;
 
 export interface QuoteOptions {
-  /** Who absorbs the protection fee. Defaults to the payer. */
+  /**
+   * IGNORED since DEL-07, and kept only so existing callers compile.
+   *
+   * The bearer is a term of the active fee policy. A caller that passes
+   * one is not overridden quietly — the field simply has no effect, and
+   * a test asserts that a forged bearer changes nothing.
+   */
   readonly feeBearer?: FeeBearer;
+  /** A reward the caller elects to spend. Validated against ownership. */
+  readonly rewardGrantId?: string | null;
   /** What the deal is for. Shown to both sides; never in a public unfurl. */
   readonly title?: string | null;
 }
@@ -375,8 +384,26 @@ async function insertQuoteIn(
   options: QuoteOptions,
   rate: RateSnapshot,
 ): Promise<SandboxQuote> {
+  /*
+   * PRICED BY THE ACTIVE VERSIONED POLICY (DEL-07).
+   *
+   * `feesFor` is kept as the DISPLAY fallback for the legacy exchange
+   * breakdown — it still names the network component the UI shows — but
+   * the binding numbers now come from `priceQuote`, which resolves the
+   * policy version and the caller's real entitlements. The bearer comes
+   * from the POLICY, never from `options`: a request has no say in who
+   * absorbs a fee.
+   */
   const fees = feesFor(q.direction, q.inrMinor);
-  const bearer: FeeBearer = options.feeBearer ?? 'PAYER';
+  const priced = await priceUnderPolicy(tx, {
+    userId: user.userId,
+    scenario: q.direction,
+    amountMinor: q.inrMinor,
+    rewardGrantId: options.rewardGrantId ?? null,
+  });
+  if (!priced.ok) throw new SandboxFailure(priced.code, priced.message);
+
+  const bearer: FeeBearer = priced.value.policy.feeBearer;
   const title = options.title?.trim() ? options.title.trim().slice(0, 120) : null;
 
   {
@@ -405,6 +432,21 @@ async function insertQuoteIn(
       ],
     );
     const r = rows[0]!;
+
+    /*
+     * FREEZE THE PROMISE.
+     *
+     * Written in the same transaction as the quote, so a quote can never
+     * exist without the calculation it was priced by — and activating a
+     * new schedule tomorrow cannot reach this row.
+     */
+    const snapshot = await snapshotQuote(tx, {
+      quoteId: r.quote_id as string,
+      amountMinor: q.inrMinor,
+      priced: priced.value,
+    });
+    if (!snapshot.ok) throw new SandboxFailure(snapshot.code, snapshot.message);
+
     await audit(tx, {
       actorId: user.userId,
       action: 'QUOTE_ISSUE',

@@ -131,7 +131,15 @@ export function newCommandId(): string {
  * trail that accepts any subject kind is a trail nobody can query with
  * confidence.
  */
-export type SubjectKind = 'link' | 'deal' | 'quote' | 'user' | 'payment' | 'case' | 'evidence';
+export type SubjectKind =
+  | 'link'
+  | 'deal'
+  | 'quote'
+  | 'user'
+  | 'payment'
+  | 'case'
+  | 'evidence'
+  | 'policy';
 
 export interface AuditEvent {
   readonly actorId: string | null;

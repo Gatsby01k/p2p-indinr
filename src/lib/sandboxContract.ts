@@ -97,7 +97,25 @@ export type SandboxError =
   | 'CAPABILITY_EXPIRED'
   | 'CAPABILITY_CONSUMED'
   | 'MESSAGE_TOO_LONG'
-  | 'INCIDENT_RAISED';
+  | 'INCIDENT_RAISED'
+  /* ---- DEL-07 fees, rewards, referrals and reputation --------------- */
+  | 'FEE_POLICY_UNAVAILABLE'
+  | 'FEE_POLICY_INVALID'
+  | 'FEE_ASSET_UNSUPPORTED'
+  | 'FEE_ALREADY_COLLECTED'
+  | 'FEE_UNCOLLECTIBLE'
+  | 'QUOTE_SNAPSHOT_MISSING'
+  | 'PREMIUM_UNAVAILABLE'
+  | 'REFERRAL_CODE_INVALID'
+  | 'REFERRAL_SELF'
+  | 'REFERRAL_CYCLE'
+  | 'REFERRAL_ALREADY_ATTRIBUTED'
+  | 'REFERRAL_NOT_ELIGIBLE'
+  | 'REWARD_NOT_ELIGIBLE'
+  | 'REWARD_ALREADY_REDEEMED'
+  | 'REWARD_EXPIRED'
+  | 'REWARD_SELECTION_INVALID'
+  | 'CAMPAIGN_UNAVAILABLE';
 
 export class SandboxFailure extends Error {
   readonly code: SandboxError;
@@ -455,6 +473,84 @@ export const FAILURE_COPY: Readonly<
   INCIDENT_RAISED: {
     reason: 'This deal needs manual review before anything further can happen.',
     nextStep: 'Support has been notified with the full record. Nothing was changed.',
+  },
+
+  /* ---- DEL-07 fees, rewards, referrals and reputation ---------------- *
+   *
+   * Money copy has one job above all others: never imply a discount,
+   * saving or reward the customer is not actually getting. So none of
+   * these sentences names a figure — the figure comes from the
+   * snapshot — and none of them says "you saved" about something that
+   * was capped away.
+   */
+
+  FEE_POLICY_UNAVAILABLE: {
+    reason: 'No approved fee schedule is available for this kind of deal here.',
+    nextStep: 'Nothing was quoted or charged. Try again later or contact support.',
+  },
+  FEE_POLICY_INVALID: {
+    reason: 'That fee schedule is not internally consistent.',
+    nextStep: 'Correct the rate, bounds or cap and draft it again.',
+  },
+  FEE_ASSET_UNSUPPORTED: {
+    reason: 'A fee in that asset cannot be collected on this platform.',
+    nextStep: 'INRP2P holds no rupees, so an INR fee can be shown but never taken.',
+  },
+  FEE_ALREADY_COLLECTED: {
+    reason: 'The fee for this deal has already been collected.',
+    nextStep: 'Nothing further is due. Open the deal to see the breakdown.',
+  },
+  FEE_UNCOLLECTIBLE: {
+    reason: 'The fee for this deal cannot be collected from the protected value.',
+    nextStep: 'The deal completed and the shortfall is recorded for review.',
+  },
+  QUOTE_SNAPSHOT_MISSING: {
+    reason: 'This deal was priced before versioned fee schedules existed.',
+    nextStep: 'Its original terms stand. A new schedule is never applied backwards.',
+  },
+  PREMIUM_UNAVAILABLE: {
+    reason: 'Premium membership is not available on this deployment.',
+    nextStep: 'No subscription provider is connected. Nothing was charged.',
+  },
+  REFERRAL_CODE_INVALID: {
+    reason: 'That referral code does not exist.',
+    nextStep: 'Check the code with whoever shared it.',
+  },
+  REFERRAL_SELF: {
+    reason: 'You cannot refer yourself.',
+    nextStep: 'Share your code with somebody else.',
+  },
+  REFERRAL_CYCLE: {
+    reason: 'That referral would create a loop.',
+    nextStep: 'Referrals go one way. Use a code from outside your own chain.',
+  },
+  REFERRAL_ALREADY_ATTRIBUTED: {
+    reason: 'This account already has a referrer.',
+    nextStep: 'A referrer is recorded once and does not change afterwards.',
+  },
+  REFERRAL_NOT_ELIGIBLE: {
+    reason: 'That deal does not qualify a referral.',
+    nextStep: 'Only completed deals between two distinct verified people qualify.',
+  },
+  REWARD_NOT_ELIGIBLE: {
+    reason: 'That reward is not available for this deal.',
+    nextStep: 'Check the campaign window and the terms shown with the reward.',
+  },
+  REWARD_ALREADY_REDEEMED: {
+    reason: 'That reward has already been used.',
+    nextStep: 'Each reward applies to one deal. Check your reward list for others.',
+  },
+  REWARD_EXPIRED: {
+    reason: 'That reward has expired.',
+    nextStep: 'Rewards carry an expiry date, shown when they are granted.',
+  },
+  REWARD_SELECTION_INVALID: {
+    reason: 'That reward selection could not be verified.',
+    nextStep: 'Nothing was granted. The campaign commitment did not match.',
+  },
+  CAMPAIGN_UNAVAILABLE: {
+    reason: 'That reward campaign is not running on this deployment.',
+    nextStep: 'Nothing was granted or charged.',
   },
 };
 

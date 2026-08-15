@@ -21,6 +21,15 @@ import type { Principal } from '@/server/identity/rbac';
 import { isCommandId, runCommand, writeAudit } from '@/server/boundary/command';
 import { withTransaction } from '@/server/db/pool';
 import {
+  approveActivation,
+  draftPolicy,
+  proposeActivation,
+  type DraftPolicyInput,
+} from '@/server/commerce/feePolicy';
+import { priceQuote as priceUnderPolicy } from '@/server/commerce/pricing';
+import { attributeReferral, grantPremium, revokePremium } from '@/server/commerce/entitlements';
+import type { EconomicSummary } from '@/lib/feeMath';
+import {
   fundSandboxBalance,
   lockDealValue,
   refundDealValue,
@@ -65,7 +74,7 @@ import {
   type EvidenceRecord,
 } from '@/server/room/evidence';
 import type { SignedDelivery } from '@/server/rails/webhook';
-import { reject, type Outcome } from '@/server/boundary/outcome';
+import { accept, reject, type Outcome } from '@/server/boundary/outcome';
 import { DEFAULT_FEE_BEARER } from '@/server/adapters/policy';
 import { FAILURE_COPY } from '@/lib/sandboxContract';
 import { parseInrToMinor, parseUsdtToMicro } from '@/lib/parse';
@@ -1444,5 +1453,319 @@ export async function addCaseNoteCommand(
     },
     encodeResult: (v) => ({ noteId: v.noteId }),
     decodeResult: (r) => ({ noteId: String(r.noteId) }),
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * DEL-07 — fees, premium, referrals, rewards and reputation
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  NOT ONE OF THESE COMMANDS ACCEPTS A PRICE, A RATE, A BEARER OR A  │
+ * │  DISCOUNT FROM ITS CALLER.                                         │
+ * │                                                                    │
+ * │  A forged `feeBps` or `discount` field is not stripped or          │
+ * │  validated — it has nowhere to arrive, because no input type here  │
+ * │  declares one. The single thing a customer may nominate is WHICH   │
+ * │  reward to spend, and that is checked against ownership, state and │
+ * │  expiry before it is worth anything.                               │
+ * └────────────────────────────────────────────────────────────────────┘
+ * ------------------------------------------------------------------ */
+
+/** Preview the complete economic result, before anybody commits to it. */
+export async function previewQuoteCommand(
+  user: SessionUser,
+  input: { scenario: Scenario; amountMinor: bigint; rewardGrantId?: string | null },
+): Promise<Outcome<EconomicSummary>> {
+  return withTransaction(async (tx) => {
+    const priced = await priceUnderPolicy(tx, {
+      userId: user.userId,
+      scenario: input.scenario,
+      amountMinor: input.amountMinor,
+      rewardGrantId: input.rewardGrantId ?? null,
+    });
+    if (!priced.ok) return priced;
+    return accept(priced.value.summary);
+  });
+}
+
+/* ---- Fee policy authoring, under maker-checker ---- */
+
+export async function draftFeePolicyCommand(
+  principal: Principal,
+  commandId: string,
+  input: DraftPolicyInput,
+): Promise<Outcome<{ policyId: string; version: number }>> {
+  return runCommand({
+    commandId,
+    commandType: 'FEE_POLICY_DRAFT',
+    actorId: principal.userId,
+    payload: {
+      policyKey: input.policyKey,
+      scenario: input.scenario,
+      bps: input.bps,
+      fixedMinor: input.fixedMinor,
+      minFeeMinor: input.minFeeMinor,
+      maxFeeMinor: input.maxFeeMinor,
+      discountCapBps: input.discountCapBps,
+    },
+    body: async (ctx) => {
+      const drafted = await draftPolicy(ctx.tx, principal, input);
+      if (!drafted.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'FEE_POLICY_DRAFT',
+          subjectKind: 'policy',
+          subjectId: commandId,
+          outcome: drafted.code,
+        });
+        return drafted;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'FEE_POLICY_DRAFT',
+        subjectKind: 'policy',
+        subjectId: drafted.value.policyId,
+        toState: 'DRAFT',
+        outcome: 'OK',
+        detail: {
+          policyKey: drafted.value.policyKey,
+          version: drafted.value.version,
+          bps: drafted.value.bps.toString(),
+        },
+      });
+      return accept({ policyId: drafted.value.policyId, version: drafted.value.version });
+    },
+    encodeResult: (v) => ({ policyId: v.policyId, version: v.version }),
+    decodeResult: (r) => ({ policyId: String(r.policyId), version: Number(r.version) }),
+  });
+}
+
+export async function proposeFeePolicyCommand(
+  principal: Principal,
+  commandId: string,
+  input: { policyId: string; rationale: string },
+): Promise<Outcome<{ activationId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'FEE_POLICY_PROPOSE',
+    actorId: principal.userId,
+    payload: { policyId: input.policyId, rationale: input.rationale },
+    body: async (ctx) => {
+      const proposed = await proposeActivation(ctx.tx, principal, input);
+      if (!proposed.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'FEE_POLICY_PROPOSE',
+          subjectKind: 'policy',
+          subjectId: input.policyId,
+          outcome: proposed.code,
+        });
+        return proposed;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'FEE_POLICY_PROPOSE',
+        subjectKind: 'policy',
+        subjectId: input.policyId,
+        outcome: 'OK',
+        detail: { activationId: proposed.value.activationId },
+      });
+      return accept({ activationId: proposed.value.activationId });
+    },
+    encodeResult: (v) => ({ activationId: v.activationId }),
+    decodeResult: (r) => ({ activationId: String(r.activationId) }),
+  });
+}
+
+/**
+ * Approve an activation and switch the schedule.
+ *
+ * The only command that changes what future customers pay, and — like a
+ * dispute ruling — it requires a different person from the proposer,
+ * re-checked at execution.
+ */
+export async function approveFeePolicyCommand(
+  principal: Principal,
+  commandId: string,
+  input: { activationId: string; note?: string },
+): Promise<Outcome<{ policyId: string; policyKey: string; version: number }>> {
+  return runCommand({
+    commandId,
+    commandType: 'FEE_POLICY_APPROVE',
+    actorId: principal.userId,
+    payload: { activationId: input.activationId },
+    body: async (ctx) => {
+      const approved = await approveActivation(ctx.tx, principal, input);
+      if (!approved.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'FEE_POLICY_APPROVE',
+          subjectKind: 'policy',
+          subjectId: input.activationId,
+          outcome: approved.code,
+        });
+        return approved;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'FEE_POLICY_APPROVE',
+        subjectKind: 'policy',
+        subjectId: approved.value.policyId,
+        toState: 'ACTIVE',
+        outcome: 'OK',
+        detail: { policyKey: approved.value.policyKey, version: approved.value.version },
+      });
+      await ctx.emit({
+        type: 'fee.policy_activated',
+        subjectKind: 'policy',
+        subjectId: approved.value.policyId,
+        payload: { policyKey: approved.value.policyKey, version: approved.value.version },
+      });
+      return accept({
+        policyId: approved.value.policyId,
+        policyKey: approved.value.policyKey,
+        version: approved.value.version,
+      });
+    },
+    encodeResult: (v) => ({ ...v }),
+    decodeResult: (r) => ({
+      policyId: String(r.policyId),
+      policyKey: String(r.policyKey),
+      version: Number(r.version),
+    }),
+  });
+}
+
+/* ---- Referrals ---- */
+
+export async function claimReferralCommand(
+  user: SessionUser,
+  commandId: string,
+  input: { code: string },
+): Promise<Outcome<{ referralId: string; referrerId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'REFERRAL_CLAIM',
+    actorId: user.userId,
+    payload: { code: input.code.trim().toUpperCase() },
+    body: async (ctx) => {
+      const attributed = await attributeReferral(ctx.tx, {
+        refereeId: user.userId,
+        code: input.code,
+      });
+      if (!attributed.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: user.userId,
+          action: 'REFERRAL_CLAIM',
+          subjectKind: 'user',
+          subjectId: user.userId,
+          outcome: attributed.code,
+        });
+        return attributed;
+      }
+      await ctx.audit({
+        actorId: user.userId,
+        action: 'REFERRAL_CLAIM',
+        subjectKind: 'user',
+        subjectId: user.userId,
+        outcome: 'OK',
+        detail: { referralId: attributed.value.referralId },
+      });
+      return accept({
+        referralId: attributed.value.referralId,
+        referrerId: attributed.value.referrerId,
+      });
+    },
+    encodeResult: (v) => ({ referralId: v.referralId, referrerId: v.referrerId }),
+    decodeResult: (r) => ({
+      referralId: String(r.referralId),
+      referrerId: String(r.referrerId),
+    }),
+  });
+}
+
+/* ---- Premium ---- */
+
+export async function grantPremiumCommand(
+  principal: Principal,
+  commandId: string,
+  input: {
+    userId: string;
+    source: 'SUBSCRIPTION' | 'REWARD_CAMPAIGN' | 'SANDBOX_MANUAL';
+    discountBps: bigint;
+    days: number;
+  },
+): Promise<Outcome<{ grantId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'PREMIUM_GRANT',
+    actorId: principal.userId,
+    payload: {
+      userId: input.userId,
+      source: input.source,
+      discountBps: input.discountBps,
+      days: input.days,
+    },
+    body: async (ctx) => {
+      const granted = await grantPremium(ctx.tx, principal, input);
+      if (!granted.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'PREMIUM_GRANT',
+          subjectKind: 'user',
+          subjectId: input.userId,
+          outcome: granted.code,
+        });
+        return granted;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'PREMIUM_GRANT',
+        subjectKind: 'user',
+        subjectId: input.userId,
+        outcome: 'OK',
+        detail: { grantId: granted.value.grantId, source: input.source },
+      });
+      return accept({ grantId: granted.value.grantId });
+    },
+    encodeResult: (v) => ({ grantId: v.grantId }),
+    decodeResult: (r) => ({ grantId: String(r.grantId) }),
+  });
+}
+
+export async function revokePremiumCommand(
+  principal: Principal,
+  commandId: string,
+  input: { grantId: string; reason: string },
+): Promise<Outcome<{ grantId: string }>> {
+  return runCommand({
+    commandId,
+    commandType: 'PREMIUM_REVOKE',
+    actorId: principal.userId,
+    payload: { grantId: input.grantId, reason: input.reason },
+    body: async (ctx) => {
+      const revoked = await revokePremium(ctx.tx, principal, input);
+      if (!revoked.ok) {
+        await writeAudit(ctx.tx, {
+          actorId: principal.userId,
+          action: 'PREMIUM_REVOKE',
+          subjectKind: 'user',
+          subjectId: principal.userId,
+          outcome: revoked.code,
+        });
+        return revoked;
+      }
+      await ctx.audit({
+        actorId: principal.userId,
+        action: 'PREMIUM_REVOKE',
+        subjectKind: 'user',
+        subjectId: principal.userId,
+        outcome: 'OK',
+        detail: { grantId: input.grantId },
+      });
+      return revoked;
+    },
+    encodeResult: (v) => ({ grantId: v.grantId }),
+    decodeResult: (r) => ({ grantId: String(r.grantId) }),
   });
 }

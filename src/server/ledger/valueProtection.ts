@@ -360,11 +360,43 @@ async function settleLock(
   return accept(mapLock(settled[0]));
 }
 
-export function releaseDealValue(
+/**
+ * Release the locked value, and collect the platform fee.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THE FEE IS COLLECTED HERE AND NOWHERE ELSE.                       │
+ * │                                                                    │
+ * │  A release is the ONE economically successful outcome, so it is    │
+ * │  the one place a success fee is due. `refundDealValue` does not    │
+ * │  call this, and there is no other caller — which is what makes     │
+ * │  "a refund collects no success fee" structural rather than a rule  │
+ * │  somebody has to remember.                                         │
+ * │                                                                    │
+ * │  Both postings commit on the same transaction as the settlement,   │
+ * │  so a deal cannot be released without its fee being decided, and   │
+ * │  a fee cannot be taken for a release that rolled back.             │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export async function releaseDealValue(
   tx: Tx,
   input: { dealId: string; beneficiaryId: string; commandId: string },
 ): Promise<Outcome<ValueLock>> {
-  return settleLock(tx, { ...input, settlement: 'RELEASED' });
+  const settled = await settleLock(tx, { ...input, settlement: 'RELEASED' });
+  if (!settled.ok) return settled;
+
+  const { collectFee } = await import('@/server/commerce/feeCollection');
+  const collected = await collectFee(tx, {
+    dealId: input.dealId,
+    beneficiaryId: input.beneficiaryId,
+    commandId: input.commandId,
+    asset: settled.value.asset,
+  });
+  // A collection that cannot happen honestly is RECORDED, not raised:
+  // the settlement itself is valid and must not be lost because the
+  // platform could not take its cut.
+  if (!collected.ok) return collected;
+
+  return settled;
 }
 
 export function refundDealValue(
