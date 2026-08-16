@@ -109,8 +109,26 @@ CREATE TABLE sandbox.dispute_case (
   CONSTRAINT dispute_case_snapshot_obj CHECK (jsonb_typeof(snapshot) = 'object'),
   CONSTRAINT dispute_case_resolved_rule CHECK (
     (state = 'RESOLVED') = (disposition IS NOT NULL
-                            AND resolved_by_proposal IS NOT NULL
                             AND resolved_at IS NOT NULL)),
+  /*
+   * A ruling THIS SYSTEM made names the proposal that approved it, so a
+   * resolution can always be traced back to two people.
+   *
+   * ⚠ DEL-10: this was folded into the rule above, which made the
+   * backfill impossible to complete. Historical rulings were decided
+   * before DEL-06 existed and have no proposal to point at, so every
+   * legacy RESOLVED dispute aborted the migration.
+   *
+   * The exception is deliberately narrow and self-declaring: a resolved
+   * case may omit its proposal ONLY if its note says it was carried
+   * across. Minting a proposal id for a ruling nobody approved would
+   * fabricate a maker-checker record — the one thing this table exists
+   * to make impossible.
+   */
+  CONSTRAINT dispute_case_ruling_traceable CHECK (
+    state <> 'RESOLVED'
+    OR resolved_by_proposal IS NOT NULL
+    OR resolution_note LIKE 'Resolved before DEL-06%'),
   CONSTRAINT dispute_case_withdrawn_rule CHECK (
     (state = 'WITHDRAWN') = (withdrawn_at IS NOT NULL))
 );
@@ -136,7 +154,51 @@ CREATE INDEX dispute_case_deal_ix  ON sandbox.dispute_case (deal_id, opened_at);
 -- old `detail` column was nullable and the new `statement` is not, so a
 -- historical row with no detail gets an explicit, honest placeholder
 -- rather than an invented complaint.
+--
+-- ⚠ DEL-10 REPAIR — THIS BACKFILL COULD NOT RUN ON REAL DATA.
+--
+-- `dispute.detail` was free text with no length rule. `statement` is
+-- constrained to BETWEEN 20 AND 4000. The original expression only
+-- substituted the placeholder when detail was NULL or blank, and carried
+-- everything else across unchanged — so a legacy row reading "Nothing
+-- arrived." (16 characters) violated the CHECK and aborted the whole
+-- migration. Both of those exact strings exist in the sandbox data.
+--
+-- It went unnoticed for four stages because every gate applied the
+-- migrations to a FRESHLY CREATED database, where `sandbox.dispute` was
+-- empty and the backfill was a no-op. It failed the moment DEL-10 ran an
+-- upgrade over a populated one.
+--
+-- The expression below now maps legacy text INTO the new domain instead
+-- of assuming it already fits. A person's own words are never discarded
+-- and never rewritten: a short statement keeps its text and gains a
+-- clause saying why it was extended, and an over-long one is cut at the
+-- limit and openly marked as truncated.
 -- ---------------------------------------------------------------------
+
+/*
+ * Defined once and used by both inserts below, so the two paths cannot
+ * drift apart, then dropped at the end of this migration — it exists to
+ * carry history across, not to become part of the schema.
+ */
+CREATE FUNCTION sandbox.del06_legacy_statement(detail TEXT)
+RETURNS TEXT
+LANGUAGE sql IMMUTABLE
+AS $$
+  SELECT CASE
+    -- Nothing was ever written. Say exactly that; invent no complaint.
+    WHEN nullif(trim(detail), '') IS NULL
+      THEN 'Raised before DEL-06; no statement was recorded at the time.'
+    -- Their words, kept whole, with the reason they were padded.
+    WHEN char_length(trim(detail)) < 20
+      THEN trim(detail) || ' (Statement carried over from before DEL-06, '
+           'when no minimum length applied.)'
+    -- Cut to the limit, and said so rather than silently shortened.
+    WHEN char_length(trim(detail)) > 4000
+      THEN left(trim(detail), 3950) || ' […truncated in the DEL-06 migration]'
+    ELSE trim(detail)
+  END;
+$$;
 
 INSERT INTO sandbox.dispute_case
   (case_id, deal_id, opened_by, category, statement, state, disposition,
@@ -145,15 +207,24 @@ SELECT d.dispute_id,
        d.deal_id,
        d.raised_by,
        d.reason,
-       coalesce(nullif(trim(d.detail), ''),
-                'Raised before DEL-06; no statement was recorded at the time.'),
+       sandbox.del06_legacy_statement(d.detail),
        CASE d.state WHEN 'RESOLVED' THEN 'RESOLVED'::sandbox.case_state
                     WHEN 'UNDER_REVIEW' THEN 'UNDER_REVIEW'::sandbox.case_state
                     ELSE 'OPEN'::sandbox.case_state END,
        CASE d.resolution WHEN 'RELEASED' THEN 'RELEASE'::sandbox.case_disposition
                          WHEN 'REFUNDED' THEN 'REFUND'::sandbox.case_disposition
                          ELSE NULL END,
-       NULL,
+       /*
+        * A resolved legacy row states, in the record itself, that no
+        * DEL-06 proposal stands behind it. `dispute_case_ruling_traceable`
+        * reads this note, so the exception cannot be taken silently — and
+        * an operator reading the case sees the same sentence.
+        */
+       CASE WHEN d.state = 'RESOLVED'
+            THEN 'Resolved before DEL-06, when rulings were not recorded as '
+                 'maker-checker proposals. No approving proposal exists for '
+                 'this decision.'
+            ELSE NULL END,
        d.raised_at,
        d.resolved_at
   FROM sandbox.dispute d
@@ -168,18 +239,38 @@ SELECT d.dispute_id,
  */
 INSERT INTO sandbox.dispute_case
   (case_id, deal_id, opened_by, category, statement, state, disposition,
-   resolved_by_proposal, resolution_note, opened_at, resolved_at)
+   resolved_by_proposal, resolution_note, opened_at, resolved_at, withdrawn_at)
 SELECT d.dispute_id, d.deal_id, d.raised_by, d.reason,
-       coalesce(nullif(trim(d.detail), ''),
-                'Raised before DEL-06; no statement was recorded at the time.'),
+       sandbox.del06_legacy_statement(d.detail),
        'WITHDRAWN'::sandbox.case_state, NULL, NULL,
        'Resolved as CANCELLED before DEL-06. Recorded as withdrawn because '
        'DEL-06 admits only RELEASE and REFUND as dispositions.',
-       d.raised_at, NULL
+       d.raised_at, NULL,
+       /*
+        * ⚠ DEL-10: set HERE, in the insert.
+        *
+        * `dispute_case_withdrawn_rule` requires a withdrawn case to name
+        * when it was withdrawn, and CHECK constraints are evaluated per
+        * row as it is inserted — not at the end of the statement. The
+        * original migration set this in a follow-up UPDATE, so the very
+        * first legacy CANCELLED dispute aborted the whole upgrade before
+        * that UPDATE could ever run.
+        *
+        * It survived review because it is invisible on an empty database
+        * and on any dataset that happens to contain no CANCELLED
+        * resolutions — including the one the earlier DEL-10 repair was
+        * tested against. The populated fixture carries them deliberately.
+        *
+        * The withdrawal is dated to when the dispute was raised, which is
+        * the only honest timestamp available: the legacy row recorded no
+        * separate withdrawal moment, and inventing one would be worse.
+        */
+       d.raised_at
   FROM sandbox.dispute d
  WHERE d.state = 'RESOLVED' AND d.resolution = 'CANCELLED';
 
-UPDATE sandbox.dispute_case SET withdrawn_at = opened_at WHERE state = 'WITHDRAWN';
+-- The carry-across is done; the helper does not belong to the schema.
+DROP FUNCTION sandbox.del06_legacy_statement(TEXT);
 
 DROP TABLE sandbox.dispute;
 

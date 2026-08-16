@@ -114,7 +114,18 @@ export interface RunResult {
   readonly delivered: number;
   readonly retried: number;
   readonly deadLettered: number;
+  /** Claimed, recognised as having no handler, and quarantined. */
+  readonly unsupported: number;
 }
+
+/**
+ * The explicit "nothing happens here" handler.
+ *
+ * Registering this is a DECISION — it says somebody considered the event
+ * and concluded no action is needed. Leaving a type unregistered says
+ * nothing at all, which is why the two must not look alike.
+ */
+export const noopHandler: OutboxHandler = async () => {};
 
 /**
  * Run one pass.
@@ -144,18 +155,39 @@ export async function runOnce(
   let delivered = 0;
   let retried = 0;
   let deadLettered = 0;
+  let unsupported = 0;
 
   for (const event of batch) {
     const handler = handlers[event.eventType];
+
+    /*
+     * ┌──────────────────────────────────────────────────────────────┐
+     * │  AN UNKNOWN EVENT IS NEVER MARKED DELIVERED.                 │
+     * │                                                              │
+     * │  DEL-09 marked it delivered to avoid an infinite retry, and  │
+     * │  that was wrong: `payment.confirmed` arriving with no        │
+     * │  handler — because a registration was dropped in a refactor  │
+     * │  — would have been recorded as successfully delivered and    │
+     * │  disappeared. A financial event nobody handled must be       │
+     * │  LOUD, not tidy.                                             │
+     * │                                                              │
+     * │  So it goes to UNSUPPORTED: terminal, so it is not retried   │
+     * │  forever; visible in the dead-letter queue, so somebody sees │
+     * │  it; and replayable once a handler exists.                   │
+     * │                                                              │
+     * │  An event that genuinely needs no action registers           │
+     * │  `noopHandler` EXPLICITLY. "Nothing happens" is then a       │
+     * │  decision somebody made rather than a gap nobody noticed.    │
+     * └──────────────────────────────────────────────────────────────┘
+     */
+    if (handler === undefined) {
+      await markUnsupported(event, workerId);
+      unsupported += 1;
+      continue;
+    }
+
     try {
-      if (handler !== undefined) {
-        await withTimeout(handler(event), HANDLER_TIMEOUT_MS, event.eventType);
-      }
-      /*
-       * An event with NO handler is delivered, not retried forever.
-       * Retrying something nothing is listening for produces a backlog
-       * that hides the events somebody is actually waiting on.
-       */
+      await withTimeout(handler(event), HANDLER_TIMEOUT_MS, event.eventType);
       await markDelivered(event.outboxId, workerId);
       delivered += 1;
     } catch (error) {
@@ -166,7 +198,7 @@ export async function runOnce(
     }
   }
 
-  return { claimed: batch.length, delivered, retried, deadLettered };
+  return { claimed: batch.length, delivered, retried, deadLettered, unsupported };
 }
 
 async function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
@@ -200,6 +232,54 @@ async function markDelivered(outboxId: string, workerId: string): Promise<void> 
       [outboxId, workerId],
     ),
   );
+}
+
+/**
+ * Quarantine an event nobody handles.
+ *
+ * TERMINAL, so it is not retried forever, and DEAD-LETTERED so it is
+ * visible in the queue an operator already reads. `published_at` stays
+ * null: it was never delivered, and recording otherwise is the exact
+ * failure this replaces.
+ *
+ * An audit row is written on the same transaction, so the signal
+ * survives even if nobody is looking at the queue.
+ */
+async function markUnsupported(event: OutboxEvent, workerId: string): Promise<void> {
+  await withTransaction(async (tx) => {
+    const { rowCount } = await tx.query(
+      `UPDATE sandbox.outbox_event
+          SET state='DEAD_LETTER', dead_lettered_at=now(), lease_owner=NULL,
+              lease_expires_at=NULL, published_at=NULL,
+              last_error=$3
+        WHERE outbox_id=$1 AND lease_owner=$2 AND state='PENDING'`,
+      [
+        event.outboxId,
+        workerId,
+        `UNSUPPORTED: no handler is registered for event type "${event.eventType}". ` +
+          'Register one (or the explicit no-op handler) and replay.',
+      ],
+    );
+    if (rowCount === 0) return;
+
+    await tx.query(
+      `INSERT INTO sandbox.audit_event
+         (actor_id, action, subject_kind, subject_id, outcome, detail)
+       VALUES (NULL, 'OUTBOX_UNSUPPORTED', $1, $2, 'UNSUPPORTED', $3)`,
+      [
+        event.subjectKind,
+        event.subjectId,
+        JSON.stringify({
+          eventType: event.eventType,
+          attempts: event.attempts,
+          correlationId: event.correlationId,
+          // The PAYLOAD is not copied: it may carry deal detail, and an
+          // audit row is read by more people than the outbox is.
+          reason: 'NO_HANDLER_REGISTERED',
+        }),
+      ],
+    );
+  });
 }
 
 async function markFailed(

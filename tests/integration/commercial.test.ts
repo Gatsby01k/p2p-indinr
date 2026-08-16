@@ -3,7 +3,6 @@ import { getPool, withTransaction } from '@/server/db/pool';
 import { newCommandId, readCommand } from '@/server/boundary/command';
 import { activePolicyFor } from '@/server/commerce/feePolicy';
 import {
-  attributeReferral,
   entitlementsFor,
   livePremium,
   normalizeReferralCode,
@@ -20,7 +19,6 @@ import {
   createDealCommand,
   draftFeePolicyCommand,
   grantPremiumCommand,
-  joinCommand,
   previewQuoteCommand,
   proposeFeePolicyCommand,
   refundValueCommand,
@@ -31,6 +29,7 @@ import type { SessionUser } from '@/server/sandbox/service';
 import type { Principal } from '@/server/identity/rbac';
 import { lockedDeal, unique } from './support/rails';
 import { bare, newUser, operatorPrincipal, withoutMfa } from './support/room';
+import { activePolicy, expectedBaseFee, withTemporaryPolicy } from './support/feePolicy';
 
 /**
  * DEL-07 fees, premium, referrals, rewards and reputation.
@@ -96,12 +95,22 @@ describe('fees come from an active versioned schedule', () => {
     expect(snapshot).not.toBeNull();
     if (snapshot === null) return;
 
-    expect(snapshot.policyKey).toBe('protected-inr');
-    expect(snapshot.policyVersion).toBe(1);
-    // 1.50% of ₹25,000 = ₹375 = 37,500 paise.
-    expect(snapshot.baseFeeMinor).toBe('37500');
-    expect(snapshot.finalFeeMinor).toBe('37500');
-    expect(snapshot.payerSendsMinor).toBe('2537500');
+    /*
+     * Asserted against the schedule that is actually LIVE, not against
+     * version 1. The property under test is that a quote is priced by
+     * the active schedule and frozen with the complete calculation —
+     * which version happens to be active is the fixture's business, and
+     * hard-coding it made this test fail on every run after the first.
+     */
+    const live = await activePolicy('INR_TO_INR');
+    const base = expectedBaseFee(live, 2_500_000n);
+
+    expect(snapshot.policyKey).toBe(live.policyKey);
+    expect(snapshot.policyVersion).toBe(live.version);
+    expect(snapshot.baseFeeMinor).toBe(base.toString());
+    expect(snapshot.finalFeeMinor).toBe(base.toString());
+    // The payer sends the amount plus the fee; the payee is kept whole.
+    expect(snapshot.payerSendsMinor).toBe((2_500_000n + base).toString());
     expect(snapshot.payeeReceivesMinor).toBe('2500000');
   });
 
@@ -340,39 +349,61 @@ describe('activating a schedule takes two people', () => {
       return approved.value;
     };
 
-    const punitive = await activate({
-      bps: 900n,
-      fixedMinor: 50_000n,
-      minFeeMinor: 10_000n,
-      maxFeeMinor: 900_000n,
-      rationale: 'A deliberately punitive schedule, to prove old quotes are safe.',
+    /*
+     * The rollback now runs in a `finally`.
+     *
+     * It used to be the line after these assertions, so a failure
+     * anywhere above left the PUNITIVE schedule live for every test and
+     * every later run — which is how the fixture drifted to 900bps and
+     * stayed there. Restoration must survive the failure it is there to
+     * clean up after.
+     *
+     * Versions are asserted RELATIVE to whatever was live, because this
+     * table only grows and absolute numbers are true exactly once.
+     */
+    const before_policy = await activePolicy('INR_TO_INR');
+
+    await withTemporaryPolicy(
+      'INR_TO_INR',
+      activate,
+      {
+        bps: 900n,
+        fixedMinor: 50_000n,
+        minFeeMinor: 10_000n,
+        maxFeeMinor: 900_000n,
+        rationale: 'A deliberately punitive schedule, to prove old quotes are safe.',
+      },
+      async (punitive, baseline) => {
+        expect(punitive.version).toBe(baseline.version + 1);
+
+        const after = await snapshotForQuote(created.quoteId);
+        expect(after, 'a frozen promise does not move').toEqual(before);
+
+        // A NEW quote gets the NEW schedule, as it should.
+        const fresh = await dealWithQuote();
+        const freshSnapshot = await snapshotForQuote(fresh.quoteId);
+        expect(freshSnapshot!.policyVersion).toBe(punitive.version);
+        // 9% of 2,500,000 = 225,000 plus the 50,000 fixed component.
+        expect(freshSnapshot!.baseFeeMinor).toBe('275000');
+
+        return { fresh, freshSnapshot };
+      },
+    ).then(async ({ fresh, freshSnapshot }) => {
+      // Checked AFTER restoration: a frozen promise is frozen in both
+      // directions, so the punitive quote keeps its terms even once the
+      // original schedule is live again.
+      expect(await snapshotForQuote(fresh.quoteId)).toEqual(freshSnapshot);
     });
-    expect(punitive.version).toBe(2);
 
-    const after = await snapshotForQuote(created.quoteId);
-    expect(after, 'a frozen promise does not move').toEqual(before);
-
-    // A NEW quote gets the NEW schedule, as it should.
-    const fresh = await dealWithQuote();
-    const freshSnapshot = await snapshotForQuote(fresh.quoteId);
-    expect(freshSnapshot!.policyVersion).toBe(2);
-    // 9% of 2,500,000 = 225,000 plus the 50,000 fixed component.
-    expect(freshSnapshot!.baseFeeMinor).toBe('275000');
-
-    // Roll the original terms back, so the rest of the suite prices as
-    // the seeded schedule intends.
-    const restored = await activate({
-      bps: 150n,
-      fixedMinor: 0n,
-      minFeeMinor: 2_500n,
-      maxFeeMinor: 200_000n,
-      rationale: 'Rolling back to the original protected-payment schedule.',
-    });
-    expect(restored.version).toBe(3);
-
-    // The punitive quote KEEPS its terms after the rollback too: a
-    // frozen promise is frozen in both directions.
-    expect(await snapshotForQuote(fresh.quoteId)).toEqual(freshSnapshot);
+    /*
+     * The corridor is priced by whatever was live BEFORE this test,
+     * compared against the captured baseline rather than the seeded
+     * numbers — another suite may legitimately own this corridor by the
+     * time this runs, and the guarantee is "unchanged", not "150bps".
+     */
+    const restored = await activePolicy('INR_TO_INR');
+    expect(restored.bps).toBe(before_policy.bps);
+    expect(restored.fixedMinor).toBe(before_policy.fixedMinor);
   });
 
   it('a snapshot cannot be edited or deleted', async () => {
@@ -501,36 +532,79 @@ describe('premium is server-authoritative', () => {
   it('reduces the fee only through the active policy', async () => {
     const user = await newUser('com-premium');
     /*
-     * Priced against USDT_TO_INR, a corridor this suite does not
-     * republish. Sharing a corridor with the immutability cases would
-     * make this measure test ordering rather than the feature, and the
-     * discount must come from whatever schedule is genuinely live.
+     * This test OWNS the schedule it prices against.
+     *
+     * It used to pick USDT_TO_INR on the grounds that "this suite does
+     * not republish it" — true, and irrelevant: `atomicJoin` publishes
+     * a schedule for that corridor with `discountCapBps: 0`, so by the
+     * time this ran the live policy forbade any discount at all and the
+     * fee could not move. The comment described a coupling the test
+     * could not actually control.
+     *
+     * Establishing a known schedule with a real discount cap makes the
+     * measurement independent of what any other file did.
      */
-    const before = await previewQuoteCommand(user, {
-      scenario: 'USDT_TO_INR',
-      amountMinor: 2_500_000n,
-    });
+    await withTemporaryPolicy(
+      'USDT_TO_INR',
+      async (terms) => {
+        const draft = await draftFeePolicyCommand(maker, newCommandId(), {
+          policyKey: `premium-probe-${unique()}`,
+          scenario: 'USDT_TO_INR',
+          feeAsset: 'INR',
+          feeBearer: 'PAYER',
+          bps: terms.bps,
+          fixedMinor: terms.fixedMinor,
+          minFeeMinor: terms.minFeeMinor,
+          maxFeeMinor: terms.maxFeeMinor,
+          discountCapBps: 5_000n,
+        });
+        if (!draft.ok) throw new Error(`draft: ${draft.code}`);
+        const proposed = await proposeFeePolicyCommand(maker, newCommandId(), {
+          policyId: draft.value.policyId,
+          rationale: terms.rationale,
+        });
+        if (!proposed.ok) throw new Error(`propose: ${proposed.code}`);
+        const approved = await approveFeePolicyCommand(checker, newCommandId(), {
+          activationId: proposed.value.activationId,
+        });
+        if (!approved.ok) throw new Error(`approve: ${approved.code}`);
+        return approved.value;
+      },
+      {
+        bps: 125n,
+        fixedMinor: 18_000n,
+        minFeeMinor: 2_500n,
+        maxFeeMinor: 250_000n,
+        rationale: 'A schedule with a real discount cap, so premium can be measured.',
+      },
+      async () => {
+        const before = await previewQuoteCommand(user, {
+          scenario: 'USDT_TO_INR',
+          amountMinor: 2_500_000n,
+        });
 
-    expect(
-      (
-        await grantPremiumCommand(admin, newCommandId(), {
-          userId: user.userId,
-          source: 'REWARD_CAMPAIGN',
-          discountBps: 2_000n,
-          days: 30,
-        })
-      ).ok,
-    ).toBe(true);
+        expect(
+          (
+            await grantPremiumCommand(admin, newCommandId(), {
+              userId: user.userId,
+              source: 'REWARD_CAMPAIGN',
+              discountBps: 2_000n,
+              days: 30,
+            })
+          ).ok,
+        ).toBe(true);
 
-    const after = await previewQuoteCommand(user, {
-      scenario: 'USDT_TO_INR',
-      amountMinor: 2_500_000n,
-    });
-    expect(before.ok && after.ok).toBe(true);
-    if (!before.ok || !after.ok) return;
-    expect(BigInt(after.value.feeMinor)).toBeLessThan(BigInt(before.value.feeMinor));
-    // 20% off a base of (1.25% of 2,500,000 = 31,250) + 18,000 = 49,250.
-    expect(after.value.discounts).toContainEqual({ source: 'PREMIUM', amountMinor: '9850' });
+        const after = await previewQuoteCommand(user, {
+          scenario: 'USDT_TO_INR',
+          amountMinor: 2_500_000n,
+        });
+        expect(before.ok && after.ok).toBe(true);
+        if (!before.ok || !after.ok) return;
+        expect(BigInt(after.value.feeMinor)).toBeLessThan(BigInt(before.value.feeMinor));
+        // 20% off a base of (1.25% of 2,500,000 = 31,250) + 18,000 = 49,250.
+        expect(after.value.discounts).toContainEqual({ source: 'PREMIUM', amountMinor: '9850' });
+      },
+    );
   });
 
   it('stops mattering the moment it EXPIRES', async () => {

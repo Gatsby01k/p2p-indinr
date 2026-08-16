@@ -161,10 +161,21 @@ export function SectionHead({
         ) : null}
       </h2>
       {action ? (
+        /*
+         * WCAG 2.2 AA 2.5.8: at least 24×24 CSS px.
+         *
+         * The text is 12px on an 18px line box, so the link WAS 61×18 —
+         * a real miss, not a measurement artefact, and the smallest
+         * target on the home screen. `min-h-6` makes the hit area 24px
+         * tall; the matching `-my-[3px]` gives the three extra pixels
+         * above and below back to the flex line, so the row keeps its
+         * height and the baseline the heading shares with it does not
+         * move. The label looks identical and is simply easier to hit.
+         */
         <Link
           href={action.href}
           prefetch={false}
-          className="inline-flex items-center gap-0.5 text-[length:var(--text-xs)] font-medium text-[var(--color-brand)] hover:text-[var(--color-brand-hover)]"
+          className="-my-[3px] inline-flex min-h-6 items-center gap-0.5 text-[length:var(--text-xs)] font-medium text-[var(--color-brand)] hover:text-[var(--color-brand-hover)]"
         >
           {action.label}
           <Icon name="chevron-right" className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1124,9 +1135,18 @@ export function EmptyState({
       <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[var(--color-sunken)] text-[var(--color-ink-4)]">
         <Icon name={icon} className="h-5 w-5" />
       </span>
-      <h3 className="mt-4 text-[length:var(--text-lg)] font-semibold text-[var(--color-ink)]">
+      {/*
+       * `h2`, not `h3`.
+       *
+       * An empty state usually sits directly under the page's `h1`
+       * with no section heading between them, so an `h3` skipped a
+       * level — a screen-reader user hears a gap and cannot tell
+       * whether they missed a section. The visual size is set by the
+       * class, not the tag, so nothing looks different.
+       */}
+      <h2 className="mt-4 text-[length:var(--text-lg)] font-semibold text-[var(--color-ink)]">
         {title}
-      </h3>
+      </h2>
       <p className="mx-auto mt-1.5 max-w-[42ch] text-[length:var(--text-base)] leading-relaxed text-[var(--color-ink-2)]">
         {body}
       </p>

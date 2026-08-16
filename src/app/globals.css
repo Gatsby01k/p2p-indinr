@@ -1058,11 +1058,46 @@
     width: min(30rem, calc(100vw - 3rem));
     max-height: 85dvh;
     border-radius: var(--radius-xl);
-    animation: rise var(--dur-base) var(--ease-out) both;
+    /* ⚠ NOT `rise`. See `dialog-in` below — `rise` ends at
+       `transform: none`, and with `both` that permanently overwrote the
+       centring translate above. */
+    animation: dialog-in var(--dur-base) var(--ease-out) both;
     padding-bottom: 0;
   }
   .sheet-grip {
     display: none;
+  }
+}
+
+/* ┌──────────────────────────────────────────────────────────────────┐
+   │  A CENTRED DIALOG CANNOT BORROW `rise`.                          │
+   │                                                                  │
+   │  `.sheet` is placed with `top:50%; left:50%` and pulled back by   │
+   │  `translate(-50%,-50%)`. `rise` ends at `transform: none`, and    │
+   │  `animation-fill-mode: both` keeps that final value applied FOR   │
+   │  EVER — so a fraction of a second after opening, the dialog lost  │
+   │  its centring and sat half a viewport down and to the right.      │
+   │                                                                  │
+   │  On a 1280×900 screen the "Add a payment method" dialog measured  │
+   │  top 450, bottom 1136: its lower 236 pixels, including the only   │
+   │  submit button, were off the bottom of the window. The dialog was │
+   │  not scrollable either — its content fits its own box, so there   │
+   │  was nothing to scroll — which means a person on a laptop simply  │
+   │  could not add a way to be paid. It affected every tall dialog:   │
+   │  payment methods, disputes, the operator ruling.                  │
+   │                                                                  │
+   │  These keyframes are the same six-pixel rise, expressed as an     │
+   │  OFFSET FROM THE CENTRED POSITION, so the end state is the        │
+   │  position the layout asked for.                                   │
+   └──────────────────────────────────────────────────────────────────┘ */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 6px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
   }
 }
 

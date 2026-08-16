@@ -163,7 +163,13 @@ export default function LandingPage() {
           </p>
           <Link
             href="/login"
-            className="text-[length:var(--text-xs)] font-semibold text-[var(--color-ink-2)] underline underline-offset-4"
+            /*
+             * `min-h-6` is 24px: WCAG 2.2 AA 2.5.8. As a flex item this
+             * link is block-level, so the inline-text exemption does not
+             * apply to it and it was 18px tall — small enough to miss.
+             * The inline-flex keeps it looking like the text link it is.
+             */
+            className="inline-flex min-h-6 items-center text-[length:var(--text-xs)] font-semibold text-[var(--color-ink-2)] underline underline-offset-4"
           >
             Sign in
           </Link>

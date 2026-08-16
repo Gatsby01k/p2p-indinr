@@ -809,6 +809,16 @@ export interface DealView extends Terms {
     readonly note: string | null;
   } | null;
   readonly messages: readonly DealMessage[];
+  /**
+   * True when the room is showing only the most recent page of the
+   * transcript.
+   *
+   * A trimmed record that does not say it is trimmed is worse than a
+   * slow one: both sides read this thread as evidence of what was
+   * agreed. Carried as a server FACT rather than inferred from the page
+   * length, which would be wrong for a room with exactly one page.
+   */
+  readonly transcriptTruncated: boolean;
   readonly evidence: readonly DealEvidence[];
   readonly dispute: DisputeView | null;
   /**

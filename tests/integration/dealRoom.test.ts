@@ -35,7 +35,6 @@ import {
   operatorPrincipal,
   pngBytes,
   proposalRow,
-  unique,
   withoutMfa,
 } from './support/room';
 

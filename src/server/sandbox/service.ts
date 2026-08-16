@@ -113,6 +113,45 @@ function newDealCode(scenario: Scenario): string {
   return `${CODE_PREFIX[scenario]}-${body}`;
 }
 
+/**
+ * How many times a colliding deal code is re-minted before giving up.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THE SHORT CODE IS A BIRTHDAY PROBLEM, AND IT WAS UNHANDLED.       │
+ * │                                                                    │
+ * │  `deal_code` is four characters from a 32-symbol alphabet — about  │
+ * │  a million per corridor — and it carries a UNIQUE constraint. The  │
+ * │  insert had no collision handling at all, so a duplicate surfaced  │
+ * │  as a raw 23505 from `joinDealLink`: a person taking a deal would  │
+ * │  simply be told the server failed, at random, for no reason they   │
+ * │  could see or act on.                                              │
+ * │                                                                    │
+ * │  The rate is not theoretical. It is proportional to how many deals │
+ * │  exist, so it is ZERO on a fresh database and grows with success — │
+ * │  which is why every gate to date missed it. At roughly 3,600 deals │
+ * │  in one corridor the integration suite hit it one to three times   │
+ * │  per run; at a million it would be constant.                       │
+ * │                                                                    │
+ * │  Re-minting is the right fix rather than a longer code: the short  │
+ * │  reference is a product feature (people read it aloud), and five   │
+ * │  attempts make a genuine exhaustion astronomically unlikely while  │
+ * │  still refusing honestly instead of looping forever.               │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+const DEAL_CODE_ATTEMPTS = 5;
+
+/** PostgreSQL's unique-violation SQLSTATE. */
+const UNIQUE_VIOLATION = '23505';
+
+function isDealCodeCollision(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: string }).code === UNIQUE_VIOLATION &&
+    (error as { constraint?: string }).constraint === 'deal_code_uq'
+  );
+}
+
 /** Sandbox UTR: 12 uppercase alphanumerics, matching real UTR length. */
 export const UTR_PATTERN = /^[0-9A-Z]{12}$/;
 
@@ -1256,9 +1295,17 @@ export async function joinDealLinkIn(
   );
   if (cas.rowCount !== 1) return refuse('LINK_CONSUMED');
 
-  // (3) UNIQUE(link_id) is the database's own backstop.
-  const { rows: dRows } = await tx.query(
-    `INSERT INTO sandbox.deal
+  /*
+   * (3) UNIQUE(link_id) is the database's own backstop.
+   *
+   * Wrapped in a SAVEPOINT so a colliding `deal_code` can be re-minted.
+   * A unique violation aborts the whole transaction in PostgreSQL, and
+   * everything above this point — the link CAS that consumed the link —
+   * must survive, so the retry cannot simply re-run the statement.
+   */
+  const insertDeal = async () =>
+    tx.query(
+      `INSERT INTO sandbox.deal
        (public_id, deal_code, link_id, quote_id, direction, usdt_minor, inr_minor,
         rate_num, rate_den, pricing_source, observed_at,
         protection_fee_minor, network_fee_minor, fee_bearer, title,
@@ -1266,27 +1313,44 @@ export async function joinDealLinkIn(
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
              now() + ($16 || ' minutes')::interval, now(), $17)
      RETURNING deal_id, public_id, deal_code`,
-    [
-      dealPublicId,
-      newDealCode(scenario),
-      link.link_id,
-      link.quote_id,
-      q.direction,
-      q.usdt_minor,
-      q.inr_minor,
-      q.rate_num,
-      q.rate_den,
-      q.pricing_source,
-      q.observed_at,
-      q.protection_fee_minor,
-      q.network_fee_minor,
-      q.fee_bearer,
-      q.title,
-      String(PAYMENT_WINDOW_MINUTES),
-      lock.reference,
-    ],
-  );
-  const deal = dRows[0]!;
+      [
+        dealPublicId,
+        newDealCode(scenario),
+        link.link_id,
+        link.quote_id,
+        q.direction,
+        q.usdt_minor,
+        q.inr_minor,
+        q.rate_num,
+        q.rate_den,
+        q.pricing_source,
+        q.observed_at,
+        q.protection_fee_minor,
+        q.network_fee_minor,
+        q.fee_bearer,
+        q.title,
+        String(PAYMENT_WINDOW_MINUTES),
+        lock.reference,
+      ],
+    );
+
+  // Typed from the query itself, so the columns keep their types.
+  let dRows: Awaited<ReturnType<typeof insertDeal>>['rows'] | null = null;
+  for (let attempt = 1; attempt <= DEAL_CODE_ATTEMPTS; attempt += 1) {
+    await tx.query('SAVEPOINT deal_code_attempt');
+    try {
+      dRows = (await insertDeal()).rows;
+      await tx.query('RELEASE SAVEPOINT deal_code_attempt');
+      break;
+    } catch (error) {
+      await tx.query('ROLLBACK TO SAVEPOINT deal_code_attempt');
+      // Only a code collision is retried. Any other violation — a
+      // duplicate link_id, a broken foreign key — is a real failure and
+      // must not be retried into a different-looking error.
+      if (!isDealCodeCollision(error) || attempt === DEAL_CODE_ATTEMPTS) throw error;
+    }
+  }
+  const deal = dRows![0]!;
 
   // Both seats are assigned in the same transaction as the deal.
   await tx.query(
@@ -1425,8 +1489,8 @@ export async function getDeal(
   const valueLocked = r.value_locked_at !== null && valueProtectionAvailable() && ledgerHoldsValue;
   const mayDisclosePaymentInstructions = viewerRole === 'FIAT_SIDE' && valueLocked;
 
-  const [messages, evidence, dispute, payTo] = options.summaryOnly
-    ? [[], [], null, null]
+  const [transcript, evidence, dispute, payTo] = options.summaryOnly
+    ? [{ messages: [], truncated: false } as Transcript, [], null, null]
     : await Promise.all([
         listMessages(dealId, user.userId),
         listEvidence(dealId, user.userId),
@@ -1455,7 +1519,8 @@ export async function getDeal(
           note: r.note ?? null,
         }
       : null,
-    messages,
+    messages: transcript.messages,
+    transcriptTruncated: transcript.truncated,
     evidence,
     dispute,
     payTo,
@@ -1904,16 +1969,46 @@ export async function cancelDeal(user: SessionUser, dealId: string): Promise<Dea
  * 12. The thread
  * ------------------------------------------------------------------ */
 
-async function listMessages(dealId: string, viewerId: string): Promise<readonly DealMessage[]> {
-  const { rows } = await getPool().query(
+/**
+ * The most recent turns of a room's transcript.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  A ROOM'S TRANSCRIPT IS UNBOUNDED IN PRINCIPLE.                    │
+ * │                                                                    │
+ * │  Two people arguing about a payment can exchange hundreds of       │
+ * │  messages, and this query selected and rendered every one of them  │
+ * │  on every load of the deal room. The room got slower the longer a  │
+ * │  dispute ran — which is the moment both sides most need it to      │
+ * │  open.                                                             │
+ * │                                                                    │
+ * │  The newest page is what a person reads first, so the newest page  │
+ * │  is what is fetched: ordered DESC, limited, then reversed back     │
+ * │  into reading order. The room SAYS SO when there is more, because  │
+ * │  a silently trimmed transcript is a record nobody can trust.       │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export const DEAL_ROOM_MESSAGE_LIMIT = 100;
+
+interface Transcript {
+  readonly messages: readonly DealMessage[];
+  readonly truncated: boolean;
+}
+
+async function listMessages(dealId: string, viewerId: string): Promise<Transcript> {
+  const { rows: newestFirst } = await getPool().query(
     `SELECT m.message_id, m.kind, m.body, m.sent_at, m.author_id, u.display_name
        FROM sandbox.deal_message m
        LEFT JOIN sandbox.app_user u ON u.user_id = m.author_id
       WHERE m.deal_id = $1
-      ORDER BY m.sent_at ASC, m.message_id ASC`,
-    [dealId],
+      ORDER BY m.sent_at DESC, m.message_id DESC
+      LIMIT $2`,
+    // One more than the page, so "is there anything older" is answered by
+    // the same query rather than by a second count over the whole table.
+    [dealId, DEAL_ROOM_MESSAGE_LIMIT + 1],
   );
-  return rows.map((r) => ({
+  const truncated = newestFirst.length > DEAL_ROOM_MESSAGE_LIMIT;
+  const rows = newestFirst.slice(0, DEAL_ROOM_MESSAGE_LIMIT).reverse();
+  const messages = rows.map((r) => ({
     messageId: r.message_id,
     kind: r.kind as 'CHAT' | 'SYSTEM',
     authorName: r.display_name ?? null,
@@ -1921,6 +2016,7 @@ async function listMessages(dealId: string, viewerId: string): Promise<readonly 
     body: r.body,
     sentAt: (r.sent_at as Date).toISOString(),
   }));
+  return { messages, truncated };
 }
 
 export async function postMessageIn(

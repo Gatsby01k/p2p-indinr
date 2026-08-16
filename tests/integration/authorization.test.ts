@@ -8,6 +8,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import { makeOperator, type OperatorFixture } from './support/operator';
+import { unique } from './support/room';
 import { getPool } from '@/server/db/pool';
 import {
   SandboxFailure,
@@ -22,6 +23,18 @@ import {
   submitPaymentClaim,
   type SessionUser,
 } from '@/server/sandbox/service';
+
+/*
+ * A fixture identity THIS FILE owns.
+ *
+ * It used to be the literal `ops@sandbox.test` — and so did the one in
+ * the other suite, meaning the same account, with the same TOTP factor,
+ * was re-enrolled and step-burned by two files in a single run. In file
+ * order it happened to survive; under shuffle it failed in `beforeAll`
+ * and took the whole file down with it. A shared mutable credential is
+ * not a fixture.
+ */
+const AUTHZ_OPS_EMAIL = `ops-${unique()}@sandbox.test`;
 
 let seller: SessionUser; // creates links, CRYPTO_SIDE (supplies USDT)
 let buyer: SessionUser; // joins, FIAT_SIDE (sends INR)
@@ -42,7 +55,7 @@ beforeAll(async () => {
   seller = await signInSandbox('authz-seller@sandbox.test');
   buyer = await signInSandbox('authz-buyer@sandbox.test');
   outsider = await signInSandbox('authz-outsider@sandbox.test');
-  operator = await makeOperator('ops@sandbox.test');
+  operator = await makeOperator(AUTHZ_OPS_EMAIL);
   unverified = await signInSandbox('new@sandbox.test');
 });
 

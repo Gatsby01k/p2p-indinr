@@ -56,7 +56,16 @@ export {
 } from '@/server/sandbox/identity';
 
 /* ---- Operator ------------------------------------------------------ */
-export { AT_RISK_MINUTES, countBy, deskQueue, operatorCase } from '@/server/sandbox/ops';
+export {
+  AT_RISK_MINUTES,
+  DESK_PAGE_SIZE,
+  countBy,
+  deskCounts,
+  deskQueue,
+  operatorCase,
+  type DeskCounts,
+  type DeskPage,
+} from '@/server/sandbox/ops';
 export type { OperatorCase } from '@/server/sandbox/ops';
 
 /* ---- Command identity, for server-rendered forms -------------------- */
@@ -108,10 +117,28 @@ export {
 export {
   decideVerification,
   listVerificationCases,
+  listVerificationQueue,
   submitVerification,
   type VerificationCase,
+  type VerificationKind,
+  type VerificationQueueRow,
+  type VerificationState,
 } from '@/server/identity/verification';
 export { emailDeliveryAvailable } from '@/server/adapters/emailDelivery';
+/*
+ * Health, for the two probe routes. The runbook has cited
+ * `/api/health/ready` since DEL-09 and neither endpoint existed; they go
+ * through this boundary like every other interface file, so
+ * `tests/serviceBoundary.test.ts` covers them too.
+ */
+export { liveness, readiness, type Check, type Readiness } from '@/server/ops/readiness';
+/*
+ * The outbox worker, for the scheduler endpoint. One-shot by design —
+ * see `runOnce` — and reached through this boundary like everything
+ * else an interface file touches.
+ */
+export { recoverStaleLeases, runOnce, type RunResult } from '@/server/ops/outboxWorker';
+export { outboxHandlers } from '@/server/ops/outboxHandlers';
 export { currentCaller, requireCaller, rotateSessionIfDue } from '@/server/sandbox/session';
 
 /* ---- Contract re-exports, so a server component needs one import --- */

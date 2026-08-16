@@ -57,6 +57,39 @@ export function formatMinor(minor: string, asset: MinorAsset, exact = false): st
   return `${negative ? '-' : ''}${body}`;
 }
 
+/**
+ * The MACHINE form of a minor-unit value: a plain decimal, no grouping.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  USE THIS WHENEVER AN AMOUNT CROSSES A BOUNDARY THAT PARSES IT.    │
+ * │                                                                    │
+ * │  A URL parameter, a form value, a header, an API field. Never      │
+ * │  `formatMinor` — that applies Indian digit grouping, so ₹83,000    │
+ * │  becomes the string "83,000", and every reader then has to guess.  │
+ * │                                                                    │
+ * │  DEL-10 found exactly that. The calculator handed the display      │
+ * │  string to `/login?next=…&amount=83,000`, where two consumers      │
+ * │  disagreed about it: the sign-in screen matched `[0-9.]+`, stopped │
+ * │  at the comma and told the person their deal was for ₹83; the      │
+ * │  deal form applied an anchored pattern, rejected it outright and   │
+ * │  silently lost the amount. One value, two wrong answers, no error. │
+ * │                                                                    │
+ * │  Full stored precision, never display precision: a value that is   │
+ * │  about to be re-parsed must not be truncated on the way through.   │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export function plainMinor(minor: string, asset: MinorAsset): string {
+  const negative = minor.startsWith('-');
+  const digits = (negative ? minor.slice(1) : minor).replace(/^0+(?=\d)/, '');
+  const scale = DECIMALS[asset];
+
+  const padded = digits.padStart(scale + 1, '0');
+  const whole = padded.slice(0, padded.length - scale);
+  const frac = padded.slice(padded.length - scale).replace(/0+$/, '');
+
+  return `${negative ? '-' : ''}${whole}${frac ? `.${frac}` : ''}`;
+}
+
 /** True when `formatMinor` dropped real precision, so callers can say so. */
 export function minorIsApproximate(minor: string, asset: MinorAsset): boolean {
   const scale = DECIMALS[asset];

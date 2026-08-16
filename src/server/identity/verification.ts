@@ -247,6 +247,70 @@ export async function expireLapsedVerifications(): Promise<number> {
   });
 }
 
+/** A case as a reviewer needs to see it: the subject, named. */
+export interface VerificationQueueRow extends VerificationCase {
+  readonly subjectName: string;
+  readonly subjectHandle: string;
+  /** True when the viewer is the subject — they may never decide it. */
+  readonly isOwnCase: boolean;
+}
+
+/**
+ * The reviewer's queue of undecided cases.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  ⚠ THE QUEUE THAT WAS MISSING, AND WHAT IT COST.                   │
+ * │                                                                    │
+ * │  `decideVerification` below has existed and been tested since      │
+ * │  DEL-03, and nothing in the product could call it: no action, no   │
+ * │  screen, no queue. So every case a person submitted stayed         │
+ * │  SUBMITTED for ever, `identity_verified` was never written, and    │
+ * │  joining any protected deal was refused with "Your sandbox account │
+ * │  is not verified" — for everybody, permanently. The core journey   │
+ * │  of the product could not be completed by anyone.                  │
+ * │                                                                    │
+ * │  It stayed invisible because the shared development database had   │
+ * │  accounts the integration suite had verified through this function │
+ * │  directly. Running the gate against its own fresh cluster is what  │
+ * │  surfaced it.                                                      │
+ * └────────────────────────────────────────────────────────────────────┘
+ *
+ * Authorization is decided BEFORE the query, so a caller without
+ * `verification.review` never causes other people's cases to be read.
+ * Own cases are returned but flagged: hiding them would tell a reviewer
+ * nothing, and the decision itself is refused by the database anyway.
+ */
+export async function listVerificationQueue(
+  reviewer: Principal,
+): Promise<Outcome<readonly VerificationQueueRow[]>> {
+  if (!can(reviewer, 'verification.review')) {
+    return reject('PERMISSION_DENIED', FAILURE_COPY.PERMISSION_DENIED.reason);
+  }
+  const { rows } = await getPool().query(
+    `SELECT c.case_id, c.user_id, c.kind, c.state, c.submitted_at, c.decided_at,
+            c.decided_by, c.provider_decision, c.expires_at,
+            u.display_name, u.email
+       FROM sandbox.verification_case c
+       JOIN sandbox.app_user u ON u.user_id = c.user_id
+      WHERE c.state IN ('SUBMITTED','UNDER_REVIEW')
+      ORDER BY c.submitted_at ASC`,
+  );
+  return accept(
+    rows.map((r) => ({
+      ...mapCase(r),
+      subjectName: (r.display_name as string) ?? 'Unnamed account',
+      /*
+       * The local part only. A reviewer needs to tell two accounts
+       * apart; they do not need a mailbox they could then contact
+       * outside the product, and a full address in a queue is a
+       * contact list waiting to be screenshotted.
+       */
+      subjectHandle: String(r.email ?? '').split('@')[0] || '—',
+      isOwnCase: r.user_id === reviewer.userId,
+    })),
+  );
+}
+
 export async function listVerificationCases(userId: string): Promise<readonly VerificationCase[]> {
   const { rows } = await getPool().query(
     `SELECT case_id, user_id, kind, state, submitted_at, decided_at, decided_by,

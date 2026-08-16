@@ -13,6 +13,14 @@ export default defineConfig({
     include: ['tests/integration/**/*.test.ts'],
     pool: 'forks',
     poolOptions: { forks: { singleFork: true } },
+    /*
+     * Every test runs inside an environment snapshot. Ten files flip the
+     * deployment mode to prove production fails closed, and they share
+     * one `process.env` because they share one fork — so a failing
+     * assertion used to leave the rest of the run in production mode and
+     * scatter unrelated failures across other files.
+     */
+    setupFiles: ['./tests/integration/support/env-guard.ts'],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     env: {

@@ -27,12 +27,15 @@ import { useToast } from '@/components/kit/Feedback';
 export function ChatPanel({
   dealId,
   messages,
+  truncated = false,
   canMessage,
   counterpartyName,
   className,
 }: {
   dealId: string;
   messages: readonly DealMessage[];
+  /** The room is showing only the most recent page of the transcript. */
+  truncated?: boolean;
   canMessage: boolean;
   counterpartyName: string;
   className?: string;
@@ -78,6 +81,23 @@ export function ChatPanel({
         aria-label="Deal messages"
         aria-live="polite"
       >
+        {/*
+          SAY IT WHEN THE RECORD IS TRIMMED.
+          The transcript is bounded so a long dispute does not make the
+          room slower to open exactly when both sides need it. Trimming
+          it silently would be a different thing entirely: both sides
+          read this thread as evidence of what was agreed.
+        */}
+        {truncated ? (
+          <p
+            data-testid="transcript-truncated"
+            className="mx-auto w-fit max-w-full rounded-[var(--radius-full)] bg-[var(--color-sunken)] px-3 py-1 text-center text-[length:var(--text-2xs)] text-[var(--color-ink-3)]"
+          >
+            Showing the most recent {messages.length} messages. Earlier ones are still on the record
+            and are shown to an operator if a problem is reported.
+          </p>
+        ) : null}
+
         {messages.length === 0 ? (
           <p className="py-8 text-center text-[length:var(--text-sm)] text-[var(--color-ink-4)]">
             No messages yet. Anything you write here stays between the two of you and is part of the
@@ -96,6 +116,10 @@ export function ChatPanel({
           ) : (
             <div
               key={m.messageId}
+              // Marks a rendered chat turn, so the browser gate can hold
+              // the transcript to a bounded page rather than trusting a
+              // timing that happens to be fast on this machine.
+              data-chat-message
               className={cn(
                 'flex items-end gap-2',
                 m.authorIsViewer ? 'flex-row-reverse' : 'flex-row',

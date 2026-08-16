@@ -3,8 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getPool } from '@/server/db/pool';
 import { newCommandId } from '@/server/boundary/command';
-import { rulingCommand } from '@/services/commands';
-import { deskQueue, operatorCase, ruleOnDispute } from '@/server/sandbox/ops';
+import { DESK_PAGE_SIZE, deskQueue, operatorCase, ruleOnDispute } from '@/server/sandbox/ops';
 import { fundSandboxCommand, lockValueCommand, proposeRulingCommand } from '@/services/commands';
 import type { Principal } from '@/server/identity/rbac';
 
@@ -278,7 +277,12 @@ describe('operator boundaries require a live grant AND a satisfied factor', () =
 
   it('a confirmed AND satisfied operator is allowed', async () => {
     const dealId = await disputedDeal();
-    await expect(deskQueue(operator.principal)).resolves.toBeInstanceOf(Array);
+    // A bounded PAGE now, not the whole queue: rows plus the true total.
+    await expect(deskQueue(operator.principal)).resolves.toMatchObject({
+      rows: expect.any(Array),
+      total: expect.any(Number),
+      pageSize: DESK_PAGE_SIZE,
+    });
     await expect(operatorCase(operator.principal, dealId)).resolves.toMatchObject({ dealId });
 
     const { caseId, version } = await caseFor(dealId);
@@ -304,7 +308,11 @@ describe('operator boundaries require a live grant AND a satisfied factor', () =
 
   it('revoking the role removes access immediately', async () => {
     const temp = await makeOperator(`opa-temp-${unique()}@example.com`);
-    await expect(deskQueue(temp.principal)).resolves.toBeInstanceOf(Array);
+    // A page, not a bare array: `rows` plus the true total behind it.
+    await expect(deskQueue(temp.principal)).resolves.toMatchObject({
+      rows: expect.any(Array),
+      total: expect.any(Number),
+    });
 
     await revokeRole({ userId: temp.user.userId, role: 'OPERATOR', revokedBy: null });
 
@@ -456,6 +464,10 @@ describe('recovery codes cannot precede the factor they recover', () => {
     expect(rows[0]!.mfa_satisfied_at, 'and satisfied in this session').not.toBeNull();
 
     // And that is exactly what authorises the operator surfaces.
-    await expect(deskQueue(temp.principal)).resolves.toBeInstanceOf(Array);
+    // A page, not a bare array: `rows` plus the true total behind it.
+    await expect(deskQueue(temp.principal)).resolves.toMatchObject({
+      rows: expect.any(Array),
+      total: expect.any(Number),
+    });
   });
 });

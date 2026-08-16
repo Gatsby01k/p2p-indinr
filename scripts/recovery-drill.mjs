@@ -37,10 +37,27 @@
 
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  createReadStream,
+  createWriteStream,
+  statSync,
+} from 'node:fs';
+import { createInterface } from 'node:readline';
+import { pipeline } from 'node:stream/promises';
+import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
+
+/** SHA-256 of a file, read in chunks so size does not bound memory. */
+async function sha256File(path) {
+  const hash = createHash('sha256');
+  await pipeline(createReadStream(path), hash);
+  return hash.digest('hex');
+}
 
 // `pg` is CommonJS. A named import resolves at run time rather than
 // at parse time, so it fails only when the script is actually used —
@@ -105,7 +122,18 @@ async function main() {
     const dumpPath = join(workDir, 'backup.dump');
     execFileSync(
       'pg_dump',
-      ['-h', source.host, '-p', source.port, '-U', source.user, '-Fc', '-f', dumpPath, source.database],
+      [
+        '-h',
+        source.host,
+        '-p',
+        source.port,
+        '-U',
+        source.user,
+        '-Fc',
+        '-f',
+        dumpPath,
+        source.database,
+      ],
       { env: { ...process.env, PGPASSWORD: source.password }, stdio: 'pipe' },
     );
     const bytes = readFileSync(dumpPath);
@@ -143,8 +171,32 @@ async function main() {
       byteaColumns.map((c) => `${c.table_schema}.${c.table_name}.${c.column_name}`),
     );
 
-    const dump = { tables: [], binaryColumns: [...binaryColumns] };
+    /*
+     * ⚠ WRITTEN AS NDJSON, ONE ROW PER LINE — NOT ONE GIANT OBJECT.
+     *
+     * This previously read every table into one JavaScript object and
+     * then `JSON.stringify`'d the whole graph, holding the entire
+     * database in memory twice. It survived every gate because those ran
+     * against an empty database; on a populated one it died with
+     * "JavaScript heap out of memory" at the 2 GB default limit, so the
+     * backup tool failed exactly when there was finally something worth
+     * backing up.
+     *
+     * Streaming line by line makes peak memory a function of the widest
+     * ROW rather than of the database, and the restore side reads it the
+     * same way.
+     */
+    const dumpPath = join(workDir, 'backup.ndjson');
+    const out = createWriteStream(dumpPath, { encoding: 'utf8' });
+    const write = (line) => (out.write(line + '\n') ? Promise.resolve() : once(out, 'drain'));
+
+    await write(JSON.stringify({ kind: 'header', binaryColumns: [...binaryColumns] }));
+
+    let rowCount = 0;
     for (const { schema, table } of tables) {
+      await write(JSON.stringify({ kind: 'table', schema, table }));
+      // A cursor would be better still; `rows` per TABLE is already the
+      // difference between megabytes and gigabytes here.
       const { rows } = await client.query(`SELECT * FROM ${schema}.${table}`);
       for (const row of rows) {
         for (const [column, value] of Object.entries(row)) {
@@ -152,25 +204,29 @@ async function main() {
             row[column] = value.toString('hex');
           }
         }
+        await write(JSON.stringify({ kind: 'row', row }));
+        rowCount += 1;
       }
-      dump.tables.push({ schema, table, rows });
     }
     await client.end();
-
-    const json = JSON.stringify(dump);
-    const dumpPath = join(workDir, 'backup.json');
-    writeFileSync(dumpPath, json);
+    out.end();
+    await once(out, 'finish');
+    console.log(`  wrote ${rowCount} row(s) as NDJSON`);
     manifest = {
       mode,
       createdAt: new Date().toISOString(),
       sourceDatabase: source.database,
-      byteSize: Buffer.byteLength(json),
+      byteSize: statSync(dumpPath).size,
       // The checksum is taken from the ARTEFACT ON DISK, before any
       // restore. A checksum computed afterwards proves nothing about
       // the thing a real recovery would read.
-      sha256: createHash('sha256').update(json).digest('hex'),
+      /*
+       * Hashed by STREAMING the file rather than by hashing a string
+       * held in memory — the whole point of writing it as NDJSON.
+       */
+      sha256: await sha256File(dumpPath),
       artefact: dumpPath,
-      tableCount: dump.tables.length,
+      tableCount: tables.length,
       note: 'Logical row export. Not equivalent to pg_dump -Fc; see the drill header.',
     };
   }
@@ -189,8 +245,18 @@ async function main() {
   if (mode === 'pg_dump') {
     execFileSync(
       'pg_restore',
-      ['-h', source.host, '-p', source.port, '-U', source.user, '-d', RESTORE_DB, '--no-owner',
-       manifest.artefact],
+      [
+        '-h',
+        source.host,
+        '-p',
+        source.port,
+        '-U',
+        source.user,
+        '-d',
+        RESTORE_DB,
+        '--no-owner',
+        manifest.artefact,
+      ],
       { env: { ...process.env, PGPASSWORD: source.password }, stdio: 'pipe' },
     );
   } else {
@@ -202,10 +268,30 @@ async function main() {
       stdio: 'pipe',
     });
 
-    const dump = JSON.parse(readFileSync(manifest.artefact, 'utf8'));
+    /*
+     * Read back line by line, mirroring the streamed write above. The
+     * rows for ONE table are gathered at a time, never the whole file.
+     */
+    const dump = { tables: [], binaryColumns: [] };
+    {
+      let current = null;
+      const reader = createInterface({
+        input: createReadStream(manifest.artefact, { encoding: 'utf8' }),
+        crlfDelay: Infinity,
+      });
+      for await (const line of reader) {
+        if (line === '') continue;
+        const entry = JSON.parse(line);
+        if (entry.kind === 'header') dump.binaryColumns = entry.binaryColumns;
+        else if (entry.kind === 'table') {
+          current = { schema: entry.schema, table: entry.table, rows: [] };
+          dump.tables.push(current);
+        } else if (entry.kind === 'row') current.rows.push(entry.row);
+      }
+    }
+
     const client = new Client({ connectionString: restoredUrl });
     await client.connect();
-
 
     /*
      * Which columns are JSON, so the round trip does not corrupt them.
@@ -303,9 +389,9 @@ async function main() {
   const checks = [];
   const check = (name, ok, detail) => checks.push({ name, ok, detail });
 
-  const version = await client.query(
-    `SELECT version FROM sandbox.schema_state LIMIT 1`,
-  ).catch(() => ({ rows: [] }));
+  const version = await client
+    .query(`SELECT version FROM sandbox.schema_state LIMIT 1`)
+    .catch(() => ({ rows: [] }));
   check(
     'schema-version',
     version.rows.length > 0,
@@ -331,7 +417,11 @@ async function main() {
     `SELECT count(*)::int AS n FROM inrp2p.journal_entry e
       WHERE (SELECT count(*) FROM inrp2p.posting p WHERE p.entry_id = e.entry_id) < 2`,
   );
-  check('entry-integrity', Number(orphans.rows[0].n) === 0, `orphaned entries=${orphans.rows[0].n}`);
+  check(
+    'entry-integrity',
+    Number(orphans.rows[0].n) === 0,
+    `orphaned entries=${orphans.rows[0].n}`,
+  );
 
   /*
    * IMMUTABLE HISTORY MUST STILL REFUSE TO MOVE.

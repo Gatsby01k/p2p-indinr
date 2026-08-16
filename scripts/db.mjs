@@ -27,8 +27,21 @@ import path from 'node:path';
 import pg from 'pg';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DATA_DIR = path.join(ROOT, '.sandbox-db', 'data');
-const RUN_DIR = path.join(ROOT, '.sandbox-db');
+/*
+ * The data directory is selectable so a gate can run against a database
+ * NOBODY ELSE IS USING.
+ *
+ * The browser gate and the staging rehearsal both start a server and
+ * drive real journeys through it. Sharing one cluster with the
+ * integration suite means one run's fixtures decide another run's
+ * result — a deal created by the suite changes what a list page shows,
+ * and a rehearsal that drops a database takes the suite down with it.
+ * `SANDBOX_PG_DIR` plus `SANDBOX_PG_PORT` gives each its own cluster on
+ * its own port; both default to the shared development one, so nothing
+ * that exists today changes.
+ */
+const RUN_DIR = path.resolve(ROOT, process.env.SANDBOX_PG_DIR ?? '.sandbox-db');
+const DATA_DIR = path.join(RUN_DIR, 'data');
 const PORT = Number(process.env.SANDBOX_PG_PORT ?? 55433);
 const USER = 'inrp2p_sandbox';
 const PASSWORD = 'sandbox-local-only';
@@ -306,7 +319,7 @@ async function reset() {
     process.exit(2);
   }
   stop();
-  rmSync(path.join(ROOT, '.sandbox-db'), { recursive: true, force: true });
+  rmSync(RUN_DIR, { recursive: true, force: true });
   await start();
   await migrate();
 }

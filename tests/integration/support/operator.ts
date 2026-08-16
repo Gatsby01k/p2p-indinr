@@ -57,18 +57,28 @@ export async function makeOperator(email: string): Promise<OperatorFixture> {
 
   const enrolment = await beginMfaEnrolment(user.userId);
   if (!enrolment.ok) throw new Error('operator fixture: enrolment failed');
-  const confirmed = await confirmMfaEnrolment(
-    user.userId,
-    codeFor(enrolment.value.secret, stepFor()),
-  );
-  if (!confirmed.ok) throw new Error('operator fixture: confirmation failed');
+
+  /*
+   * ONE clock reading, two explicitly different steps.
+   *
+   * This used to call `stepFor()` twice — once for the confirmation and
+   * again for the verification — so if the 30-second window turned over
+   * between them the two codes were no longer adjacent, and the second
+   * could land outside the ±1 drift window the server accepts. Reading
+   * the step once makes the pair deterministic: the confirmation burns
+   * `base`, and the verification presents `base + 1`, which is never a
+   * replay of it.
+   */
+  const base = stepFor();
+  const confirmed = await confirmMfaEnrolment(user.userId, codeFor(enrolment.value.secret, base));
+  if (!confirmed.ok) throw new Error(`operator fixture: confirmation failed (${confirmed.code})`);
 
   const satisfied = await verifyMfaForSession({
     userId: user.userId,
     sessionId: session.sessionId,
-    presented: codeFor(enrolment.value.secret, stepFor() + 1),
+    presented: codeFor(enrolment.value.secret, base + 1),
   });
-  if (!satisfied.ok) throw new Error('operator fixture: factor not satisfied');
+  if (!satisfied.ok) throw new Error(`operator fixture: factor not satisfied (${satisfied.code})`);
 
   return {
     user: await reread(user.userId),

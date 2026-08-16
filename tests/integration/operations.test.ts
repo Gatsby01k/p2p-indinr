@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { getPool, withTransaction } from '@/server/db/pool';
 import { newCommandId } from '@/server/boundary/command';
 import { loadConfig, redactObject, validateConfig } from '@/server/ops/config';
@@ -15,6 +15,7 @@ import {
 import type { Principal } from '@/server/identity/rbac';
 import { operatorPrincipal, withoutMfa, bare, newUser, unique } from './support/room';
 import { lockedDeal } from './support/rails';
+import { drainOutbox } from './support/outbox';
 
 /**
  * DEL-09 operations: configuration, readiness and the outbox worker.
@@ -174,10 +175,12 @@ describe('readiness', () => {
 
   it('reports a pause as DEGRADED, never as unhealthy', async () => {
     const { rows } = await getPool().query(
+      // Its own actor: `FROM app_user LIMIT 1` inserts nothing on a
+      // database where this file happens to run first.
       `INSERT INTO sandbox.control_switch (scope, reason, paused_by)
-       SELECT 'REWARDS', 'Readiness reporting fixture for the operations suite.', user_id
-         FROM sandbox.app_user LIMIT 1
+       VALUES ('REWARDS', 'Readiness reporting fixture for the operations suite.', $1)
        ON CONFLICT DO NOTHING RETURNING switch_id`,
+      [(await newUser('ops-pauser')).userId],
     );
 
     const result = await readiness();
@@ -199,12 +202,21 @@ describe('readiness', () => {
  * ================================================================== */
 
 describe('the outbox worker', () => {
+  /*
+   * Start every worker test from a genuinely empty queue.
+   *
+   * These tests used to ASSUME one, which held only on a freshly created
+   * database. Draining establishes the precondition instead, so the
+   * suite gives the same answer on the first run and the hundredth.
+   */
+  beforeEach(drainOutbox);
+
   async function seedEvent(type = `test.event.${unique()}`): Promise<string> {
     const { rows } = await getPool().query(
       `INSERT INTO sandbox.outbox_event (event_key, event_type, subject_kind, subject_id, payload)
-       SELECT $1, $2, 'user', user_id, '{"probe":true}'::jsonb FROM sandbox.app_user LIMIT 1
+       VALUES ($1, $2, 'user', $3, '{"probe":true}'::jsonb)
        RETURNING outbox_id`,
-      [`ops-${unique()}`, type],
+      [`ops-${unique()}`, type, (await newUser('ops-subject')).userId],
     );
     return String(rows[0]!.outbox_id);
   }
@@ -335,16 +347,29 @@ describe('the outbox worker', () => {
     expect(rows[0]!.last_error).toContain('timed out');
   }, 30_000);
 
-  it('an event with NO handler is delivered, not retried forever', async () => {
+  it('an event with NO handler is QUARANTINED, not marked delivered', async () => {
+    /*
+     * ⚠ THIS ASSERTION IS INVERTED FROM DEL-09, DELIBERATELY.
+     *
+     * It used to expect `DELIVERED`. The reasoning was half right —
+     * retrying something nothing listens for builds a backlog that
+     * hides the events somebody is actually waiting on — but the
+     * conclusion was wrong: writing DELIVERED against an event that was
+     * never handled makes the record assert the opposite of what
+     * happened. A `payment.confirmed` whose handler registration was
+     * dropped in a refactor would have vanished silently.
+     *
+     * Terminal, so it does not spin. Undelivered, because it was.
+     * `tests/integration/outboxIntegrity.test.ts` carries the rest.
+     */
     const outboxId = await seedEvent(`test.unhandled.${unique()}`);
     await runOnce({});
     const { rows } = await getPool().query(
-      `SELECT state FROM sandbox.outbox_event WHERE outbox_id = $1`,
+      `SELECT state, published_at FROM sandbox.outbox_event WHERE outbox_id = $1`,
       [outboxId],
     );
-    // Retrying something nothing listens for produces a backlog that
-    // hides the events somebody is actually waiting on.
-    expect(rows[0]!.state).toBe('DELIVERED');
+    expect(rows[0]!.state).toBe('DEAD_LETTER');
+    expect(rows[0]!.published_at, 'nothing delivered it, so it has no delivery time').toBeNull();
   });
 
   it('replaying a dead letter requires permission AND a satisfied factor', async () => {
@@ -444,7 +469,7 @@ describe('the claim is transactional', () => {
   it('a rolled-back claim leaves the event claimable', async () => {
     const { rows } = await getPool().query(
       `INSERT INTO sandbox.outbox_event (event_key, event_type, subject_kind, subject_id, payload)
-       SELECT $1, 'test.rollback', 'user', user_id, '{}'::jsonb FROM sandbox.app_user LIMIT 1
+       VALUES ($1, 'test.rollback', 'user', (SELECT user_id FROM sandbox.app_user ORDER BY created_at LIMIT 1), '{}'::jsonb)
        RETURNING outbox_id`,
       [`ops-rb-${unique()}`],
     );

@@ -148,7 +148,16 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: npm }
       - run: npm ci
-      - run: npm run build
+      - name: Build
+        run: npm run build | tee build-report.txt
+
+      # ⚠ ENFORCED HERE, NOT ADVISORY. A careless import that pushes the
+      # shared bundle past its budget fails the pull request. The latency
+      # and pagination budgets are enforced where they can be measured:
+      # the browser gate below, and `tests/integration/deskPagination`.
+      - name: Weight budgets
+        run: node scripts/performance-budget.mjs --build build-report.txt --bundle-only
+
       - name: Build metadata
         run: |
           {
@@ -165,3 +174,43 @@ jobs:
         with:
           name: build-metadata
           path: build-metadata.txt
+
+  browser:
+    name: Browser gate against the built server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+
+      # ┌──────────────────────────────────────────────────────────────┐
+      # │  THE GATE BUILDS, SERVES AND DRIVES THE REAL APPLICATION.    │
+      # │                                                              │
+      # │  `scripts/browser-gate.mjs` runs a production build, starts  │
+      # │  an isolated PostgreSQL, runs `next start` and drives it in  │
+      # │  headless Chrome. No `next dev` anywhere, so no dev overlay  │
+      # │  and no compile-on-first-request timing. It ends by checking │
+      # │  every performance budget against what it just measured,     │
+      # │  including the pagination invariants under a real backlog.   │
+      # └──────────────────────────────────────────────────────────────┘
+      - name: Browser gate
+        env:
+          # Preinstalled on the GitHub ubuntu image; playwright-core does
+          # not ship a browser and must be told where one is.
+          CHROME_PATH: /usr/bin/google-chrome
+          GATE_PG_PORT: '55452'
+          GATE_PORT: '3212'
+        run: node scripts/browser-gate.mjs
+
+      - name: Performance budgets
+        run: npm run perf:budget
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-gate
+          path: |
+            artifacts/e2e
+            artifacts/performance.json
+            artifacts/build.txt

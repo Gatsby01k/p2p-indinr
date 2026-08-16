@@ -301,11 +301,46 @@ export async function revokeAllSessions(
  * Called by the role and 2FA boundaries. It bumps the version rather than
  * touching rows, so it is O(1) and cannot miss a session created in the
  * same instant.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  `keepSessionId` — THE DEVICE THAT MADE THE CHANGE.                │
+ * │                                                                    │
+ * │  The guarantee this function exists for is that no OTHER device    │
+ * │  inherits authority it did not establish. The device performing    │
+ * │  the change is not one of those: it is authenticated, it is        │
+ * │  present, and in the 2FA case it has just proved possession of the │
+ * │  new factor in the same request.                                   │
+ * │                                                                    │
+ * │  Bumping it too is not extra safety, it is a dead end — enrolling  │
+ * │  an authenticator signed you out on the very device you enrolled   │
+ * │  from, and dropped you at a login screen holding a factor you had  │
+ * │  no way to answer. Carrying the one named session to the new       │
+ * │  version keeps exactly the "everywhere else" meaning that          │
+ * │  `revokeAllSessions` already has, and it is written the same way.  │
+ * │                                                                    │
+ * │  Omitting the argument keeps the old, stricter behaviour, which is │
+ * │  what a ROLE change wants: authority granted by somebody else is   │
+ * │  not something the holder just demonstrated.                       │
+ * └────────────────────────────────────────────────────────────────────┘
  */
-export async function bumpSessionVersionIn(tx: Tx, userId: string): Promise<void> {
+export async function bumpSessionVersionIn(
+  tx: Tx,
+  userId: string,
+  keepSessionId?: string | null,
+): Promise<void> {
   await tx.query(
     `UPDATE sandbox.app_user SET session_version = session_version + 1 WHERE user_id = $1`,
     [userId],
+  );
+  if (!keepSessionId) return;
+  // Ownership is re-checked here rather than trusted: a session id from
+  // elsewhere must not be able to survive another user's bump.
+  await tx.query(
+    `UPDATE sandbox.session s
+        SET version = u.session_version
+       FROM sandbox.app_user u
+      WHERE s.session_id = $1 AND u.user_id = $2 AND s.user_id = u.user_id`,
+    [keepSessionId, userId],
   );
 }
 

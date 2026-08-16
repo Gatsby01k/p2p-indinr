@@ -1,10 +1,12 @@
 import { getChrome } from '@/services';
 import { getTrustProfile } from '@/services';
+import { listVerificationCases, type VerificationKind } from '@/services';
 import { verifyStepAction } from '@/services/actions';
 import { formatMinor } from '@/lib/format';
 import { MAX_INR_MINOR } from '@/services';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon, type IconName } from '@/components/kit/Icon';
+import { Ago } from '@/components/kit/Time';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { ActionButton } from '@/components/flows/ActionButton';
 import { Callout, Card, Meter, SandboxLine, Shell, Status } from '@/components/kit/primitives';
@@ -31,9 +33,29 @@ export const dynamic = 'force-dynamic';
 export default async function VerificationPage() {
   const { user, unread } = await getChrome();
   const profile = await getTrustProfile(user);
+  /*
+   * ⚠ THE PAGE USED TO SHOW ONLY THE BOOLEAN, AND THAT WAS A LIE OF
+   * OMISSION.
+   *
+   * Since DEL-03 a step does not complete when you press the button: it
+   * opens a CASE that a reviewer who is not you has to decide. A person
+   * who pressed the button saw a screen identical to the one before
+   * they pressed it — same "Complete this step", same 0 of 3 — so the
+   * only sensible reading was that nothing had happened, and they
+   * pressed it again. The case state is now shown, because "waiting on
+   * a reviewer" is the true answer and it is not the same as "not
+   * started".
+   */
+  const cases = await listVerificationCases(user.userId);
+  const openFor = (kind: VerificationKind) =>
+    cases.find((c) => c.kind === kind && (c.state === 'SUBMITTED' || c.state === 'UNDER_REVIEW')) ??
+    null;
+  const rejectedFor = (kind: VerificationKind) =>
+    cases.find((c) => c.kind === kind && c.state === 'REJECTED') ?? null;
 
   const steps: readonly {
     key: 'identity' | 'upi' | 'wallet';
+    kind: VerificationKind;
     title: string;
     body: string;
     unlocks: string;
@@ -42,6 +64,7 @@ export default async function VerificationPage() {
   }[] = [
     {
       key: 'identity',
+      kind: 'IDENTITY',
       title: 'Identity',
       body: 'Confirms who you are, so a counterparty knows they are dealing with a real person.',
       unlocks: 'Required to join any protected deal',
@@ -50,6 +73,7 @@ export default async function VerificationPage() {
     },
     {
       key: 'upi',
+      kind: 'UPI',
       title: 'Payment handle',
       body: 'Confirms a UPI ID or bank account you control, so payments reach you and not someone else.',
       unlocks: 'Required to receive rupees',
@@ -58,6 +82,7 @@ export default async function VerificationPage() {
     },
     {
       key: 'wallet',
+      kind: 'WALLET',
       title: 'Wallet',
       body: 'Confirms a TRC-20 address you control, for the crypto leg of an exchange.',
       unlocks: 'Required for INR ⇄ USDT deals',
@@ -106,59 +131,92 @@ export default async function VerificationPage() {
         </Callout>
 
         <ul className="mt-4 space-y-3">
-          {steps.map((step) => (
-            <li key={step.key}>
-              <Card>
-                <div className="flex items-start gap-3">
-                  <span
-                    className={
-                      step.done
-                        ? 'grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-final-tint)] text-[var(--color-final)]'
-                        : 'grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-sunken)] text-[var(--color-ink-3)]'
-                    }
-                  >
-                    <Icon
-                      name={step.done ? 'check' : step.icon}
-                      className="h-[18px] w-[18px]"
-                      strokeWidth={step.done ? 2.6 : 1.7}
-                    />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
-                        {step.title}
-                      </h2>
-                      {step.done ? (
-                        <Status tone="final" size="sm">
-                          Verified
-                        </Status>
-                      ) : null}
-                    </div>
-                    <p className="mt-1 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
-                      {step.body}
-                    </p>
-                    <p className="mt-1.5 text-[length:var(--text-2xs)] font-medium text-[var(--color-ink-4)]">
-                      {step.unlocks}
-                    </p>
-
-                    {!step.done ? (
-                      <div className="mt-3">
-                        <ActionButton
-                          action={verifyStepAction.bind(null, step.key)}
-                          success={`${step.title} step complete`}
-                          icon="shield-check"
-                          variant="primary"
-                          size="md"
-                        >
-                          Complete this step
-                        </ActionButton>
+          {steps.map((step) => {
+            const open = step.done ? null : openFor(step.kind);
+            const rejected = step.done || open ? null : rejectedFor(step.kind);
+            return (
+              <li key={step.key}>
+                <Card>
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={
+                        step.done
+                          ? 'grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-final-tint)] text-[var(--color-final)]'
+                          : 'grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-sunken)] text-[var(--color-ink-3)]'
+                      }
+                    >
+                      <Icon
+                        name={step.done ? 'check' : step.icon}
+                        className="h-[18px] w-[18px]"
+                        strokeWidth={step.done ? 2.6 : 1.7}
+                      />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+                          {step.title}
+                        </h2>
+                        {step.done ? (
+                          <Status tone="final" size="sm">
+                            Verified
+                          </Status>
+                        ) : open ? (
+                          <Status tone="hold" size="sm">
+                            In review
+                          </Status>
+                        ) : rejected ? (
+                          <Status tone="risk" size="sm">
+                            Not approved
+                          </Status>
+                        ) : null}
                       </div>
-                    ) : null}
+                      <p className="mt-1 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
+                        {step.body}
+                      </p>
+                      <p className="mt-1.5 text-[length:var(--text-2xs)] font-medium text-[var(--color-ink-4)]">
+                        {step.unlocks}
+                      </p>
+
+                      {/*
+                      Three states, three different things to say. Offering
+                      "Complete this step" again while a case is open is the
+                      button that made people press it repeatedly and get
+                      nowhere: a second submission joins the first, by
+                      design, so pressing it changes nothing at all.
+                    */}
+                      {step.done ? null : open ? (
+                        <p
+                          className="mt-3 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]"
+                          data-testid={`verification-pending-${step.key}`}
+                        >
+                          Submitted <Ago iso={open.submittedAt} /> and waiting on a reviewer. Nobody
+                          can approve their own verification, so this is decided by someone else.
+                          Pressing submit again would join the same case.
+                        </p>
+                      ) : (
+                        <div className="mt-3">
+                          {rejected ? (
+                            <p className="mb-2 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
+                              A reviewer did not approve the last submission. You can submit again.
+                            </p>
+                          ) : null}
+                          <ActionButton
+                            action={verifyStepAction.bind(null, step.key)}
+                            success={`${step.title} submitted for review`}
+                            icon="shield-check"
+                            variant="primary"
+                            size="md"
+                          >
+                            {rejected ? 'Submit again' : 'Submit this step'}
+                          </ActionButton>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card>
-            </li>
-          ))}
+                </Card>
+              </li>
+            );
+          })}
         </ul>
 
         <SandboxLine className="mt-5" full />

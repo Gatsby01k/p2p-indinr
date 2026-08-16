@@ -72,13 +72,98 @@ export type DeskFilter = 'ALL' | 'DISPUTED' | 'AWAITING_PAYMENT' | 'AWAITING_CON
 /** Minutes after which an unmoved deal is treated as going stale. */
 export const AT_RISK_MINUTES = 30;
 
+/**
+ * How many cases one page of the desk carries.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THE QUEUE USED TO BE UNBOUNDED, AND THAT IS A REAL FAILURE MODE.  │
+ * │                                                                    │
+ * │  Every open deal on the platform was selected — twice per render,  │
+ * │  once for the counts and once for the view — transferred, mapped   │
+ * │  into objects and rendered as table rows. On the day the desk is   │
+ * │  busiest, which is the day it matters, it is at its slowest, and   │
+ * │  the page an operator needs during an incident is the one that     │
+ * │  takes longest to arrive.                                          │
+ * │                                                                    │
+ * │  Fifty is chosen to be well past what a person triages in one      │
+ * │  sitting and well under what makes a page heavy. The COUNTS are    │
+ * │  still exact, because they are aggregated in the database rather   │
+ * │  than by measuring the length of a list — an operator must see     │
+ * │  that there are four hundred open deals even while looking at      │
+ * │  fifty of them.                                                    │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export const DESK_PAGE_SIZE = 50;
+
+/** Exact counts for every view, aggregated in the database. */
+export async function deskCounts(principal: Principal): Promise<DeskCounts> {
+  assertPermission(principal, 'ops.queue.read');
+  const { rows } = await getPool().query(
+    `SELECT
+       count(*)::int AS all,
+       count(*) FILTER (WHERE di.dispute_id IS NOT NULL)::int AS disputed,
+       count(*) FILTER (WHERE d.state = 'FIAT_PENDING')::int  AS awaiting_payment,
+       count(*) FILTER (WHERE d.state = 'FIAT_CLAIMED')::int  AS awaiting_confirm,
+       count(*) FILTER (
+         WHERE di.dispute_id IS NULL
+           AND d.created_at <= now() - ($1 || ' minutes')::interval
+       )::int AS at_risk
+       FROM sandbox.deal d
+       LEFT JOIN sandbox.dispute di ON di.deal_id = d.deal_id AND di.state <> 'RESOLVED'
+      WHERE d.state IN ('FIAT_PENDING','FIAT_CLAIMED','DISPUTED')`,
+    [String(AT_RISK_MINUTES)],
+  );
+  const r = rows[0]!;
+  return {
+    all: Number(r.all),
+    disputed: Number(r.disputed),
+    awaitingPayment: Number(r.awaiting_payment),
+    awaitingConfirm: Number(r.awaiting_confirm),
+    atRisk: Number(r.at_risk),
+  };
+}
+
+export interface DeskPage {
+  readonly rows: readonly OperatorRow[];
+  /** How many cases match this filter in total, not just on this page. */
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly hasMore: boolean;
+}
+
+/**
+ * One page of the desk, filtered and ordered in the DATABASE.
+ *
+ * The filter used to be applied in JavaScript to a list that already
+ * held every open deal, which meant "show me the four escalations"
+ * fetched all of them first. It is a `WHERE` clause now, so a narrow
+ * view is a cheap query rather than an expensive one with a filter on
+ * the end.
+ */
 export async function deskQueue(
   principal: Principal,
   filter: DeskFilter = 'ALL',
-): Promise<readonly OperatorRow[]> {
+  { page = 1, pageSize = DESK_PAGE_SIZE }: { page?: number; pageSize?: number } = {},
+): Promise<DeskPage> {
   // Checked BEFORE the first row is read, so a denied caller's response
   // never contained the data at all.
   assertPermission(principal, 'ops.queue.read');
+
+  // Bounded whatever the caller asks for: a page size is a protection,
+  // and one that a query string can raise protects nothing.
+  const size = Math.min(Math.max(Math.trunc(pageSize) || DESK_PAGE_SIZE, 1), DESK_PAGE_SIZE);
+  const current = Math.max(Math.trunc(page) || 1, 1);
+
+  const predicate = {
+    ALL: 'TRUE',
+    DISPUTED: 'di.dispute_id IS NOT NULL',
+    AWAITING_PAYMENT: "d.state = 'FIAT_PENDING'",
+    AWAITING_CONFIRM: "d.state = 'FIAT_CLAIMED'",
+    AT_RISK: `di.dispute_id IS NULL AND d.created_at <= now() - '${AT_RISK_MINUTES} minutes'::interval`,
+    // A closed set of literals, chosen by a key this function owns —
+    // nothing from a request is interpolated into the SQL.
+  }[filter];
 
   const { rows } = await getPool().query(
     `SELECT d.deal_id, d.public_id, d.deal_code, d.state, d.direction,
@@ -90,7 +175,8 @@ export async function deskQueue(
             payee.display_name        AS payee_name,
             (SELECT count(*) FROM sandbox.deal_evidence e WHERE e.deal_id = d.deal_id) AS evidence_count,
             (SELECT count(*) FROM sandbox.deal_message m
-               WHERE m.deal_id = d.deal_id AND m.kind = 'CHAT')                        AS message_count
+               WHERE m.deal_id = d.deal_id AND m.kind = 'CHAT')                        AS message_count,
+            count(*) OVER () AS total_rows
        FROM sandbox.deal d
        LEFT JOIN sandbox.dispute di ON di.deal_id = d.deal_id AND di.state <> 'RESOLVED'
        JOIN sandbox.participant pf ON pf.deal_id = d.deal_id AND pf.role = 'FIAT_SIDE'
@@ -98,10 +184,13 @@ export async function deskQueue(
        JOIN sandbox.participant pc ON pc.deal_id = d.deal_id AND pc.role = 'CRYPTO_SIDE'
        JOIN sandbox.app_user payee ON payee.user_id = pc.user_id
       WHERE d.state IN ('FIAT_PENDING','FIAT_CLAIMED','DISPUTED')
-      ORDER BY (di.dispute_id IS NOT NULL) DESC, d.created_at ASC`,
+        AND ${predicate}
+      ORDER BY (di.dispute_id IS NOT NULL) DESC, d.created_at ASC
+      LIMIT $1 OFFSET $2`,
+    [size, (current - 1) * size],
   );
 
-  const all: OperatorRow[] = rows.map((r) => ({
+  const mapped: OperatorRow[] = rows.map((r) => ({
     dealId: r.deal_id,
     publicId: r.public_id,
     dealCode: r.deal_code,
@@ -118,18 +207,14 @@ export async function deskQueue(
     messageCount: Number(r.message_count),
   }));
 
-  switch (filter) {
-    case 'DISPUTED':
-      return all.filter((r) => r.disputed);
-    case 'AWAITING_PAYMENT':
-      return all.filter((r) => r.state === 'FIAT_PENDING');
-    case 'AWAITING_CONFIRM':
-      return all.filter((r) => r.state === 'FIAT_CLAIMED');
-    case 'AT_RISK':
-      return all.filter((r) => r.waitingMinutes >= AT_RISK_MINUTES && !r.disputed);
-    default:
-      return all;
-  }
+  const total = rows.length > 0 ? Number(rows[0]!.total_rows) : 0;
+  return {
+    rows: mapped,
+    total,
+    page: current,
+    pageSize: size,
+    hasMore: current * size < total,
+  };
 }
 
 export interface DeskCounts {
@@ -140,6 +225,14 @@ export interface DeskCounts {
   readonly atRisk: number;
 }
 
+/**
+ * Counts derived from a list already in hand.
+ *
+ * ⚠ Only correct for a COMPLETE list. The desk uses `deskCounts` instead,
+ * because its list is one bounded page and counting fifty rows would tell
+ * an operator there are fifty open deals when there are four hundred.
+ * Kept for callers that genuinely hold everything.
+ */
 export function countBy(rows: readonly OperatorRow[]): DeskCounts {
   return {
     all: rows.length,

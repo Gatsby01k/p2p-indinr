@@ -9,6 +9,7 @@ import {
   createDealLink,
   joinDealLink,
   runLifecycleSweep,
+  type SweepResult,
   signInSandbox,
   submitPaymentClaimIn,
   type SessionUser,
@@ -51,6 +52,37 @@ async function backdateDeadline(dealId: string, interval: string): Promise<void>
  * Exact deadline arithmetic
  * ------------------------------------------------------------------ */
 
+/**
+ * Sweep until the backlog is DRAINED, not once.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  ONE SWEEP IS ONE BOUNDED BATCH, AND THAT IS CORRECT.              │
+ * │                                                                    │
+ * │  `runLifecycleSweep` takes 200 rows, oldest deadline first, and    │
+ * │  stops — a sweep that walks an unbounded table is an outage        │
+ * │  waiting for a busy day. But this suite shares a long-lived        │
+ * │  database, and a deal backdated by one second has the NEWEST       │
+ * │  deadline in it. Once other tests have left 200 older lapsed deals │
+ * │  behind, a single sweep quite properly does not reach this one,    │
+ * │  and the test fails for a reason that is about accumulated history │
+ * │  rather than about the product.                                    │
+ * │                                                                    │
+ * │  Draining removes that dependence. It is also what a scheduler     │
+ * │  does: call the one-shot sweep until it comes back empty.          │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+async function sweepUntilDrained(passes = 40): Promise<SweepResult> {
+  let dealsExpired = 0;
+  let quotesExpired = 0;
+  for (let i = 0; i < passes; i += 1) {
+    const swept = await runLifecycleSweep();
+    dealsExpired += swept.dealsExpired;
+    quotesExpired += swept.quotesExpired;
+    if (swept.dealsExpired === 0 && swept.quotesExpired === 0) break;
+  }
+  return { dealsExpired, quotesExpired };
+}
+
 describe('payment window is the window the interface shows', () => {
   it('sets the deadline exactly PAYMENT_WINDOW_MINUTES after the join', async () => {
     const { dealId } = await liveDeal();
@@ -79,7 +111,7 @@ describe('payment window is the window the interface shows', () => {
      * failed the moment the suite grew — a flaky assertion masquerading as
      * a strict one.
      */
-    await runLifecycleSweep();
+    await sweepUntilDrained();
 
     const { rows } = await getPool().query(
       `SELECT state, action_deadline FROM sandbox.deal WHERE deal_id = $1`,
@@ -96,7 +128,7 @@ describe('payment window is the window the interface shows', () => {
     // have survived for another two hours.
     await backdateDeadline(dealId, '1 second');
 
-    const swept = await runLifecycleSweep();
+    const swept = await sweepUntilDrained();
     expect(swept.dealsExpired).toBeGreaterThanOrEqual(1);
 
     const { rows } = await getPool().query(
@@ -125,12 +157,21 @@ describe('payment window is the window the interface shows', () => {
         WHERE deal_id = $1`,
       [dealId],
     );
-    const swept = await runLifecycleSweep();
+    await sweepUntilDrained();
     const { rows } = await getPool().query(`SELECT state FROM sandbox.deal WHERE deal_id = $1`, [
       dealId,
     ]);
-    expect(rows[0]!.state).toBe('FIAT_CLAIMED');
-    expect(swept.dealsExpired).toBe(0);
+    /*
+     * Asserted on THIS deal, not on the sweep's global tally.
+     *
+     * `runLifecycleSweep` walks every deal in the database, so
+     * `dealsExpired === 0` was really a claim that nothing else in the
+     * whole system was due to expire — true only on a quiet database,
+     * and false whenever another test had left an expirable deal
+     * behind. The property this test is actually about is that a deal
+     * with a payment claimed against it is never swept away.
+     */
+    expect(rows[0]!.state, 'a claimed payment protects the deal from expiry').toBe('FIAT_CLAIMED');
   });
 });
 
@@ -142,7 +183,7 @@ describe('every expiry transition carries its audit row', () => {
   it('audits a deal expiry in the same transaction', async () => {
     const { dealId } = await liveDeal();
     await backdateDeadline(dealId, '5 minutes');
-    await runLifecycleSweep();
+    await sweepUntilDrained();
 
     const { rows } = await getPool().query(
       `SELECT action, from_state, to_state, outcome FROM sandbox.audit_event
@@ -158,7 +199,7 @@ describe('every expiry transition carries its audit row', () => {
   it('emits a domain event for the expiry', async () => {
     const { dealId } = await liveDeal();
     await backdateDeadline(dealId, '5 minutes');
-    await runLifecycleSweep();
+    await sweepUntilDrained();
     const { rows } = await getPool().query(
       `SELECT event_type FROM sandbox.outbox_event WHERE subject_id = $1`,
       [dealId],
@@ -169,7 +210,7 @@ describe('every expiry transition carries its audit row', () => {
   it('tells both sides, and says nothing was transferred', async () => {
     const { dealId } = await liveDeal();
     await backdateDeadline(dealId, '5 minutes');
-    await runLifecycleSweep();
+    await sweepUntilDrained();
     const { rows } = await getPool().query(
       `SELECT count(*)::int AS n FROM sandbox.notification WHERE deal_id = $1
         AND title = 'Payment window closed'`,
@@ -195,7 +236,7 @@ describe('every expiry transition carries its audit row', () => {
       [quote.quoteId],
     );
 
-    const swept = await runLifecycleSweep();
+    const swept = await sweepUntilDrained();
     expect(swept.quotesExpired).toBeGreaterThanOrEqual(1);
 
     const { rows } = await getPool().query(`SELECT state FROM sandbox.quote WHERE quote_id = $1`, [
@@ -214,8 +255,8 @@ describe('every expiry transition carries its audit row', () => {
   it('is idempotent: a second sweep changes nothing', async () => {
     const { dealId } = await liveDeal();
     await backdateDeadline(dealId, '5 minutes');
-    await runLifecycleSweep();
-    await runLifecycleSweep();
+    await sweepUntilDrained();
+    await sweepUntilDrained();
     const { rows } = await getPool().query(
       `SELECT count(*)::int AS n FROM sandbox.audit_event
         WHERE subject_id = $1 AND action = 'DEAL_EXPIRE'`,

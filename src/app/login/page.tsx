@@ -1,4 +1,6 @@
 import { SignInFlow } from '@/components/flows/SignInFlow';
+import { formatMinor } from '@/lib/format';
+import { parseInrToMinor, parseUsdtToMicro } from '@/lib/parse';
 import { TopBar } from '@/components/kit/AppChrome';
 import { Callout, Card, Label, SandboxChip, SandboxLine, Shell } from '@/components/kit/primitives';
 
@@ -26,9 +28,35 @@ export default async function LoginPage({
   const { next, invite } = await searchParams;
   const dest = next && next.startsWith('/') && !next.startsWith('//') ? next : '/app';
 
-  // Surface the carried intent so the person sees nothing was lost.
-  const amount = /[?&]amount=([0-9.]+)/.exec(dest)?.[1] ?? null;
-  const scenario = /[?&]scenario=([A-Z_]+)/.exec(dest)?.[1] ?? null;
+  /*
+   * Surface the carried intent so the person sees nothing was lost.
+   *
+   * MATCHED TO THE END OF THE VALUE, DELIBERATELY. The earlier pattern
+   * was `[0-9.]+`, which matches a PREFIX: a carried "83,000" stopped at
+   * the comma and this screen told the person their deal was for ₹83
+   * while the deal form — applying an anchored pattern — dropped the
+   * amount entirely. Showing a confidently wrong figure at the moment
+   * somebody decides whether to sign in is worse than showing none, so
+   * anything that is not a whole clean number now reads as absent.
+   */
+  const amount = /[?&]amount=(\d{1,12}(?:\.\d{1,6})?)(?:&|$)/.exec(dest)?.[1] ?? null;
+  const scenario = /[?&]scenario=([A-Z_]+)(?:&|$)/.exec(dest)?.[1] ?? null;
+
+  /*
+   * Carried as a machine value, shown as a human one. The parameter is
+   * an ungrouped decimal precisely so nothing has to guess at it; this
+   * screen is the point it turns back into something a person reads, so
+   * ₹83000 is presented as ₹83,000.00 like every other figure.
+   */
+  const carriedAsset = scenario === 'USDT_TO_INR' ? 'USDT' : 'INR';
+  const carriedMinor =
+    amount === null
+      ? null
+      : carriedAsset === 'USDT'
+        ? parseUsdtToMicro(amount)
+        : parseInrToMinor(amount);
+  const amountLabel =
+    carriedMinor === null ? null : formatMinor(carriedMinor.toString(), carriedAsset);
   const joining = dest.startsWith('/d/');
   const code = /^[a-z0-9]{6,16}$/.test(invite ?? '') ? invite! : '';
 
@@ -48,11 +76,11 @@ export default async function LoginPage({
       <main id="main" className="flex flex-1 items-center py-6 sm:py-12">
         <Shell width="form">
           {/* ---- What is being carried across --------------------- */}
-          {amount ? (
+          {amountLabel ? (
             <Card className="mb-4" tone="brand">
               <Label>Carried from the calculator</Label>
               <p className="tnum mt-1.5 text-[length:var(--text-2xl)] font-semibold tracking-[-0.028em] text-[var(--color-ink)]">
-                {scenario === 'USDT_TO_INR' ? `${amount} USDT` : `₹${amount}`}
+                {carriedAsset === 'USDT' ? `${amountLabel} USDT` : `₹${amountLabel}`}
               </p>
               {scenarioLabel ? (
                 <p className="mt-0.5 text-[length:var(--text-xs)] font-medium text-[var(--color-brand-ink)]">
@@ -83,7 +111,7 @@ export default async function LoginPage({
           {/* ---- The form ----------------------------------------- */}
           <Card>
             <h1 className="text-[length:var(--text-xl)] font-semibold tracking-[-0.025em] text-[var(--color-ink)]">
-              {amount || joining ? 'Sign in to continue' : 'Sign in'}
+              {amountLabel || joining ? 'Sign in to continue' : 'Sign in'}
             </h1>
             <p className="mt-1.5 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
               We email you a one-time code. No password is asked for, chosen or stored.

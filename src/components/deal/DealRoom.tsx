@@ -120,7 +120,20 @@ export function DealRoom({ deal }: { deal: DealView }) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)_minmax(0,22rem)] lg:items-start">
+    /*
+     * `data-deal-room` marks the seated-party workspace, and it carries
+     * the viewer's role and the deal's state with it. A browser check
+     * that waits on a URL alone can read the previous page in the gap
+     * between a committed Join and the room rendering; waiting on this
+     * marker means "the room for THIS role, in THIS state, is on screen"
+     * — a committed outcome rather than a coincidence of timing.
+     */
+    <div
+      data-deal-room
+      data-deal-state={deal.state}
+      data-viewer-role={deal.viewerRole}
+      className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)_minmax(0,22rem)] lg:items-start"
+    >
       {/* ================= COLUMN 1 · the deal ==================== */}
       <div className={cn('min-w-0 space-y-4', tab === 'overview' ? 'block' : 'hidden', 'lg:block')}>
         <Card flush className="animate-rise">
@@ -420,6 +433,7 @@ export function DealRoom({ deal }: { deal: DealView }) {
           <ChatPanel
             dealId={deal.dealId}
             messages={deal.messages}
+            truncated={deal.transcriptTruncated}
             canMessage={deal.permitted.canMessage}
             counterpartyName={deal.counterpartyName}
             className="min-h-0 flex-1"
@@ -672,7 +686,15 @@ function Receipt({ deal }: { deal: DealView }) {
   const isFiat = deal.viewerRole === 'FIAT_SIDE';
 
   return (
-    <div className="mx-auto max-w-[34rem] space-y-4">
+    // The completed receipt IS the room in its terminal state, so it
+    // carries the same marker: a check waiting for the room does not
+    // have to know which of two components rendered it.
+    <div
+      data-deal-room
+      data-deal-state={deal.state}
+      data-viewer-role={deal.viewerRole}
+      className="mx-auto max-w-[34rem] space-y-4"
+    >
       <Card className="relative overflow-hidden text-center">
         <div className="relative mx-auto w-fit">
           <Celebration />
@@ -768,11 +790,18 @@ function Receipt({ deal }: { deal: DealView }) {
             Unlocks a fee discount on this platform. Not money, and never withdrawable.
           </p>
         </div>
+        {/*
+          WCAG 2.2 AA 2.5.8. A bare 16px chevron is a 19×19 target — the
+          smallest thing in the deal room and the hardest to hit with a
+          thumb. `min-h-6 min-w-6` and centring give it a 24px hit area
+          without changing the glyph, and the negative margin keeps the
+          row's height exactly as it was.
+        */}
         <Link
           href="/app/rewards"
           prefetch={false}
           aria-label="Open rewards"
-          className="shrink-0 text-[var(--color-brand-ink)]"
+          className="-m-1 grid min-h-6 min-w-6 shrink-0 place-items-center text-[var(--color-brand-ink)]"
         >
           <Icon name="chevron-right" className="h-4 w-4" />
         </Link>
@@ -801,6 +830,7 @@ function Receipt({ deal }: { deal: DealView }) {
         <ChatPanel
           dealId={deal.dealId}
           messages={deal.messages}
+          truncated={deal.transcriptTruncated}
           canMessage={false}
           counterpartyName={deal.counterpartyName}
         />

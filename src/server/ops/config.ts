@@ -62,7 +62,7 @@ export const MANDATORY_PRODUCTION_SECRETS = [
  * running against a database it was not built for is how a "successful"
  * deploy silently writes the wrong shape.
  */
-export const EXPECTED_SCHEMA_VERSION = 13;
+export const EXPECTED_SCHEMA_VERSION = 15;
 
 function readMode(): RuntimeMode {
   const explicit = process.env.INRP2P_MODE;

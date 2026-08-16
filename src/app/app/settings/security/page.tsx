@@ -1,10 +1,17 @@
-import { getChrome } from '@/services';
-import { getTrustProfile } from '@/services';
-import { setTwoFactorAction, signOutAction } from '@/services/actions';
+/*
+ * Everything server-side arrives through `@/services`, the one
+ * application-service boundary (UX-01 §9). `tests/serviceBoundary.test.ts`
+ * fails the build if an interface file reaches into `@/server/*` directly,
+ * and this page did — for `currentCaller` and `countUnread`, both of which
+ * the service index already re-exports.
+ */
+import { countUnread, currentCaller, getTrustProfile } from '@/services';
+import { redirect } from 'next/navigation';
+import { signOutAction } from '@/services/actions';
+import { MfaChallenge, MfaEnrolment } from '@/components/flows/MfaFlow';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { Icon } from '@/components/kit/Icon';
 import { ToastProvider } from '@/components/kit/Feedback';
-import { ActionSwitch } from '@/components/flows/ActionButton';
 import { accountHandle } from '@/lib/sandboxContract';
 import {
   Callout,
@@ -22,21 +29,60 @@ export const dynamic = 'force-dynamic';
  * Security.
  *
  * ┌──────────────────────────────────────────────────────────────────┐
- * │  ⚠ THIS SANDBOX AUTHENTICATES NOBODY.                            │
+ * │  THE SECOND FACTOR IS REAL. IT IS THE ONLY THING HERE THAT IS.   │
  * │                                                                  │
- * │  Sign-in accepts any email address and stores no password. The   │
- * │  session is a signed cookie carrying a user id — enough for the  │
- * │  server to enforce authorization honestly, and nothing like an   │
- * │  authentication system. The toggle below records a PREFERENCE;   │
- * │  it enrols no second factor, because there is no first one.      │
+ * │  Sign-in proves control of a mailbox and nothing more — no       │
+ * │  password is asked for, chosen or stored — and the page still    │
+ * │  says so, because a person must not mistake this account for     │
+ * │  something that protects money.                                  │
  * │                                                                  │
- * │  This page says so at the top rather than presenting a security  │
- * │  theatre that a person might rely on.                            │
+ * │  What IS real is the authenticator factor below: a TOTP secret,  │
+ * │  a confirmation, single-use recovery codes and a per-session     │
+ * │  challenge, all enforced server-side since DEL-03. Operator      │
+ * │  tools refuse a session that has not answered it.                │
+ * │                                                                  │
+ * │  ⚠ DEL-10: this screen previously offered a checkbox that        │
+ * │  recorded a PREFERENCE and enrolled nothing, while `/app/ops`    │
+ * │  told refused operators to "set up an authenticator app in       │
+ * │  Security". The instruction pointed at a page that could not     │
+ * │  carry it out. That dead end is what this replaces.              │
  * └──────────────────────────────────────────────────────────────────┘
  */
-export default async function SecurityPage() {
-  const { user, unread } = await getChrome();
+export default async function SecurityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+
+  /*
+   * ONE authentication resolution, and it does not throw.
+   *
+   * ⚠ This page previously resolved the caller TWICE: `currentCaller()`
+   * for the factor state, and `getChrome()` — which throws — for the
+   * header. Every MFA action ends by revalidating this route, so the
+   * post-commit RSC render re-ran the throwing resolver. When that
+   * render could not resolve the session it produced an error payload,
+   * and the client never received the result of an action that had
+   * ALREADY COMMITTED: a confirmed enrolment looked like a failure, and
+   * a one-time secret could be lost with it.
+   *
+   * `currentCaller()` returns null instead of throwing, and everything
+   * below is derived from that single resolution.
+   */
+  const caller = await currentCaller();
+  if (!caller) {
+    // A genuine unauthenticated arrival: no Security or MFA content is
+    // rendered at all, and the same-origin route is carried back.
+    redirect(`/login?next=${encodeURIComponent('/app/settings/security')}`);
+  }
+
+  const user = caller.user;
   const profile = await getTrustProfile(user);
+  // Takes the caller we already resolved; it never re-reads the session.
+  const unread = await countUnread(user);
+  const enrolled = caller.principal.mfaEnrolled;
+  const satisfied = caller.principal.mfaSatisfied;
 
   return (
     <ToastProvider>
@@ -54,16 +100,29 @@ export default async function SecurityPage() {
         </Callout>
 
         <section className="mt-5">
-          <SectionHead title="Sign-in" />
-          <Card className="mt-3" flush seam>
-            <ActionSwitch
-              checked={profile.twoFactorEnabled}
-              action={setTwoFactorAction}
-              label="Two-factor authentication"
-              description="Records your preference. No factor is enrolled in this sandbox, because there is no password to add a second factor to."
-              success="Preference saved"
-            />
-          </Card>
+          <SectionHead title="Authenticator app" />
+          {/* Status in words, since SectionHead carries no hint slot. */}
+          <p className="mt-1 text-[length:var(--text-xs)] text-[var(--color-ink-2)]">
+            {enrolled
+              ? satisfied
+                ? 'Enrolled · answered on this device'
+                : 'Enrolled · not yet answered on this device'
+              : 'Not enrolled'}
+          </p>
+          <div className="mt-3">
+            <MfaEnrolment enrolled={enrolled} />
+          </div>
+
+          {/*
+           * The challenge appears only when there is a factor to answer
+           * and this session has not answered it. Offering it otherwise
+           * would be a box that does nothing.
+           */}
+          {enrolled && !satisfied ? (
+            <div className="mt-3">
+              <MfaChallenge next={next} />
+            </div>
+          ) : null}
         </section>
 
         <section className="mt-6">

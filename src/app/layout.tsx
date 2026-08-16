@@ -54,7 +54,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const signedIn = (await currentUser()) !== null;
 
   return (
-    <html lang="en-IN">
+    /*
+     * `suppressHydrationWarning` on <html>, and ONLY here.
+     *
+     * Telegram's SDK loads `beforeInteractive` and writes
+     * `--tg-viewport-height` and `--tg-viewport-stable-height` onto the
+     * root element BEFORE React hydrates. React then sees a `style`
+     * attribute the server never rendered, reports a mismatch, and
+     * discards the server HTML for the subtree — which is a visible
+     * flash on first paint.
+     *
+     * This is the case React documents the attribute for: a third party
+     * mutating an element outside React's control. It is scoped to the
+     * root element, so a genuine mismatch anywhere inside the app is
+     * still reported.
+     */
+    <html lang="en-IN" suppressHydrationWarning>
       <head>
         {/*
           Telegram's SDK, loaded before hydration so `window.Telegram` is

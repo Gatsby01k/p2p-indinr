@@ -14,6 +14,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import { makeOperator, type OperatorFixture } from './support/operator';
+import { unique } from './support/room';
 import { getPool } from '@/server/db/pool';
 import {
   SandboxFailure,
@@ -41,6 +42,18 @@ import {
   proposeRulingCommand,
 } from '@/services/commands';
 
+/*
+ * A fixture identity THIS FILE owns.
+ *
+ * It used to be the literal `ops@sandbox.test` — and so did the one in
+ * the other suite, meaning the same account, with the same TOTP factor,
+ * was re-enrolled and step-burned by two files in a single run. In file
+ * order it happened to survive; under shuffle it failed in `beforeAll`
+ * and took the whole file down with it. A shared mutable credential is
+ * not a fixture.
+ */
+const DEALSAFE_OPS_EMAIL = `ops-${unique()}@sandbox.test`;
+
 let payer: SessionUser;
 let payee: SessionUser;
 let outsider: SessionUser;
@@ -63,9 +76,9 @@ beforeAll(async () => {
   payer = await signInSandbox('ds-payer@sandbox.test');
   payee = await signInSandbox('ds-payee@sandbox.test');
   outsider = await signInSandbox('ds-outsider@sandbox.test');
-  operator = await makeOperator('ops@sandbox.test');
+  operator = await makeOperator(DEALSAFE_OPS_EMAIL);
 
-  const rev = await makeOperator('ds-reviewer@sandbox.test');
+  const rev = await makeOperator(`ds-reviewer-${unique()}@sandbox.test`);
   await grantRole({
     userId: rev.user.userId,
     role: 'REVIEWER',
@@ -78,7 +91,7 @@ beforeAll(async () => {
     principal: { ...rev.principal, roles: ['REVIEWER'], permissions: permissionsFor(['REVIEWER']) },
   };
 
-  const admin = await makeOperator('ds-ledger-admin@sandbox.test');
+  const admin = await makeOperator(`ds-ledger-admin-${unique()}@sandbox.test`);
   await grantRole({
     userId: admin.user.userId,
     role: 'ADMIN',

@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { currentCaller, denialFor } from '@/services';
-import { AT_RISK_MINUTES, countBy, deskQueue, type DeskFilter } from '@/services';
+import { can, currentCaller, denialFor } from '@/services';
+import { AT_RISK_MINUTES, deskCounts, deskQueue, type DeskFilter } from '@/services';
 import { getChrome } from '@/services';
 import { formatMinor } from '@/lib/format';
 import { DEAL_STATE } from '@/lib/dealPresenter';
@@ -43,7 +43,7 @@ const TABS: readonly { key: DeskFilter; label: string }[] = [
 export default async function OpsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; page?: string }>;
 }) {
   const caller = await currentCaller();
 
@@ -96,7 +96,17 @@ export default async function OpsPage({
                 ? { href: '/login?next=/app/ops', label: 'Sign in' }
                 : denial === 'NO_PERMISSION'
                   ? { href: '/app', label: 'Back to your deals' }
-                  : { href: '/app/settings/security', label: 'Go to Security' }
+                  : {
+                      /*
+                       * Carries the desk as the return destination, so
+                       * answering the factor brings the operator back to
+                       * the page they were refused rather than dropping
+                       * them in Settings. Same-origin path only; Security
+                       * re-validates it before redirecting.
+                       */
+                      href: '/app/settings/security?next=%2Fapp%2Fops',
+                      label: 'Go to Security',
+                    }
             }
           />
         </div>
@@ -107,12 +117,29 @@ export default async function OpsPage({
   const { unread } = await getChrome();
   const params = await searchParams;
   const view: DeskFilter = TABS.find((t) => t.key === params.view)?.key ?? 'ALL';
+  const page = Math.max(Number.parseInt(params.page ?? '1', 10) || 1, 1);
+  /*
+   * Reviewers only. The desk is where an operator starts, and the
+   * verification queue had no entrance from anywhere in the product —
+   * which is one of the reasons nobody noticed it did not exist.
+   */
+  const mayReview = can(caller.principal, 'verification.review');
 
-  const [all, rows] = await Promise.all([
-    deskQueue(caller.principal, 'ALL'),
-    deskQueue(caller.principal, view),
+  /*
+   * ⚠ ONE BOUNDED PAGE, AND COUNTS AGGREGATED IN THE DATABASE.
+   *
+   * This used to run `deskQueue` TWICE with no limit — once to count and
+   * once to filter — so every open deal on the platform was selected,
+   * transferred and mapped twice on every render of this page. The desk
+   * was therefore slowest exactly when it was busiest. The counts are
+   * still exact: they come from a `count(*) FILTER` rather than from the
+   * length of the page.
+   */
+  const [counts, queue] = await Promise.all([
+    deskCounts(caller.principal),
+    deskQueue(caller.principal, view, { page }),
   ]);
-  const counts = countBy(all);
+  const rows = queue.rows;
 
   return (
     <>
@@ -138,6 +165,28 @@ export default async function OpsPage({
           />
           <StatTile value={counts.awaitingConfirm} label="Awaiting confirm" />
         </Card>
+
+        {mayReview ? (
+          <Link
+            href="/app/ops/verification"
+            prefetch={false}
+            data-testid="verification-queue-link"
+            className="press mt-4 flex items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] px-4 py-3 hover:border-[var(--color-rule)]"
+          >
+            <span className="flex min-w-0 items-center gap-2.5">
+              <Icon name="shield-check" className="h-4 w-4 shrink-0 text-[var(--color-ink-3)]" />
+              <span className="min-w-0">
+                <span className="block text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                  Verification review
+                </span>
+                <span className="block text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
+                  Accounts cannot join a deal until someone decides their case.
+                </span>
+              </span>
+            </span>
+            <Icon name="chevron-right" className="h-4 w-4 shrink-0 text-[var(--color-ink-4)]" />
+          </Link>
+        ) : null}
 
         {/* ---- Views, as real addresses -------------------------- */}
         <nav aria-label="Queue views" className="mt-5">
@@ -205,7 +254,8 @@ export default async function OpsPage({
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[64rem] border-collapse text-[length:var(--text-sm)]">
                   <caption className="sr-only">
-                    Deals awaiting an operator, escalations first then oldest. {rows.length} shown.
+                    Deals awaiting an operator, escalations first then oldest. Showing {rows.length}{' '}
+                    of {queue.total}, page {queue.page}.
                   </caption>
                   <thead>
                     <tr className="border-b border-[var(--color-rule)] bg-[var(--color-sunken)] text-left">
@@ -228,6 +278,34 @@ export default async function OpsPage({
               </div>
             </Card>
 
+            {/*
+              THE PAGER IS PART OF THE BOUND, NOT DECORATION.
+              Limiting the query and then not saying so would simply hide
+              cases: an operator would see fifty and believe that was all
+              of them. The total is always stated, and the rest are one
+              real address away.
+            */}
+            <nav
+              aria-label="Queue pages"
+              data-testid="desk-pager"
+              className="mt-4 flex items-center justify-between gap-3"
+            >
+              <p className="tnum text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
+                Showing {rows.length} of {queue.total}
+                {queue.total > queue.pageSize ? ` · page ${queue.page}` : ''}
+              </p>
+              {queue.total > queue.pageSize ? (
+                <span className="flex gap-2">
+                  <PageLink view={view} page={queue.page - 1} disabled={queue.page <= 1}>
+                    Previous
+                  </PageLink>
+                  <PageLink view={view} page={queue.page + 1} disabled={!queue.hasMore}>
+                    Next
+                  </PageLink>
+                </span>
+              ) : null}
+            </nav>
+
             <div className="hidden lg:block">
               <QueueKeys />
             </div>
@@ -248,6 +326,55 @@ export default async function OpsPage({
 /* ------------------------------------------------------------------ *
  * Rows
  * ------------------------------------------------------------------ */
+
+/**
+ * One step through the queue, as a real address.
+ *
+ * A disabled edge is a `<span>` rather than a link with nothing behind
+ * it: a control that looks operable and is not is worse than no control,
+ * and a keyboard user should not stop on it at all.
+ */
+function PageLink({
+  view,
+  page,
+  disabled,
+  children,
+}: {
+  view: DeskFilter;
+  page: number;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  const query = new URLSearchParams();
+  if (view !== 'ALL') query.set('view', view);
+  if (page > 1) query.set('page', String(page));
+  const href = query.size > 0 ? `/app/ops?${query.toString()}` : '/app/ops';
+
+  const shape =
+    'inline-flex min-h-9 items-center rounded-[var(--radius-sm)] border px-3 text-[length:var(--text-xs)] font-medium';
+  if (disabled) {
+    return (
+      <span
+        aria-disabled="true"
+        className={cn(shape, 'border-[var(--color-line)] text-[var(--color-ink-4)]')}
+      >
+        {children}
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      className={cn(
+        shape,
+        'press border-[var(--color-rule)] text-[var(--color-ink-2)] hover:border-[var(--color-edge)]',
+      )}
+    >
+      {children}
+    </Link>
+  );
+}
 
 function nextAction(row: OperatorRow): { label: string; tone: 'risk' | 'brand' | 'idle' } {
   if (row.disputed) return { label: 'Review case', tone: 'risk' };

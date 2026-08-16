@@ -54,6 +54,30 @@ export interface StartedSignIn {
  * ------------------------------------------------------------------ */
 
 /**
+ * The stored hash of the TYPED code, salted with the address.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  EIGHT DIGITS CANNOT STAND ALONE IN A GLOBAL NAMESPACE.            │
+ * │                                                                    │
+ * │  If the code were hashed by itself, one guess would be tested      │
+ * │  against every live challenge at once, and the odds of hitting     │
+ * │  SOMEBODY's code would grow with the number of people signing in   │
+ * │  — worst at the busiest moment. Mixing in the address it was       │
+ * │  issued to pins each guess to a single mailbox, so the difficulty  │
+ * │  is the same whether one person is signing in or a million.        │
+ * │                                                                    │
+ * │  The remaining budget is then held by the per-address verify rate  │
+ * │  limit, single use and a fifteen-minute expiry — which is what     │
+ * │  makes an 8-digit code acceptable at all.                          │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+function codeHash(email: string, code: string): string {
+  // The separator is a character the address cannot contain, so no pair
+  // of (address, code) values can produce the same input string.
+  return hashToken(`signin-code:${email} ${code}`);
+}
+
+/**
  * Begin an email sign-in.
  *
  * ⚠ THE RESULT IS THE SAME WHETHER OR NOT THE ADDRESS IS KNOWN.
@@ -87,18 +111,33 @@ export async function startEmailSignIn(
 
   const code = mintNumericCode();
   const linkToken = mintToken();
-  // The link carries the high-entropy token; the code is the typable
-  // fallback. Both hash into the same row, so redeeming either consumes
-  // the challenge exactly once.
+  /*
+   * The link carries the high-entropy token; the code is the typable
+   * fallback. Both hash into the same row, so redeeming either consumes
+   * the challenge exactly once.
+   *
+   * ⚠ DEL-10: the second half of that sentence used to be untrue. Only
+   * `hashToken(secret)` was stored, so the concatenation was the ONLY
+   * credential that matched and the typed code was always refused —
+   * while the screen kept offering a field for it. The code now has its
+   * own hash, salted with the address (see `codeHash`), so eight digits
+   * are only ever tested against the challenge for that one mailbox.
+   */
   const secret = `${code}.${linkToken}`;
 
   const result = await withTransaction(async (tx) => {
     const { rows } = await tx.query(
       `INSERT INTO sandbox.auth_challenge
-         (email, purpose, token_hash, request_binding, expires_at)
-       VALUES ($1,'SIGN_IN',$2,$3, now() + ($4 || ' seconds')::interval)
+         (email, purpose, token_hash, code_hash, request_binding, expires_at)
+       VALUES ($1,'SIGN_IN',$2,$3,$4, now() + ($5 || ' seconds')::interval)
        RETURNING challenge_id`,
-      [email, hashToken(secret), binding ?? null, String(MAGIC_LINK_TTL_SECONDS)],
+      [
+        email,
+        hashToken(secret),
+        codeHash(email, code),
+        binding ?? null,
+        String(MAGIC_LINK_TTL_SECONDS),
+      ],
     );
     await writeAudit(tx, {
       actorId: null,
@@ -158,14 +197,24 @@ export async function redeemEmailSignIn(input: {
   }
 
   return withTransaction(async (tx) => {
+    /*
+     * TWO CREDENTIALS, ONE CHALLENGE.
+     *
+     * Whatever was typed is hashed both ways — as a full magic-link
+     * secret and as a typed code for this address — and the row is
+     * matched on either. A person pasting the link and a person typing
+     * the eight digits from it reach the same challenge and consume it
+     * exactly once, which is what DEL-03 intended and did not do.
+     */
     const presented = hashToken(input.secret.trim());
+    const presentedCode = codeHash(email, input.secret.trim());
     const { rows } = await tx.query(
-      `SELECT challenge_id, email, token_hash, request_binding, consumed_at,
+      `SELECT challenge_id, email, token_hash, code_hash, request_binding, consumed_at,
               (expires_at <= now()) AS is_expired
          FROM sandbox.auth_challenge
-        WHERE token_hash = $1 AND purpose = 'SIGN_IN'
+        WHERE (token_hash = $1 OR code_hash = $2) AND purpose = 'SIGN_IN'
         FOR UPDATE`,
-      [presented],
+      [presented, presentedCode],
     );
     const challenge = rows[0];
 
@@ -190,7 +239,15 @@ export async function redeemEmailSignIn(input: {
     };
 
     if (!challenge) return refuse('NO_SUCH_CHALLENGE');
-    if (!digestsEqual(challenge.token_hash as string, presented)) return refuse('HASH_MISMATCH');
+    /*
+     * Re-verify in constant time whichever credential the lookup found.
+     * Both are compared — never short-circuited on the first — so the
+     * time taken does not reveal which kind of credential was presented.
+     */
+    const linkMatches = digestsEqual(challenge.token_hash as string, presented);
+    const codeMatches =
+      challenge.code_hash !== null && digestsEqual(challenge.code_hash as string, presentedCode);
+    if (!linkMatches && !codeMatches) return refuse('HASH_MISMATCH');
     if (challenge.email !== email) return refuse('EMAIL_MISMATCH');
     if (challenge.consumed_at !== null) return refuse('ALREADY_CONSUMED');
     if (challenge.is_expired) return refuse('EXPIRED');
@@ -516,6 +573,14 @@ export async function beginMfaEnrolment(userId: string): Promise<Outcome<Enrolme
 export async function confirmMfaEnrolment(
   userId: string,
   presented: string,
+  /**
+   * The session that is doing the enrolling, if any.
+   *
+   * Kept alive across the version bump below. Every other session still
+   * dies — see `bumpSessionVersionIn` for why the enrolling device is
+   * not one of the sessions that must re-establish itself.
+   */
+  options?: { readonly keepSessionId?: string | null },
 ): Promise<Outcome<{ readonly confirmed: true }>> {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(
@@ -556,9 +621,15 @@ export async function confirmMfaEnrolment(
       `UPDATE sandbox.mfa_factor SET confirmed_at = now(), last_step = $2 WHERE factor_id = $1`,
       [factor.factor_id, verdict.step],
     );
-    // Enrolling changes what this account can do, so live sessions must
-    // re-establish themselves rather than inherit the new authority.
-    await bumpSessionVersionIn(tx, userId);
+    /*
+     * Enrolling changes what this account can do, so live sessions must
+     * re-establish themselves rather than inherit the new authority —
+     * every session EXCEPT the one that just proved possession of the
+     * new factor. Signing that device out is not a stronger control, it
+     * is a dead end: it leaves the person at a login screen holding an
+     * authenticator whose challenge they were never offered.
+     */
+    await bumpSessionVersionIn(tx, userId, options?.keepSessionId ?? null);
     await writeAudit(tx, {
       actorId: userId,
       action: 'MFA_ENROL_CONFIRM',

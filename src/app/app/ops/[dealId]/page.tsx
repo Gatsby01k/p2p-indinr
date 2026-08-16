@@ -385,10 +385,17 @@ export default async function OperatorCasePage({
               </ol>
             </Card>
 
+            {/*
+              WCAG 2.2 AA 2.5.8. The link is full-width but only 20px
+              tall, so it fails the 24px minimum on the short axis —
+              which is the axis a pointer actually misses on. `min-h-6`
+              raises the hit area; nothing about the type or the spacing
+              around it changes.
+            */}
             <Link
               href="/app/ops"
               prefetch={false}
-              className="flex items-center justify-center gap-1.5 text-[length:var(--text-sm)] font-medium text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
+              className="flex min-h-6 items-center justify-center gap-1.5 text-[length:var(--text-sm)] font-medium text-[var(--color-ink-3)] hover:text-[var(--color-ink)]"
             >
               <Icon name="chevron-left" className="h-3.5 w-3.5" strokeWidth={2.2} />
               Back to the desk

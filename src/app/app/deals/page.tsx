@@ -107,7 +107,17 @@ export default async function DealsPage({
         ) : null}
 
         {/* ---- Filters, as real links -------------------------------- */}
-        <nav aria-label="Filter deals" className="mt-5">
+        {/*
+         * `overflow-x-clip` on the nav, not on the strip.
+         *
+         * The strip below bleeds to the screen edge with `-mx-4` and
+         * scrolls internally. Without a clipping ancestor that bleed
+         * also widened the DOCUMENT, so the whole page scrolled
+         * sideways at 360 and 375 px — the narrowest phones, where it
+         * is most obvious and least excusable. Clipping here keeps the
+         * bleed and the internal scroll while the page itself stays put.
+         */}
+        <nav aria-label="Filter deals" className="mt-5 overflow-x-clip">
           <ul className="no-bar snap-x-strip -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
             {FILTERS.map((f) => {
               const count = deals.filter((d) => matches(d, f.key)).length;
@@ -158,9 +168,19 @@ export default async function DealsPage({
             <>
               {/* Cards on small screens where each deal deserves room; a
                   dense rail on desktop where scanning many at once wins. */}
+              {/*
+               * `min-w-0` on the grid items.
+               *
+               * A grid child defaults to `min-width: auto`, so an
+               * unbreakable string inside a card — a deal reference, a
+               * long title — makes the TRACK wider than the container
+               * and the whole page scrolls sideways. At 360 and 375 px
+               * that is every narrow phone. Letting the item shrink is
+               * what keeps the card inside the screen.
+               */}
               <ul className="grid gap-3 sm:grid-cols-2 lg:hidden">
                 {shown.map((deal) => (
-                  <li key={deal.dealId}>
+                  <li key={deal.dealId} className="min-w-0">
                     <DealCard deal={deal} />
                   </li>
                 ))}

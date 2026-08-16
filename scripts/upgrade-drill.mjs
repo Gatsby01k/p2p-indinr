@@ -120,7 +120,10 @@ async function main() {
    */
   await client.query(
     `INSERT INTO sandbox.outbox_event (event_key, event_type, subject_kind, subject_id, payload)
-     VALUES ($1,'upgrade.drill','user',$2,'{"legacy":true}'::jsonb)
+     -- The test. prefix marks a drill artefact rather than a product
+     -- event, so the outbox manifest test can hold every OTHER type to
+     -- the declared registry. See tests/integration/outboxIntegrity.
+     VALUES ($1,'test.upgrade.drill','user',$2,'{"legacy":true}'::jsonb)
      ON CONFLICT (event_key) DO NOTHING`,
     [`upgrade-drill-${Date.now()}`, b],
   );

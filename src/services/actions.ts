@@ -32,7 +32,7 @@ import {
   verifyMfaForSession,
 } from '@/server/identity/auth';
 import { listSessions, revokeAllSessions, revokeSession } from '@/server/identity/sessions';
-import { submitVerification } from '@/server/identity/verification';
+import { decideVerification, submitVerification } from '@/server/identity/verification';
 /*
  * EVERY DEL-02 MUTATION IS CONSTRUCTED IN `./commands`.
  *
@@ -191,6 +191,14 @@ export async function signOutEverywhereAction(): Promise<ActionResult> {
       'SIGN_OUT_EVERYWHERE',
       caller.session.sessionId,
     );
+    /*
+     * This one KEEPS its revalidation: the session list on the page is
+     * exactly what changed, and Security no longer renders through a
+     * throwing resolver — an unresolvable session now redirects to
+     * sign-in instead of producing an error payload. The MFA actions
+     * above drop theirs because their result is a one-time secret that
+     * a failed render must never be able to swallow.
+     */
     afterCommit(() => revalidatePath('/app/settings/security'));
     return { ok: true, message: `${revoked} other session(s) ended.` };
   } catch (err) {
@@ -242,8 +250,23 @@ export async function beginMfaEnrolmentAction(): Promise<
 export async function confirmMfaEnrolmentAction(code: string): Promise<ActionResult> {
   try {
     const caller = await requireCaller();
-    const outcome = await confirmMfaEnrolment(caller.user.userId, code);
-    if (outcome.ok) afterCommit(() => revalidatePath('/app/settings/security'));
+    const outcome = await confirmMfaEnrolment(caller.user.userId, code, {
+      // This device just proved possession of the new factor; every
+      // OTHER session still dies with the version bump.
+      keepSessionId: caller.session.sessionId,
+    });
+    /*
+     * ⚠ NO `revalidatePath('/app/settings/security')` HERE.
+     *
+     * Revalidating this route re-renders Security on the way back, and a
+     * failure in that PRESENTATION render used to swallow a mutation
+     * that had already COMMITTED — turning a confirmed enrolment into an
+     * apparent failure and, worse, losing a one-time secret with it.
+     *
+     * The definitive result is the return value below. `MfaFlow` updates
+     * its own state from it and refreshes afterwards if it needs to, so
+     * a render problem can never contradict what the database did.
+     */
     return resultOf(outcome);
   } catch (err) {
     return fail(err);
@@ -259,7 +282,10 @@ export async function verifyMfaAction(code: string): Promise<ActionResult> {
       sessionId: caller.session.sessionId,
       presented: code,
     });
-    if (outcome.ok) afterCommit(() => revalidatePath('/app/ops'));
+    /*
+     * Nor here. The client navigates to the route it was sent to answer
+     * the factor for, once it has the definitive success in hand.
+     */
     return resultOf(outcome);
   } catch (err) {
     return fail(err);
@@ -274,7 +300,11 @@ export async function redeemRecoveryCodeAction(code: string): Promise<ActionResu
       sessionId: caller.session.sessionId,
       code,
     });
-    if (outcome.ok) afterCommit(() => revalidatePath('/app/settings/security'));
+    /*
+     * Same reason as `confirmMfaEnrolmentAction`: a recovery code is
+     * SINGLE USE, so a presentation render that hid its success would
+     * spend the code and tell the person it failed.
+     */
     return resultOf(outcome);
   } catch (err) {
     return fail(err);
@@ -518,6 +548,53 @@ export async function verifyStepAction(step: 'identity' | 'upi' | 'wallet'): Pro
     const outcome = await submitVerification({ userId: user.userId, kind });
     if (outcome.ok) {
       afterCommit(() => {
+        revalidatePath('/app/profile');
+        revalidatePath('/app/profile/verification');
+      });
+    }
+    return resultOf(outcome);
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/**
+ * Decide a verification case.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THE ACTION THAT WAS MISSING.                                      │
+ * │                                                                    │
+ * │  `decideVerification` has been implemented and tested since        │
+ * │  DEL-03 and nothing could reach it, so no submitted case was ever  │
+ * │  decided and no account could ever become verified — which made    │
+ * │  joining a protected deal impossible for everyone. This exposes    │
+ * │  the existing boundary; it adds no authority that did not already  │
+ * │  exist and it weakens nothing.                                     │
+ * │                                                                    │
+ * │  Three things are still decided by the layers below, not here:     │
+ * │  `verification.review` with a satisfied second factor, a written   │
+ * │  reason of at least eight characters, and reviewer separation —    │
+ * │  the last enforced by a CHECK constraint, so a bug in this file    │
+ * │  cannot produce a self-approval.                                   │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export async function decideVerificationAction(
+  caseId: string,
+  decision: 'APPROVED' | 'REJECTED',
+  note: string,
+): Promise<ActionResult> {
+  try {
+    const caller = await requireCaller();
+    const outcome = await decideVerification({
+      reviewer: caller.principal,
+      caseId,
+      decision,
+      note,
+    });
+    if (outcome.ok) {
+      afterCommit(() => {
+        revalidatePath('/app/ops/verification');
+        // The subject's own screens read the cached flags this writes.
         revalidatePath('/app/profile');
         revalidatePath('/app/profile/verification');
       });

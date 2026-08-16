@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { formatMinor } from '@/lib/format';
+import { formatMinor, plainMinor } from '@/lib/format';
 import { amountProblem, parseInrToMinor, parseUsdtToMicro } from '@/lib/parse';
 import { inrFromUsdt, settlementFor, usdtFromInr } from '@/lib/fees';
 import { REFERENCE_RATE, rateDisplay } from '@/lib/rate';
@@ -50,7 +50,7 @@ export function Calculator({ autoFocus = false }: { autoFocus?: boolean }) {
         sendLabel: `${formatMinor(micro.toString(), 'USDT')} USDT`,
         receiveLabel: `₹${formatMinor(settlement.payeeReceivesMinor.toString(), 'INR')}`,
         feeLabel: `₹${formatMinor(settlement.fees.totalMinor.toString(), 'INR')}`,
-        amount: formatMinor(micro.toString(), 'USDT', true),
+        amount: plainMinor(micro.toString(), 'USDT'),
       };
     }
 
@@ -63,7 +63,7 @@ export function Calculator({ autoFocus = false }: { autoFocus?: boolean }) {
         sendLabel: `₹${formatMinor(settlement.payerSendsMinor.toString(), 'INR')}`,
         receiveLabel: `₹${formatMinor(settlement.payeeReceivesMinor.toString(), 'INR')}`,
         feeLabel: `₹${formatMinor(settlement.fees.totalMinor.toString(), 'INR')}`,
-        amount: formatMinor(inrMinor.toString(), 'INR', true),
+        amount: plainMinor(inrMinor.toString(), 'INR'),
       };
     }
 
@@ -72,7 +72,7 @@ export function Calculator({ autoFocus = false }: { autoFocus?: boolean }) {
       sendLabel: `₹${formatMinor(settlement.payerSendsMinor.toString(), 'INR')}`,
       receiveLabel: `${formatMinor(micro.toString(), 'USDT')} USDT`,
       feeLabel: `₹${formatMinor(settlement.fees.totalMinor.toString(), 'INR')}`,
-      amount: formatMinor(inrMinor.toString(), 'INR', true),
+      amount: plainMinor(inrMinor.toString(), 'INR'),
     };
   }, [raw, mode, meta.from]);
 
