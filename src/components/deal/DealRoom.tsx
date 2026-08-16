@@ -23,6 +23,7 @@ import { Celebration, Seal } from '@/components/kit/Brand';
 import { AssetMark, Icon } from '@/components/kit/Icon';
 import { Sheet } from '@/components/kit/Sheet';
 import { CopyButton } from '@/components/kit/Feedback';
+import { LiveRefresh } from '@/components/kit/LiveRefresh';
 import { Ago, Deadline } from '@/components/kit/Time';
 import {
   ActionLink,
@@ -134,6 +135,18 @@ export function DealRoom({ deal }: { deal: DealView }) {
       data-viewer-role={deal.viewerRole}
       className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)_minmax(0,22rem)] lg:items-start"
     >
+      {/*
+        A deal room is two people acting in turn, so almost everything on
+        this screen is waiting on the other one — their message, their
+        payment, their confirmation. `router.refresh()` above fires only
+        for the viewer's OWN action, which left the counterparty's half
+        invisible until a manual reload.
+
+        Not mounted once the deal is settled or halted: nothing further
+        will arrive, and polling a finished deal is pure waste.
+      */}
+      {terminal ? null : <LiveRefresh />}
+
       {/* ================= COLUMN 1 · the deal ==================== */}
       <div className={cn('min-w-0 space-y-4', tab === 'overview' ? 'block' : 'hidden', 'lg:block')}>
         <Card flush className="animate-rise">

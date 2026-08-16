@@ -9,6 +9,7 @@ import { miniAppDealLink } from '@/lib/miniApp';
 import { publicUrl } from '@/lib/publicUrl';
 import { TopBar } from '@/components/kit/AppChrome';
 import { ToastProvider } from '@/components/kit/Feedback';
+import { LiveRefresh } from '@/components/kit/LiveRefresh';
 import { AssetMark, Icon } from '@/components/kit/Icon';
 import { JoinPanel } from '@/components/kit/JoinPanel';
 import { ShareLink } from '@/components/kit/ShareLink';
@@ -154,6 +155,13 @@ export default async function DealLinkPage({ params }: Params) {
 
         {preview.joinable ? (
           <Card className="mt-3">
+            {/*
+              The whole point of this screen is to wait for someone else, so
+              it has to notice when they arrive. Mounted ONLY while the link
+              is still joinable: once it is taken there is nothing left to
+              wait for, and the branch below is the final state.
+            */}
+            <LiveRefresh />
             <ShareLink
               url={url}
               headline={headline}
