@@ -22,6 +22,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "screens:journey": "node scripts/journey-screens.mjs",
     "roles:provision": "node scripts/provision-roles.mjs",
+    "db:migrate:managed": "node scripts/provision-ledger-ownership.mjs",
     "drill:recovery": "node scripts/recovery-drill.mjs",
     "secrets:scan": "node scripts/secret-scan.mjs",
     "sbom": "node scripts/sbom.mjs",

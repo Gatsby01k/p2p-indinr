@@ -74,7 +74,43 @@ reachable — check `DATABASE_URL` and that step 2 actually ran.
 Sandbox accounts are chosen by email prefix: `ops@…` is an operator, `new@…`
 is unverified and cannot join, anything else is a verified trader.
 
-## 5. Connect the Telegram Mini App (optional)
+> **Where is the sign-in code?** Until you finish step 5, nowhere near your
+> inbox — it is written to the server log. On Vercel: **Deployment → Runtime
+> Logs**, look for `[inrp2p sandbox mail]`. That is enough to verify the
+> deployment yourself and useless for anybody else.
+
+## 5. Deliver sign-in codes by email
+
+The one-time code **is** the proof of identity for web sign-in, so a
+deployment that cannot send mail cannot sign anyone in. Telegram sign-in is
+unaffected — it never uses email — so skip this only if the Mini App is the
+sole way in.
+
+1. **[resend.com](https://resend.com) → API Keys** — create one; it starts
+   with `re_`. Add it on Vercel as `RESEND_API_KEY` (**secret**).
+
+2. **Verify your sending domain.** This is the step people skip, and it is
+   the one that decides whether real users can sign in. Resend → **Domains**
+   → add `inrp2p.com` and publish the DNS records it gives you.
+
+3. **Set `RESEND_FROM`** to an address on that domain, e.g.
+   `INRP2P <noreply@inrp2p.com>`, then redeploy.
+
+Leaving step 2 or 3 undone is a live-looking half-configuration: mail goes
+out under Resend's shared `onboarding@resend.dev` sender, which the provider
+delivers **only to the address that owns the Resend account** and refuses for
+everyone else. The refusal fails the sign-in loudly rather than dropping the
+mail, and `/app/settings/diagnostics` reports the domain as unverified until
+you finish.
+
+| Symptom | Cause |
+|---|---|
+| Code lands in Runtime Logs, no mail | `RESEND_API_KEY` unset or not starting `re_` |
+| Sign-in fails for everyone but you | Domain unverified, still on `onboarding@resend.dev` |
+| `provider returned 401` | Key revoked or mistyped |
+| `provider returned 403` | Sender is not on a verified domain |
+
+## 6. Connect the Telegram Mini App (optional)
 
 Skip this and nothing breaks — the web app is unaffected and only the Mini
 App refuses to sign anyone in. Full detail in

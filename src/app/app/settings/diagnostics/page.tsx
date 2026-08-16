@@ -1,5 +1,5 @@
 import { getChrome } from '@/services';
-import { telegramConfigured } from '@/services';
+import { emailDeliveryStatus, telegramConfigured } from '@/services';
 import { MINI_APP_BASE, MINI_APP_PROBLEM, MINI_APP_RAW } from '@/lib/miniApp';
 import { publicOrigin } from '@/lib/publicUrl';
 import { AppHeader } from '@/components/kit/AppChrome';
@@ -42,6 +42,7 @@ export default async function DiagnosticsPage() {
   const origin = await publicOrigin();
 
   const secret = process.env.SANDBOX_SESSION_SECRET ?? '';
+  const mail = emailDeliveryStatus();
   const checks: readonly Check[] = [
     {
       label: 'Database',
@@ -73,6 +74,30 @@ export default async function DiagnosticsPage() {
       consequence:
         'Shared deal links are built from whatever host the creator was browsing, which on Vercel can be a protected preview URL the recipient cannot open.',
       fix: 'Set NEXT_PUBLIC_SITE_URL to your canonical https address, then redeploy.',
+    },
+    {
+      label: 'Email delivery',
+      /*
+       * Green ONLY on a verified sending domain. With the provider's shared
+       * testing address the integration is live and still reaches nobody but
+       * the Resend account owner — reporting that as healthy would be the
+       * same lie as a sandbox adapter claiming to have sent mail.
+       */
+      ok: mail.kind === 'RESEND' && mail.domainVerified,
+      value:
+        mail.kind === 'RESEND'
+          ? `Resend, from ${mail.from}`
+          : mail.kind === 'SANDBOX'
+            ? 'sandbox — the code is logged, no mail is sent'
+            : 'not configured',
+      consequence:
+        mail.kind === 'RESEND'
+          ? 'Until the sending domain is verified the provider refuses every recipient except the account owner, and each refusal fails a sign-in.'
+          : 'Nobody can sign in by email: the code is written to the server log instead of being delivered.',
+      fix:
+        mail.kind === 'RESEND'
+          ? 'Verify your domain in Resend, then set RESEND_FROM to something like INRP2P <noreply@inrp2p.com>.'
+          : 'Set RESEND_API_KEY to a key from resend.com, then redeploy.',
     },
     {
       label: 'Telegram bot token',

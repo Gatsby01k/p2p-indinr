@@ -230,8 +230,6 @@ export function TelegramProvider({
 
   useEffect(() => {
     if (!inTelegram || !signedIn) return;
-    const startParam = webApp()?.initDataUnsafe?.start_param;
-    if (!startParam) return;
     // Only redirect from the entry points. A person who has already
     // navigated somewhere must not be yanked back by a stale launch param.
     if (pathname !== '/' && pathname !== '/app') return;
@@ -242,8 +240,26 @@ export function TelegramProvider({
      * interpolated into a hard-coded path, and the destination page
      * performs its own authorization regardless of how it was reached.
      */
-    const deal = /^d_(INRP-[0-9A-HJ-NP-Z]{10})$/.exec(startParam);
-    if (deal) router.replace(`/d/${deal[1]}`);
+    const startParam = webApp()?.initDataUnsafe?.start_param;
+    const deal = startParam ? /^d_(INRP-[0-9A-HJ-NP-Z]{10})$/.exec(startParam) : null;
+    if (deal) {
+      router.replace(`/d/${deal[1]}`);
+      return;
+    }
+
+    /*
+     * ⚠ THE MINI APP MUST NEVER SETTLE ON THE LANDING PAGE.
+     *
+     * `/` is the marketing landing page and it does not redirect a signed-in
+     * visitor — it never has. Entry into the product used to happen ONLY as a
+     * side effect of the sign-in handshake above, which returns early once a
+     * session cookie exists. So the FIRST launch reached `/app` and every
+     * launch after it showed the brochure instead: the person who had already
+     * signed in was the one who got the worse result.
+     *
+     * Inside Telegram the root is an entry point, not a destination.
+     */
+    if (pathname === '/') router.replace('/app');
   }, [inTelegram, signedIn, pathname, router]);
 
   /* ---------------- 6. The API handed to the rest of the app ------------- */

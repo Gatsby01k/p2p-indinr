@@ -124,7 +124,7 @@ export {
   type VerificationQueueRow,
   type VerificationState,
 } from '@/server/identity/verification';
-export { emailDeliveryAvailable } from '@/server/adapters/emailDelivery';
+export { emailDeliveryAvailable, emailDeliveryStatus } from '@/server/adapters/emailDelivery';
 /*
  * Health, for the two probe routes. The runbook has cited
  * `/api/health/ready` since DEL-09 and neither endpoint existed; they go

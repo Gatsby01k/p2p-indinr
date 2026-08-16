@@ -13,6 +13,8 @@ import {
 } from '@/server/identity/auth';
 import {
   clearDeliveries,
+  emailDeliveryAvailable,
+  emailDeliveryStatus,
   getEmailDeliveryAdapter,
   lastDeliveredTo,
 } from '@/server/adapters/emailDelivery';
@@ -31,16 +33,32 @@ import { RATE_RULES, consumeRate } from '@/server/identity/rateLimit';
  */
 
 const unique = () => Math.random().toString(36).slice(2, 10);
-const original = { nodeEnv: process.env.NODE_ENV, sandbox: process.env.INRP2P_SANDBOX };
+const original = {
+  nodeEnv: process.env.NODE_ENV,
+  sandbox: process.env.INRP2P_SANDBOX,
+  resend: process.env.RESEND_API_KEY,
+};
 
+/**
+ * Production with NOTHING configured — which is the precondition the
+ * fail-closed test below is actually asserting against.
+ *
+ * `RESEND_API_KEY` is cleared explicitly rather than assumed absent: a real
+ * key selects a real adapter, so a developer who put one in their
+ * environment would otherwise turn "refuses to serve" into "sends mail" and
+ * see a confusing failure in a test that has nothing to do with their key.
+ */
 function enterProduction() {
   (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
   delete process.env.INRP2P_SANDBOX;
+  delete process.env.RESEND_API_KEY;
 }
 function restore() {
   (process.env as Record<string, string | undefined>).NODE_ENV = original.nodeEnv;
   if (original.sandbox === undefined) delete process.env.INRP2P_SANDBOX;
   else process.env.INRP2P_SANDBOX = original.sandbox;
+  if (original.resend === undefined) delete process.env.RESEND_API_KEY;
+  else process.env.RESEND_API_KEY = original.resend;
 }
 
 beforeEach(() => {
@@ -198,6 +216,44 @@ describe('email sign-in', () => {
       `SELECT count(*)::int AS n FROM sandbox.auth_challenge WHERE email LIKE 'prod-%'`,
     );
     expect(rows[0]!.n).toBe(0);
+  });
+
+  /*
+   * The seam itself, not the network.
+   *
+   * Nothing here talks to Resend — an integration test that needed a live
+   * provider would be skipped in CI and therefore worthless. What is worth
+   * pinning is the DECISION: which adapter a given configuration selects,
+   * and that a placeholder is not mistaken for a key.
+   */
+  it('selects a real provider only for a real key', () => {
+    enterProduction();
+    try {
+      // Placeholders are not configuration: production still fails closed.
+      process.env.RESEND_API_KEY = 'changeme';
+      expect(() => getEmailDeliveryAdapter()).toThrow(AdapterUnavailableError);
+      process.env.RESEND_API_KEY = 're_short';
+      expect(() => getEmailDeliveryAdapter()).toThrow(AdapterUnavailableError);
+      expect(emailDeliveryAvailable()).toBe(false);
+
+      // A real-shaped key selects the provider in production, with no
+      // sandbox acknowledgement anywhere — which is the point of the seam.
+      process.env.RESEND_API_KEY = `re_${'x'.repeat(30)}`;
+      expect(getEmailDeliveryAdapter().kind).toBe('PRODUCTION');
+      expect(emailDeliveryAvailable()).toBe(true);
+
+      /*
+       * The default sender is the provider's SHARED testing address, which
+       * only reaches the account owner. Diagnostics must report that as an
+       * unverified domain rather than implying mail reaches real users.
+       */
+      expect(emailDeliveryStatus()).toMatchObject({ kind: 'RESEND', domainVerified: false });
+      process.env.RESEND_FROM = 'INRP2P <noreply@inrp2p.com>';
+      expect(emailDeliveryStatus()).toMatchObject({ kind: 'RESEND', domainVerified: true });
+    } finally {
+      delete process.env.RESEND_FROM;
+      restore();
+    }
   });
 
   it('rate-limits code requests per address', async () => {

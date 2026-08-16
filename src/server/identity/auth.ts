@@ -155,6 +155,8 @@ export async function startEmailSignIn(
     to: email,
     purpose: 'SIGN_IN',
     secret,
+    // The typable half, stated rather than parsed back out of `secret`.
+    code,
     expiresInSeconds: MAGIC_LINK_TTL_SECONDS,
   });
 

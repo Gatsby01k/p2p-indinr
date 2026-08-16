@@ -62,11 +62,58 @@ $$;
  * NOT REPLICATION — stated explicitly rather than left to the default,
  * because "the default is fine" is how a role acquires an attribute
  * somebody set once for a debugging session.
+ *
+ * ⚠ THIS IS AN ASSERTION ABOUT STATE, NOT A CHANGE.
+ *
+ * A role created by the block above already has all five cleared, so the
+ * ALTER normally changes nothing — it exists to catch the role that was
+ * created by somebody else, earlier, with more.
+ *
+ * Issuing it BLINDLY made the assertion unrunnable on managed PostgreSQL.
+ * SUPERUSER, BYPASSRLS and REPLICATION are superuser-only attributes, and
+ * no managed provider grants superuser to anybody — so on Neon, RDS and
+ * Cloud SQL this migration failed with `permission denied to alter role`
+ * and the deployment stopped at v12, while on the local embedded cluster
+ * (whose owner IS a superuser) it passed and hid the problem.
+ *
+ * So: attempt the change, and when the server refuses, verify the state
+ * DIRECTLY and refuse to continue if it is actually wrong. That is
+ * strictly stronger than before — the old form proved nothing about the
+ * outcome, this one either holds or stops the migration.
  */
-ALTER ROLE inrp2p_web      NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION;
-ALTER ROLE inrp2p_worker   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION;
-ALTER ROLE inrp2p_readonly NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION;
-ALTER ROLE inrp2p_migrator NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION;
+DO $attrs$
+DECLARE
+  role_name TEXT;
+  held      TEXT;
+BEGIN
+  FOREACH role_name IN ARRAY
+    ARRAY['inrp2p_web', 'inrp2p_worker', 'inrp2p_readonly', 'inrp2p_migrator']
+  LOOP
+    BEGIN
+      EXECUTE format(
+        'ALTER ROLE %I NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION',
+        role_name);
+    EXCEPTION WHEN insufficient_privilege THEN
+      SELECT string_agg(v.attribute, ', ')
+        INTO held
+        FROM pg_roles p,
+             LATERAL (VALUES ('SUPERUSER', p.rolsuper),
+                             ('CREATEDB', p.rolcreatedb),
+                             ('CREATEROLE', p.rolcreaterole),
+                             ('BYPASSRLS', p.rolbypassrls),
+                             ('REPLICATION', p.rolreplication)) AS v(attribute, granted)
+       WHERE p.rolname = role_name AND v.granted;
+
+      IF held IS NOT NULL THEN
+        RAISE EXCEPTION
+          'role % holds %, and this connection cannot clear it', role_name, held
+          USING HINT = 'These are superuser-only attributes. Clear them with a '
+                       'superuser connection, then re-run the migration.';
+      END IF;
+    END;
+  END LOOP;
+END
+$attrs$;
 
 /*
  * A LOCKED `search_path` on every login role.
