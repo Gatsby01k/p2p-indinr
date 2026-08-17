@@ -1,19 +1,28 @@
 import Link from 'next/link';
 import { Calculator } from '@/components/kit/Calculator';
-import { TopBar } from '@/components/kit/AppChrome';
 import { Icon, type IconName } from '@/components/kit/Icon';
-import { ActionLink, Card, Label, SandboxChip, Shell } from '@/components/kit/primitives';
+import { ActionLink, Card, Label, Shell } from '@/components/kit/primitives';
+import { Hero } from '@/components/landing/Hero';
+import { LandingHeader } from '@/components/landing/LandingHeader';
+import { ShareAnywhere } from '@/components/landing/ShareAnywhere';
+import { MINI_APP_BASE } from '@/lib/miniApp';
 
 /**
  * Landing — the product, not a brochure.
  *
- * MOBILE: a two-line statement of what this is, then the calculator, so
- * FROM / AMOUNT / TO / RESULT / MOVE all sit inside the first viewport on a
- * 360×800 device without scrolling.
- *
- * DESKTOP: an asymmetric two-column composition — the argument on the left
- * with real width, the working product on the right. Not a narrow card
- * adrift in empty canvas.
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  LANDING-01 rebuilt everything down to `Create once. Share         │
+ * │  anywhere.`: the header, the hero, and the layered product         │
+ * │  demonstration beside it.                                          │
+ * │                                                                    │
+ * │  Everything BELOW that line is the previous landing page, kept     │
+ * │  deliberately and untouched. The calculator is a working product   │
+ * │  surface with a real handoff into `/app/new`, and the two sections │
+ * │  under it are the honest statement of what the product guarantees. │
+ * │  Deleting them now would leave the page ending mid-sentence and    │
+ * │  would break the calculator journey the browser gate exercises;    │
+ * │  the later landing stages replace them in place.                   │
+ * └────────────────────────────────────────────────────────────────────┘
  *
  * Trust is shown through product behaviour that actually exists: one joiner,
  * server-held terms, an honest loss of a race, a written ruling. No invented
@@ -23,81 +32,41 @@ import { ActionLink, Card, Label, SandboxChip, Shell } from '@/components/kit/pr
 export default function LandingPage() {
   return (
     <div className="flex min-h-dvh flex-col">
-      <TopBar
-        right={
-          <>
-            <SandboxChip />
-            <ActionLink href="/login" variant="outline" size="sm">
-              Sign in
-            </ActionLink>
-          </>
-        }
-      />
+      {/*
+        `MINI_APP_BASE` is read once, here, and handed down. It is compiled
+        from `NEXT_PUBLIC_TELEGRAM_MINI_APP` at build time, so a deployment
+        that has not set it renders Telegram controls that say — in their
+        accessible name — that they open the web app instead.
+      */}
+      <LandingHeader miniAppUrl={MINI_APP_BASE} />
 
       <main id="main" className="flex-1">
-        {/* ---- Above the fold ------------------------------------- */}
-        <Shell width="wide" className="py-6 sm:py-12 lg:py-16">
-          <div className="grid items-start gap-7 sm:gap-10 lg:grid-cols-[minmax(0,1fr)_27rem] lg:gap-16 xl:grid-cols-[minmax(0,1fr)_29rem]">
-            <div className="lg:pt-6">
-              <p className="flex items-center gap-2 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.07em] text-[var(--color-brand)]">
-                <Icon name="shield-check" className="h-4 w-4" />
-                DealSafe India
-              </p>
-              <h1 className="mt-3 text-[length:var(--text-3xl)] font-semibold leading-[1.08] tracking-[-0.035em] text-[var(--color-ink)] sm:text-[length:var(--text-4xl)] lg:text-[length:var(--text-5xl)]">
-                Send the money.
-                <br />
-                Keep the leverage.
-              </h1>
-              <p className="mt-4 max-w-[42ch] text-[length:var(--text-base)] leading-relaxed text-[var(--color-ink-2)] sm:text-[length:var(--text-lg)]">
-                Protected deals for Indian freelancers, buyers and traders. Fix the amount, share
-                one link, and the money is only released when the person receiving it says it
-                arrived.
-              </p>
+        <Hero miniAppUrl={MINI_APP_BASE} />
+        <ShareAnywhere />
 
-              {/* Desktop-only: the four-step model, given room to breathe. */}
-              <ol className="mt-10 hidden gap-px overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-line)] sm:grid sm:grid-cols-2 lg:mt-12 lg:grid-cols-4">
-                {STEPS.map((s, i) => (
-                  <li key={s.title} className="bg-[var(--color-paper)] p-4">
-                    <span className="tnum text-[length:var(--text-2xs)] font-bold text-[var(--color-brand)]">
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <h2 className="mt-1.5 text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
-                      {s.title}
-                    </h2>
-                    <p className="mt-1 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-                      {s.body}
-                    </p>
-                  </li>
-                ))}
-              </ol>
-            </div>
+        {/* ---- Retained from the previous landing page ------------ */}
 
-            <div className="lg:sticky lg:top-24">
+        {/* The calculator: the product itself, and the existing route
+            into `/app/new` across sign-in. */}
+        <section className="border-t border-[var(--color-line)] bg-[var(--color-canvas)]">
+          <Shell width="wide" className="py-12 sm:py-16">
+            <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_27rem] lg:gap-16">
+              <div>
+                <Label>Work out a deal</Label>
+                <h2 className="mt-3 text-[length:var(--text-3xl)] font-semibold leading-[1.08] tracking-[-0.035em] text-[var(--color-ink)] sm:text-[length:var(--text-4xl)]">
+                  See the figure before
+                  <br />
+                  anything is created.
+                </h2>
+                <p className="mt-4 max-w-[42ch] text-[length:var(--text-base)] leading-relaxed text-[var(--color-ink-2)] sm:text-[length:var(--text-lg)]">
+                  Fix the amount and see the fee first. Nothing is created, quoted or charged until
+                  you say so.
+                </p>
+              </div>
               <Calculator />
             </div>
-          </div>
-        </Shell>
-
-        {/* Mobile: the four steps, below the fold where they belong. */}
-        <Shell width="wide" className="pb-10 sm:hidden">
-          <ol className="grid gap-px overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-line)]">
-            {STEPS.map((s, i) => (
-              <li key={s.title} className="flex gap-3 bg-[var(--color-paper)] p-4">
-                <span className="tnum mt-0.5 text-[length:var(--text-2xs)] font-bold text-[var(--color-brand)]">
-                  {String(i + 1).padStart(2, '0')}
-                </span>
-                <div>
-                  <h2 className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
-                    {s.title}
-                  </h2>
-                  <p className="mt-0.5 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-                    {s.body}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </Shell>
+          </Shell>
+        </section>
 
         {/* ---- The three scenarios -------------------------------- */}
         <section className="border-t border-[var(--color-line)] bg-[var(--color-paper)]">
@@ -122,7 +91,7 @@ export default function LandingPage() {
         </section>
 
         {/* ---- What the product actually guarantees ---------------- */}
-        <section className="border-t border-[var(--color-line)]">
+        <section id="safety" className="scroll-mt-24 border-t border-[var(--color-line)]">
           <Shell width="wide" className="py-10 sm:py-14">
             <Label>How it holds up</Label>
             <div className="mt-5 grid gap-8 sm:grid-cols-2 lg:grid-cols-3 lg:gap-12">
@@ -155,6 +124,13 @@ export default function LandingPage() {
           width="wide"
           className="flex flex-col gap-3 py-6 sm:flex-row sm:items-center sm:justify-between"
         >
+          {/*
+            The sandbox position, stated in full. LANDING-01 removed the
+            `Sandbox · no real funds` CHIP from the header — the badge a
+            visitor met before they knew what the product was — and not
+            this. A build that holds no funds has to say so somewhere a
+            person can read it, and this is that place.
+          */}
           <p className="max-w-[68ch] text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
             <strong className="font-semibold text-[var(--color-hold)]">Sandbox build.</strong> No
             funds are held or moved, and no bank or blockchain connection exists. No regulatory
@@ -178,16 +154,6 @@ export default function LandingPage() {
     </div>
   );
 }
-
-const STEPS = [
-  { title: 'Set the terms', body: 'Fix the amount and see the fee before anything is created.' },
-  { title: 'Share one link', body: 'WhatsApp, Telegram, email — anywhere a message goes.' },
-  {
-    title: 'One person joins',
-    body: 'The first eligible person takes the other side. Only one can.',
-  },
-  { title: 'Release', body: 'The receiving side confirms, and both get a receipt.' },
-];
 
 const USES: readonly { title: string; body: string; icon: IconName; tint: string }[] = [
   {

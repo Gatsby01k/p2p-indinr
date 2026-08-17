@@ -274,7 +274,19 @@ console.log('\n2 · calculator handoff');
      * page in the hero copy, and the harness happily asserts against the
      * wrong corridor. `aria-checked` is the committed outcome.
      */
-    const buyUsdt = h.page.getByRole('radio', { name: /Buy USDT/i });
+    /*
+     * ⚠ SCOPED TO THE CALCULATOR, because `/` now has TWO radio groups.
+     *
+     * LANDING-01 gave the hero its own `Send INR / Buy USDT / Sell USDT`
+     * control, which drives the demonstration and the create-deal link.
+     * A page-wide `getByRole('radio', { name: /Buy USDT/i })` therefore
+     * matches two elements and Playwright refuses it under strict mode —
+     * so this addresses the calculator's own region by name. The hero
+     * control is exercised by the accessibility sweep below like every
+     * other control on the page.
+     */
+    const calculator = h.page.getByRole('region', { name: /Work out a protected deal/i });
+    const buyUsdt = calculator.getByRole('radio', { name: /Buy USDT/i });
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await buyUsdt.click({ timeout: 10_000 }).catch(() => {});
       const chosen = await buyUsdt

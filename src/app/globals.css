@@ -92,6 +92,19 @@
   --color-usdt: #0f9d76;
   --color-usdt-tint: #e8f7f2;
 
+  /* ---- Telegram -----------------------------------------------------
+     Reserved for controls that hand the person to TELEGRAM and nothing
+     else. Every other action on every surface is the brand vermilion; a
+     blue button here means "you are about to leave for Telegram".
+
+     Darker than Telegram's own #229ED9 on purpose: white 15px semibold
+     text on that hue is 3.0:1, which fails WCAG 1.4.3. This is 4.7:1.
+     The lighter brand hue is still used for the channel disc, where it
+     carries a white GLYPH rather than text. */
+  --tg: #1b78c2;
+  --tg-hover: #166baf;
+  --tg-press: #12588f;
+
   /* ---- Type ---------------------------------------------------------
      System stack: zero webfont weight, instant first paint on a slow
      Android. Monetary numerals are tabular everywhere. */
