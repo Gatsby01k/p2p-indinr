@@ -1,4 +1,5 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { fundForDeals, clearRiskCounters } from './support/escrow';
 import { getPool } from '@/server/db/pool';
 import { newCommandId } from '@/server/boundary/command';
 import { AdapterUnavailableError } from '@/server/adapters/mode';
@@ -75,6 +76,19 @@ async function counts(): Promise<Counts> {
 /* ------------------------------------------------------------------ *
  * Pricing
  * ------------------------------------------------------------------ */
+
+/*
+ * Escrow is real now: the crypto side must own what it sells, and every
+ * deal counts toward that account's rolling exposure. Neither is what
+ * this file tests, so both are handled by shared fixture support rather
+ * than by relaxing the checks that make them true.
+ */
+beforeAll(async () => {
+  await fundForDeals([alice, bob]);
+});
+beforeEach(async () => {
+  await clearRiskCounters([alice, bob]);
+});
 
 describe('production quote issuance fails closed without a pricing adapter', () => {
   for (const scenario of ['INR_TO_USDT', 'USDT_TO_INR'] as const) {

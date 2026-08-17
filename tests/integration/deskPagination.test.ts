@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { fundForDeals, clearRiskCounters } from './support/escrow';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DESK_PAGE_SIZE, deskCounts, deskQueue } from '@/server/sandbox/ops';
 import {
   createDealLink,
@@ -50,6 +51,19 @@ beforeAll(async () => {
     await joinDealLink(taker, link.publicId);
   }
 }, 120_000);
+
+/*
+ * Escrow is real now: the crypto side must own what it sells, and every
+ * deal counts toward that account's rolling exposure. Neither is what
+ * this file tests, so both are handled by shared fixture support rather
+ * than by relaxing the checks that make them true.
+ */
+beforeAll(async () => {
+  await fundForDeals([maker, taker]);
+});
+beforeEach(async () => {
+  await clearRiskCounters([maker, taker]);
+});
 
 describe('the desk queue is bounded and its counts are not', () => {
   it('never returns more than one page, however long the backlog', async () => {

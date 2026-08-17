@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { fundForDeals, clearRiskCounters } from './support/escrow';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeOperator, type OperatorFixture } from './support/operator';
 import { getPool } from '@/server/db/pool';
 import { canonicalise, newCommandId, readCommand, runCommand } from '@/server/boundary/command';
@@ -31,6 +32,19 @@ beforeAll(async () => {
 /* ------------------------------------------------------------------ *
  * Exact rejected replay
  * ------------------------------------------------------------------ */
+
+/*
+ * Escrow is real now: the crypto side must own what it sells, and every
+ * deal counts toward that account's rolling exposure. Neither is what
+ * this file tests, so both are handled by shared fixture support rather
+ * than by relaxing the checks that make them true.
+ */
+beforeAll(async () => {
+  await fundForDeals([alice]);
+});
+beforeEach(async () => {
+  await clearRiskCounters([alice]);
+});
 
 describe('a rejected command replays its exact original result', () => {
   const CUSTOM = 'This refusal has wording no FAILURE_COPY entry contains.';

@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { fundForDeals, clearRiskCounters } from './support/escrow';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { getPool, withTransaction } from '@/server/db/pool';
 import {
   boundaryContextFor,
@@ -61,6 +62,19 @@ async function createIntent(commandId: string, actor: SessionUser = creator, inr
 /* ------------------------------------------------------------------ *
  * Canonical hashing
  * ------------------------------------------------------------------ */
+
+/*
+ * Escrow is real now: the crypto side must own what it sells, and every
+ * deal counts toward that account's rolling exposure. Neither is what
+ * this file tests, so both are handled by shared fixture support rather
+ * than by relaxing the checks that make them true.
+ */
+beforeAll(async () => {
+  await fundForDeals([creator, joiner]);
+});
+beforeEach(async () => {
+  await clearRiskCounters([creator, joiner]);
+});
 
 describe('canonical payload hashing', () => {
   it('is independent of key order', () => {

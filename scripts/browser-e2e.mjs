@@ -65,6 +65,7 @@ import {
   staleSecurityTree,
   standingReviewer,
   typeInto,
+  claimTestFunds,
   verifyAccount,
   wait,
   waitForRoom,
@@ -124,9 +125,7 @@ async function close(handle, keepTrace) {
 
 async function closeActors(anyFailed) {
   for (const a of liveActors()) {
-    await a.ctx.tracing.stop(
-      anyFailed ? { path: join(OUT, 'traces', `actor-${a.name}.zip`) } : {},
-    );
+    await a.ctx.tracing.stop(anyFailed ? { path: join(OUT, 'traces', `actor-${a.name}.zip`) } : {});
     await a.ctx.close();
   }
 }
@@ -134,7 +133,12 @@ async function closeActors(anyFailed) {
 /** Assert that the built server shipped no development scaffolding. */
 async function noDevArtefacts(page, where) {
   const found = await assertNoDevArtefacts(page);
-  return record('build', `${where}: no development scaffolding in the DOM`, found.length === 0, found.join('; '));
+  return record(
+    'build',
+    `${where}: no development scaffolding in the DOM`,
+    found.length === 0,
+    found.join('; '),
+  );
 }
 
 const perf = {};
@@ -160,7 +164,12 @@ console.log('\n0 · standing verification reviewer');
       deskControl: DESK_CONTROL,
     });
     record('review', 'the reviewer enrolled a second factor', Boolean(mfa.secret));
-    record('review', 'the reviewer reached the Deal Desk', mfa.arrivedAt === '/app/ops' && mfa.control === true, String(mfa.arrivedAt));
+    record(
+      'review',
+      'the reviewer reached the Deal Desk',
+      mfa.arrivedAt === '/app/ops' && mfa.control === true,
+      String(mfa.arrivedAt),
+    );
     record(
       'review',
       'a reviewer is offered the verification queue',
@@ -325,11 +334,20 @@ console.log('\n3 · INR → INR full journey');
     await stranger.page.waitForSelector('text=/Sign in to join/i', { timeout: 25_000 });
     const strangerText = await stranger.page.locator('body').innerText();
     record('journey', 'signed-out stranger sees terms', /Sign in to join/i.test(strangerText));
-    record('journey', 'stranger is not shown bank details', !/UPI ID|sandboxupi/i.test(strangerText));
+    record(
+      'journey',
+      'stranger is not shown bank details',
+      !/UPI ID|sandboxupi/i.test(strangerText),
+    );
     await stranger.page.screenshot({ path: join(OUT, '05-stranger-view.png') });
 
     const joined = await joinDeal(payee.page, link, payee.bucket);
-    record('journey', 'verified counterparty joins', joined.path !== null, joined.refusal ?? joined.path);
+    record(
+      'journey',
+      'verified counterparty joins',
+      joined.path !== null,
+      joined.refusal ?? joined.path,
+    );
     record('journey', 'the room itself renders for the joiner', joined.rendered === true);
     inrRoomPath = joined.path;
 
@@ -338,9 +356,18 @@ console.log('\n3 · INR → INR full journey');
       // In an INR→INR deal the joiner takes the receiving seat, which the
       // room reports as CRYPTO_SIDE — the non-paying side of the corridor.
       const seat = await waitForRoom(payee.page, { state: 'FIAT_PENDING', role: 'CRYPTO_SIDE' });
-      record('journey', 'payee is seated on the receiving side', seat.role === 'CRYPTO_SIDE', seat.role ?? 'none');
+      record(
+        'journey',
+        'payee is seated on the receiving side',
+        seat.role === 'CRYPTO_SIDE',
+        seat.role ?? 'none',
+      );
       const room = await payee.page.locator('body').innerText();
-      record('journey', 'payee is told it is THEIR MOVE', /THEIR MOVE|Waiting on|Their move/i.test(room));
+      record(
+        'journey',
+        'payee is told it is THEIR MOVE',
+        /THEIR MOVE|Waiting on|Their move/i.test(room),
+      );
       record('journey', 'payee is NOT shown payment instructions', !/UPI ID/i.test(room));
       await noDevArtefacts(payee.page, 'deal room');
       await payee.page.screenshot({ path: join(OUT, '06-deal-room-payee.png'), fullPage: true });
@@ -353,13 +380,21 @@ console.log('\n3 · INR → INR full journey');
       record('journey', 'payer IS shown payment instructions', /UPI ID/i.test(payView));
       record('journey', 'sandbox handle disclosed honestly', /resolves at no bank/i.test(payView));
       record('journey', 'pay only from your own account', /own verified account/i.test(payView));
-      await payer.page.screenshot({ path: join(OUT, '07-payment-instructions.png'), fullPage: true });
+      await payer.page.screenshot({
+        path: join(OUT, '07-payment-instructions.png'),
+        fullPage: true,
+      });
 
       const utr = `E2E${Date.now().toString().slice(-9)}`;
       await claimPayment(payer.page, { utr, note: 'Sent from my verified account.' });
       // The claim is committed only when the ROOM says the deal moved.
       const claimed = await waitForRoom(payer.page, { state: 'FIAT_CLAIMED' });
-      record('journey', 'payment claimed and the deal state moved', claimed.state === 'FIAT_CLAIMED', utr);
+      record(
+        'journey',
+        'payment claimed and the deal state moved',
+        claimed.state === 'FIAT_CLAIMED',
+        utr,
+      );
       await payer.page.screenshot({ path: join(OUT, '08-claimed.png'), fullPage: true });
 
       await payee.page.goto(`${BASE}${inrRoomPath}`, { waitUntil: 'domcontentloaded' });
@@ -401,11 +436,36 @@ console.log('\n4 · crypto corridors');
  * result, so each corridor carries an amount that means what it says.
  */
 for (const [scenario, creator, joiner, label, amount] of [
-  ['INR_TO_USDT', ACCOUNT.buyer, ACCOUNT.seller, 'inr-usdt', '83000'],
-  ['USDT_TO_INR', ACCOUNT.seller, ACCOUNT.buyer, 'usdt-inr', '500'],
+  /*
+   * ⚠ THE INR LEG SHRANK WHEN THE ESCROW BECAME REAL.
+   *
+   * It was ₹83,000 — about 1,000 USDT the JOINER now has to put into
+   * escrow. `seller` supplies the crypto in this corridor and creates it
+   * in the next, so both land on one account's rolling exposure and the
+   * risk policy refuses the second with `LIMIT_EXCEEDED`.
+   *
+   * That refusal is the policy working. The corridor is what is under
+   * test here, not the cap, so the gate asks for an amount that fits
+   * inside it rather than the cap being widened for a harness.
+   */
+  ['INR_TO_USDT', ACCOUNT.buyer, ACCOUNT.seller, 'inr-usdt', '8300'],
+  ['USDT_TO_INR', ACCOUNT.seller, ACCOUNT.buyer, 'usdt-inr', '50'],
 ]) {
   const a = await context(`${label}-creator`, { as: creator });
   const b = await context(`${label}-joiner`, { as: joiner });
+
+  /*
+   * ⚠ THE CRYPTO SIDE HAS TO OWN THE USDT NOW.
+   *
+   * Joining moves that side's balance into escrow, and WHICH side that is
+   * flips with the corridor: buying USDT the joiner supplies it, selling
+   * it the creator does. Both are topped up rather than the harness
+   * working out whose turn it is — the claim is idempotent, and a fixture
+   * that has to re-derive the role is a fixture that will get it wrong.
+   */
+  await claimTestFunds(a.page);
+  await claimTestFunds(b.page);
+
   const before = failedSoFar();
   try {
     const link = await createDeal(a.page, {
@@ -424,9 +484,19 @@ for (const [scenario, creator, joiner, label, amount] of [
     );
 
     if (joined.path) {
-      record(scenario, 'the joined path is a deal room uuid', DEAL_ROOM.test(joined.path), joined.path);
+      record(
+        scenario,
+        'the joined path is a deal room uuid',
+        DEAL_ROOM.test(joined.path),
+        joined.path,
+      );
       const seat = await waitForRoom(b.page, { timeout: 25_000 });
-      record(scenario, 'the room renders for the joiner with a seat', Boolean(seat.role), `${seat.state} · ${seat.role}`);
+      record(
+        scenario,
+        'the room renders for the joiner with a seat',
+        Boolean(seat.role),
+        `${seat.state} · ${seat.role}`,
+      );
       const room = await b.page.locator('body').innerText();
       record(scenario, 'both legs and the rate are shown', /USDT/i.test(room) && /₹/.test(room));
       await b.page.screenshot({ path: join(OUT, `10-${label}-room.png`), fullPage: true });
@@ -462,7 +532,11 @@ for (const [scenario, creator, joiner, label, amount] of [
         await payer.page.waitForURL(/\/pay$/, { timeout: 25_000 });
         await payer.page.waitForSelector('h1', { timeout: 20_000 });
         const payText = await payer.page.locator('body').innerText();
-        record(scenario, 'payment surface names the asset or network', /TRC.{0,2}20|USDT|UPI/i.test(payText));
+        record(
+          scenario,
+          'payment surface names the asset or network',
+          /TRC.{0,2}20|USDT|UPI/i.test(payText),
+        );
         record(scenario, 'sandbox disclaimer present', /sandbox/i.test(payText));
         record(scenario, 'the payer is shown where to send it', /UPI ID|Account/i.test(payText));
         await payer.page.screenshot({ path: join(OUT, `11-${label}-pay.png`), fullPage: true });
@@ -500,7 +574,12 @@ console.log('\n5 · duplicate join');
       joinDeal(second.page, link, second.bucket),
     ]);
     const winners = [a, b].filter((r) => r.path !== null);
-    record('concurrency', 'exactly one of two simultaneous joiners wins', winners.length === 1, `${winners.length} joined`);
+    record(
+      'concurrency',
+      'exactly one of two simultaneous joiners wins',
+      winners.length === 1,
+      `${winners.length} joined`,
+    );
     const loser = [a, b].find((r) => r.path === null);
     record('concurrency', 'the loser sees a definitive refusal', Boolean(loser?.refusal));
     record(
@@ -565,18 +644,32 @@ for (const [who, email, roles] of [
 
     const mfa = await enrolAndSatisfyMfa(h.page, { next: '/app/ops', expect: DESK_CONTROL });
     record('mfa', `${who}: enrolled an authenticator through the UI`, Boolean(mfa.secret));
-    record('mfa', `${who}: recovery codes shown once`, mfa.recoveryCodes.length > 0, `${mfa.recoveryCodes.length} codes`);
+    record(
+      'mfa',
+      `${who}: recovery codes shown once`,
+      mfa.recoveryCodes.length > 0,
+      `${mfa.recoveryCodes.length} codes`,
+    );
 
     /* ---- The return contract, all four parts ---- */
     record('mfa', `${who}: the challenge is satisfied`, mfa.satisfied);
-    record('mfa', `${who}: the URL is exactly /app/ops`, mfa.arrivedAt === '/app/ops', String(mfa.arrivedAt));
+    record(
+      'mfa',
+      `${who}: the URL is exactly /app/ops`,
+      mfa.arrivedAt === '/app/ops',
+      String(mfa.arrivedAt),
+    );
     record('mfa', `${who}: a Deal Desk operator control is present`, mfa.control === true);
     record(
       'mfa',
       `${who}: the desk is not the refusal page`,
       (await h.page.locator('[data-testid="access-denied"]').count()) === 0,
     );
-    record('mfa', `${who}: no Security tree survives the return`, !(await staleSecurityTree(h.page)));
+    record(
+      'mfa',
+      `${who}: no Security tree survives the return`,
+      !(await staleSecurityTree(h.page)),
+    );
     await noDevArtefacts(h.page, 'deal desk');
 
     if (who === 'maker') {
@@ -610,8 +703,12 @@ for (const [who, email, roles] of [
     }
 
     const storage = await h.page.evaluate(() => ({
-      local: Object.entries(localStorage).map(([k, v]) => `${k}=${v}`).join('|'),
-      session: Object.entries(sessionStorage).map(([k, v]) => `${k}=${v}`).join('|'),
+      local: Object.entries(localStorage)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('|'),
+      session: Object.entries(sessionStorage)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('|'),
     }));
     const leaked =
       Boolean(mfa.secret) &&
@@ -736,7 +833,10 @@ console.log('\n8 · responsive');
         // a page nobody sees.
         await page.evaluate(() => document.fonts?.ready).catch(() => {});
         await wait(250);
-        await page.screenshot({ path: join(OUT, `responsive-${width}-${name}.png`), fullPage: true });
+        await page.screenshot({
+          path: join(OUT, `responsive-${width}-${name}.png`),
+          fullPage: true,
+        });
         const overflow = await page.evaluate(() => {
           const doc = document.documentElement;
           if (doc.scrollWidth <= window.innerWidth + 1) return null;
@@ -758,7 +858,9 @@ console.log('\n8 · responsive');
           'responsive',
           `${width}px ${name}`,
           overflow === null,
-          overflow ? `${overflow.scrollWidth}>${overflow.inner} ${overflow.worst?.tag} ${overflow.worst?.cls}` : '',
+          overflow
+            ? `${overflow.scrollWidth}>${overflow.inner} ${overflow.worst?.tag} ${overflow.worst?.cls}`
+            : '',
         );
       }
       /*
@@ -826,12 +928,32 @@ console.log('\n9 · accessibility');
       await page.evaluate(() => document.fonts?.ready).catch(() => {});
       await wait(250);
       const a = await auditPage(page);
-      record('a11y', `${name}: controls have accessible names`, a.unnamed.length === 0, a.unnamed.slice(0, 3).join('; '));
-      record('a11y', `${name}: target sizes ≥ 24px`, a.smallTargets.length === 0, a.smallTargets.slice(0, 3).join('; '));
+      record(
+        'a11y',
+        `${name}: controls have accessible names`,
+        a.unnamed.length === 0,
+        a.unnamed.slice(0, 3).join('; '),
+      );
+      record(
+        'a11y',
+        `${name}: target sizes ≥ 24px`,
+        a.smallTargets.length === 0,
+        a.smallTargets.slice(0, 3).join('; '),
+      );
       record('a11y', `${name}: language declared`, Boolean(a.lang), a.lang);
       record('a11y', `${name}: exactly one h1`, a.h1 === 1, `h1=${a.h1}`);
-      record('a11y', `${name}: headings do not skip a level`, a.headingSkips.length === 0, a.headingSkips.slice(0, 2).join('; '));
-      record('a11y', `${name}: form fields are labelled`, a.unlabelledFields.length === 0, a.unlabelledFields.slice(0, 3).join('; '));
+      record(
+        'a11y',
+        `${name}: headings do not skip a level`,
+        a.headingSkips.length === 0,
+        a.headingSkips.slice(0, 2).join('; '),
+      );
+      record(
+        'a11y',
+        `${name}: form fields are labelled`,
+        a.unlabelledFields.length === 0,
+        a.unlabelledFields.slice(0, 3).join('; '),
+      );
       await noDevArtefacts(page, name);
     };
 
@@ -878,12 +1000,20 @@ console.log('\n9 · accessibility');
       );
     }
     const focusable = stops.filter(Boolean);
-    record('a11y', 'keyboard reaches the sign-in form', focusable.length >= 3, `${focusable.length} stops`);
+    record(
+      'a11y',
+      'keyboard reaches the sign-in form',
+      focusable.length >= 3,
+      `${focusable.length} stops`,
+    );
     record(
       'a11y',
       'focus is visible at every stop',
       focusable.every((f) => f.visible),
-      focusable.filter((f) => !f.visible).map((f) => f.tag).join('; '),
+      focusable
+        .filter((f) => !f.visible)
+        .map((f) => f.tag)
+        .join('; '),
     );
 
     /*
@@ -967,14 +1097,19 @@ console.log('\n10 · performance');
     await amount.click();
     const q0 = Date.now();
     await amount.pressSequentially('50000', { delay: 8 });
-    await h.page.waitForFunction(() => document.body.innerText.includes('50,000'), { timeout: 10_000 });
+    await h.page.waitForFunction(() => document.body.innerText.includes('50,000'), {
+      timeout: 10_000,
+    });
     perf.quoteMs = Date.now() - q0;
     record('perf', 'quote recompute', true, `${perf.quoteMs}ms`);
 
     if (inrRoomPath) {
       const r0 = Date.now();
       await h.page.goto(`${BASE}${inrRoomPath}`, { waitUntil: 'load' });
-      await h.page.locator('[data-deal-room]').first().waitFor({ state: 'visible', timeout: 25_000 });
+      await h.page
+        .locator('[data-deal-room]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 25_000 });
       perf.dealRoomLoadMs = Date.now() - r0;
       record('perf', 'deal room load', true, `${perf.dealRoomLoadMs}ms`);
     }
@@ -1080,7 +1215,12 @@ console.log('\n10 · performance');
       await operator.page.goto(`${BASE}/app/ops?view=AT_RISK`, { waitUntil: 'load' });
       await operator.page.waitForSelector(DESK_CONTROL, { timeout: 30_000 });
       perf.opsFilteredBacklogMs = Date.now() - f1;
-      record('perf', 'operator queue, filtered, under backlog', true, `${perf.opsFilteredBacklogMs}ms`);
+      record(
+        'perf',
+        'operator queue, filtered, under backlog',
+        true,
+        `${perf.opsFilteredBacklogMs}ms`,
+      );
 
       const p2 = Date.now();
       await operator.page.goto(`${BASE}/app/ops?page=2`, { waitUntil: 'load' });
@@ -1092,7 +1232,10 @@ console.log('\n10 · performance');
       if (inrRoomPath) {
         const r1 = Date.now();
         await h.page.goto(`${BASE}${inrRoomPath}`, { waitUntil: 'load' });
-        await h.page.locator('[data-deal-room]').first().waitFor({ state: 'visible', timeout: 30_000 });
+        await h.page
+          .locator('[data-deal-room]')
+          .first()
+          .waitFor({ state: 'visible', timeout: 30_000 });
         perf.dealRoomBusyMs = Date.now() - r1;
         record('perf', 'deal room with a full transcript', true, `${perf.dealRoomBusyMs}ms`);
         perf.dealRoomRenderedMessages = await h.page.evaluate(
@@ -1154,7 +1297,9 @@ writeFileSync('artifacts/performance.json', JSON.stringify(perf, null, 2));
  * the one worth being suspicious of.
  */
 const a11y = results.filter((r) => r.area === 'a11y');
-const surfaces = [...new Set(a11y.map((r) => r.name.split(':')[0]).filter((n) => !n.includes(' ')))];
+const surfaces = [
+  ...new Set(a11y.map((r) => r.name.split(':')[0]).filter((n) => !n.includes(' '))),
+];
 writeFileSync(
   'artifacts/accessibility.json',
   JSON.stringify(

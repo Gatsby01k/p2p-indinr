@@ -1278,12 +1278,47 @@ export async function joinDealLinkIn(
    */
   const joinerRole: Role = otherRole(link.creator_role as Role);
   const dealPublicId = newPublicId();
+  /*
+   * The deal's UUID is allocated HERE rather than by the column default,
+   * because the escrow has to name the deal it protects and the escrow is
+   * taken before the row exists. Both go into the same transaction, so
+   * there is no window in which one is present without the other.
+   */
+  const dealUuid = randomUUID();
+
+  /*
+   * WHOSE VALUE IS AT STAKE. The crypto side puts the USDT up, and that
+   * is a property of the corridor, not of who happened to click Join:
+   * in USDT→INR the creator supplies it, in INR→USDT the joiner does.
+   */
+  const cryptoOwnerId =
+    (link.creator_role as Role) === 'CRYPTO_SIDE' ? (link.created_by as string) : user.userId;
+
   const lock = await getValueProtectionAdapter().lock({
-    dealId: dealPublicId,
+    tx,
+    dealId: dealUuid,
+    ownerId: cryptoOwnerId,
+    commandId: ctx.commandId,
     scenario,
     usdtMinor: q.usdt_minor === null ? null : toBigInt(q.usdt_minor),
     inrMinor: toBigInt(q.inr_minor),
   });
+  /*
+   * A refusal here — almost always INSUFFICIENT_BALANCE — must stop the
+   * join before the link is consumed. The transaction would roll back
+   * anyway; returning first means the audit records a refusal rather than
+   * a phantom join, and the joiner is told the truth: the other side has
+   * not funded this deal.
+   */
+  if (!lock.ok) {
+    await auditEarlyRejection(tx, {
+      actorId: user.userId,
+      action: 'LINK_JOIN',
+      outcome: lock.code,
+      attempted: { publicId },
+    });
+    return lock;
+  }
 
   // (2) Conditional state change — the FIRST write in this boundary.
   //     Zero affected rows means we lost the race.
@@ -1309,9 +1344,9 @@ export async function joinDealLinkIn(
        (public_id, deal_code, link_id, quote_id, direction, usdt_minor, inr_minor,
         rate_num, rate_den, pricing_source, observed_at,
         protection_fee_minor, network_fee_minor, fee_bearer, title,
-        action_deadline, value_locked_at, value_lock_ref)
+        action_deadline, value_locked_at, value_lock_ref, deal_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-             now() + ($16 || ' minutes')::interval, now(), $17)
+             now() + ($16 || ' minutes')::interval, now(), $17, $18)
      RETURNING deal_id, public_id, deal_code`,
       [
         dealPublicId,
@@ -1330,7 +1365,9 @@ export async function joinDealLinkIn(
         q.fee_bearer,
         q.title,
         String(PAYMENT_WINDOW_MINUTES),
-        lock.reference,
+        lock.value.reference,
+        // Allocated above, so the escrow taken before this row names it.
+        dealUuid,
       ],
     );
 
@@ -1387,7 +1424,7 @@ export async function joinDealLinkIn(
     type: 'deal.joined',
     subjectKind: 'deal',
     subjectId: deal.deal_id,
-    payload: { linkId: link.link_id, joinerRole, valueLockRef: lock.reference },
+    payload: { linkId: link.link_id, joinerRole, valueLockRef: lock.value.reference },
   });
 
   return accept({
@@ -1791,8 +1828,26 @@ export async function confirmReceiptIn(
     );
     if (cas.rowCount !== 1) return refuse('DEAL_TERMINAL');
 
-    // The locked value is released by the same adapter that locked it.
-    await getValueProtectionAdapter().release(dealId);
+    /*
+     * The locked value is released by the same adapter that locked it —
+     * and it goes to the COUNTERPARTY, not to whoever clicked.
+     *
+     * Only the crypto side may reach this line (`NOT_CRYPTO_SIDE` above),
+     * so the person confirming is the one who put the USDT up and is
+     * acknowledging that the rupees arrived. The beneficiary is therefore
+     * the other seat: the buyer who paid and is owed the crypto.
+     *
+     * A refusal STOPS the completion. Releasing the fiat leg while the
+     * USDT stayed locked is precisely the one-sided settlement this is
+     * here to prevent, so it must not be swallowed.
+     */
+    const released = await getValueProtectionAdapter().release({
+      tx,
+      dealId,
+      beneficiaryId: d.counterparty_id as string,
+      commandId: ctx.commandId,
+    });
+    if (!released.ok) return released;
     await getEscrowService().release(dealId);
 
     // Both sides earn on a completed deal. `UNIQUE(user, deal, kind)` makes a

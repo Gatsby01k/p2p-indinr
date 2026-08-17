@@ -1,6 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { claimTestFunds } from '@/server/sandbox/starterBalance';
 import { revalidatePath } from 'next/cache';
 import {
   SandboxFailure,
@@ -201,6 +202,46 @@ export async function signOutEverywhereAction(): Promise<ActionResult> {
      */
     afterCommit(() => revalidatePath('/app/settings/security'));
     return { ok: true, message: `${revoked} other session(s) ended.` };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/**
+ * Take the sandbox test balance, once.
+ *
+ * ⚠ SANDBOX ONLY, AND DELIBERATELY A BUTTON. Selling USDT takes the
+ * seller's balance into escrow, so an account at zero cannot try the
+ * corridor — and the only way value used to enter the ledger was an
+ * administrator command nobody outside the repository knows about.
+ *
+ * Crediting silently at sign-in was tried and removed: an account that
+ * acquires money from nowhere teaches the wrong thing about a product
+ * whose entire claim is that value is accounted for. Asking is honest,
+ * shows the person what they were given, and leaves "a new account starts
+ * at zero" true — which several tests correctly rely on.
+ */
+export async function claimTestFundsAction(): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const claimed = await claimTestFunds(user.userId);
+    if (!claimed.ok) {
+      // Mapped onto the contract's codes: a repeat claim IS an idempotency
+      // conflict, and "not a sandbox" is the adapter refusing to exist.
+      return claimed.code === 'ALREADY_CLAIMED'
+        ? {
+            ok: false,
+            code: 'IDEMPOTENCY_CONFLICT',
+            message: 'You have already taken the test balance for this account.',
+          }
+        : {
+            ok: false,
+            code: 'ADAPTER_UNAVAILABLE',
+            message: 'Test funds exist only in a sandbox deployment.',
+          };
+    }
+    afterCommit(() => revalidatePath('/app/profile'));
+    return { ok: true, message: 'Test balance added. It exists only in this sandbox.' };
   } catch (err) {
     return fail(err);
   }

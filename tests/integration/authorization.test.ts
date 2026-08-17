@@ -6,9 +6,12 @@
  * tests allow it, which is the point.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeOperator, type OperatorFixture } from './support/operator';
 import { unique } from './support/room';
+import { grantRole, permissionsFor, type Principal } from '@/server/identity/rbac';
+import { newCommandId } from '@/server/boundary/command';
+import { fundSandboxCommand } from '@/services/commands';
 import { getPool } from '@/server/db/pool';
 import {
   SandboxFailure,
@@ -57,10 +60,69 @@ beforeAll(async () => {
   outsider = await signInSandbox('authz-outsider@sandbox.test');
   operator = await makeOperator(AUTHZ_OPS_EMAIL);
   unverified = await signInSandbox('new@sandbox.test');
+
+  /*
+   * ⚠ THE SELLER MUST NOW OWN THE USDT THEY ARE SELLING.
+   *
+   * Joining a `USDT_TO_INR` deal takes the crypto side's balance into
+   * escrow, so a seller at zero is refused — which is the point, and is
+   * why these fixtures fund rather than the check being relaxed.
+   *
+   * Funded through the administrator path rather than `claimTestFunds`,
+   * which hands out 5,000 USDT once per account — right for a person
+   * trying the product, and roughly ten of the 500-USDT deals this file
+   * opens. A suite is not a person, so it takes the amount it needs.
+   */
+  const admin = await makeOperator(`authz-fund-${unique()}@sandbox.test`);
+  await grantRole({
+    userId: admin.user.userId,
+    role: 'ADMIN',
+    grantedBy: null,
+    via: 'CLI',
+    reason: 'Funding fixture, so a joined deal holds real protected value.',
+  });
+  const ledgerAdmin: Principal = {
+    ...admin.principal,
+    roles: ['ADMIN'],
+    permissions: permissionsFor(['ADMIN']),
+  };
+  for (const who of [seller, buyer]) {
+    const funded = await fundSandboxCommand(ledgerAdmin, newCommandId(), {
+      userId: who.userId,
+      asset: 'USDT',
+      amountMinor: 500_000_000_000n,
+    });
+    if (!funded.ok) throw new Error(`funding fixture: ${funded.code}`);
+  }
 });
 
+/*
+ * ⚠ THE RISK COUNTER IS SHARED STATE, AND THIS FILE IS NOT ABOUT LIMITS.
+ *
+ * Joining now takes value into escrow, so every deal counts toward the
+ * seller's rolling exposure — a counter that did not move at all while
+ * the lock was a synthetic string. Dozens of deals in one file then trip
+ * `LIMIT_EXCEEDED` partway through and fail tests about authorization for
+ * reasons that have nothing to do with authorization.
+ *
+ * The counter is cleared for THESE fixture accounts between tests, in the
+ * same spirit as the per-file operator identity above: a shared mutable
+ * counter is not a fixture. The policy itself is untouched and is tested
+ * where it belongs, in `riskControl.test.ts`.
+ */
+beforeEach(async () => {
+  await getPool().query(`DELETE FROM sandbox.risk_counter WHERE scope_id = ANY($1::text[])`, [
+    [seller.userId, buyer.userId],
+  ]);
+});
+
+/*
+ * Twenty USDT rather than the original five hundred: joining now moves
+ * real value, and a suite that opens dozens of deals should not need a
+ * bank behind it to test who may click what.
+ */
 async function openLink(): Promise<string> {
-  const q = await issueFirmQuote(seller, 'USDT_TO_INR', 500_000_000n);
+  const q = await issueFirmQuote(seller, 'USDT_TO_INR', 20_000_000n);
   const l = await createDealLink(seller, q.quoteId);
   return l.publicId;
 }

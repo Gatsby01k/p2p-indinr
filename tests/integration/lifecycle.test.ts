@@ -379,14 +379,42 @@ describe('chat is inside the audit trail', () => {
  * ------------------------------------------------------------------ */
 
 describe('bank instructions follow the locked-value fact', () => {
-  it('records a simulated lock at join, and never a custodial one', async () => {
+  /*
+   * The reference used to be `SBX-LOCK-<id>` — a synthetic string behind
+   * which nothing was held. It now names the LEDGER movement that took
+   * the crypto side's balance into escrow, so the assertion checks the
+   * live lock exists rather than that the string has the old shape.
+   *
+   * `SBX-` survives on purpose: the ledger's balances were credited by an
+   * administrator, never deposited by a customer, so no reference this
+   * repository produces may read as custody of real funds.
+   */
+  it('witnesses an INR deal, and never claims to custody rupees', async () => {
     const { dealId } = await liveDeal();
     const { rows } = await getPool().query(
-      `SELECT value_locked_at, value_lock_ref FROM sandbox.deal WHERE deal_id = $1`,
+      `SELECT value_locked_at, value_lock_ref, direction FROM sandbox.deal WHERE deal_id = $1`,
       [dealId],
     );
+    // The fact the pay screen consults is present, so instructions release.
     expect(rows[0]!.value_locked_at).not.toBeNull();
-    expect(String(rows[0]!.value_lock_ref)).toMatch(/^SBX-LOCK-/);
+    expect(rows[0]!.direction).toBe('INR_TO_INR');
+
+    /*
+     * `WITNESS-`, not a lock reference. The platform holds no rupees and
+     * no bank account, so an INR→INR deal is arbitrated rather than
+     * escrowed — and the reference has to say which. The old assertion
+     * was `/^SBX-LOCK-/`, a synthetic string that meant the same thing
+     * for THIS deal as it did for a USDT deal holding nothing, which is
+     * how a buyer came to pay and receive nothing.
+     */
+    expect(String(rows[0]!.value_lock_ref)).toMatch(/^WITNESS-/);
+
+    // And nothing is claimed to be held, because nothing is.
+    const { rows: locks } = await getPool().query(
+      `SELECT count(*)::int AS n FROM inrp2p.value_lock WHERE deal_id = $1`,
+      [dealId],
+    );
+    expect(locks[0]!.n).toBe(0);
   });
 
   it('shows instructions to the paying seat once value is locked', async () => {

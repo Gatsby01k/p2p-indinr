@@ -11,7 +11,14 @@ import { createDealIntentIn, signInSandbox, type SessionUser } from '@/server/sa
  * parser, the command id validation or the payload shape fails these
  * tests instead of sailing past a hand-built copy.
  */
-import { closeLinkCommand, createLinkFromForm, joinCommand } from '@/services/commands';
+import {
+  closeLinkCommand,
+  createLinkFromForm,
+  fundSandboxCommand,
+  joinCommand,
+} from '@/services/commands';
+import { grantRole, permissionsFor, type Principal } from '@/server/identity/rbac';
+import { makeOperator } from './support/operator';
 
 /**
  * The two paths the CTO review found outside the boundary:
@@ -35,6 +42,44 @@ beforeAll(async () => {
   owner = await signInSandbox(`link-owner-${unique()}@example.com`);
   stranger = await signInSandbox(`link-stranger-${unique()}@example.com`);
   joiner = await signInSandbox(`link-joiner-${unique()}@example.com`);
+
+  /*
+   * ⚠ THE CRYPTO SIDE MUST NOW HAVE THE USDT IT IS SELLING.
+   *
+   * These links are `USDT_TO_INR`, so the CREATOR is the crypto side and
+   * joining takes their balance into escrow. Before the escrow was wired
+   * into the lifecycle, the lock was a synthetic string and an empty
+   * balance joined happily — which is exactly the defect that let a buyer
+   * pay rupees and receive nothing.
+   *
+   * Funded here rather than the assertion relaxed: a join that refuses an
+   * unfunded deal is the behaviour under test everywhere else, and these
+   * tests are about the LINK boundary, not about being broke.
+   */
+  const admin = await makeOperator(`link-admin-${unique()}@example.com`);
+  await grantRole({
+    userId: admin.user.userId,
+    role: 'ADMIN',
+    grantedBy: null,
+    via: 'CLI',
+    reason: 'Funding fixture, so a joined link holds real protected value.',
+  });
+  const ledgerAdmin: Principal = {
+    ...admin.principal,
+    roles: ['ADMIN'],
+    permissions: permissionsFor(['ADMIN']),
+  };
+
+  // Generous on purpose: every link here is 40 USDT and the file joins
+  // many of them, so a per-test top-up would be noise.
+  for (const who of [owner, stranger, joiner]) {
+    const funded = await fundSandboxCommand(ledgerAdmin, newCommandId(), {
+      userId: who.userId,
+      asset: 'USDT',
+      amountMinor: 10_000_000_000n,
+    });
+    if (!funded.ok) throw new Error(`funding fixture: ${funded.code}`);
+  }
 });
 
 /* ------------------------------------------------------------------ *

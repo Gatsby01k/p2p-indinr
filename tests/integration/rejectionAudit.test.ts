@@ -1,4 +1,5 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { fundForDeals, clearRiskCounters } from './support/escrow';
 import { makeOperator, type OperatorFixture } from './support/operator';
 import { getPool } from '@/server/db/pool';
 import { newCommandId, readCommand } from '@/server/boundary/command';
@@ -147,6 +148,19 @@ async function expectRejectionContract(opts: {
 /* ------------------------------------------------------------------ *
  * Join rejections
  * ------------------------------------------------------------------ */
+
+/*
+ * Escrow is real now: the crypto side must own what it sells, and every
+ * deal counts toward that account's rolling exposure. Neither is what
+ * this file tests, so both are handled by shared fixture support rather
+ * than by relaxing the checks that make them true.
+ */
+beforeAll(async () => {
+  await fundForDeals([creator, joiner, outsider]);
+});
+beforeEach(async () => {
+  await clearRiskCounters([creator, joiner, outsider]);
+});
 
 describe('Join rejections', () => {
   it('unverified account', async () => {

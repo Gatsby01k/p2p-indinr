@@ -12,6 +12,7 @@ import {
   valueProtectionAvailable,
 } from '@/server/adapters/valueProtection';
 import { signInSandbox } from '@/server/sandbox/service';
+import { withTransaction } from '@/server/db/pool';
 
 /**
  * Production isolation.
@@ -71,16 +72,34 @@ describe('deployment mode', () => {
 });
 
 describe('value protection fails closed in production', () => {
-  it('is available in the sandbox and returns a clearly simulated lock', async () => {
+  /*
+   * `INR_TO_INR` moves rupees between two banks the platform does not
+   * touch, so there is nothing to escrow and the adapter must SAY so.
+   *
+   * The old assertion was `simulated === true`, which every lock this
+   * adapter ever issued satisfied — including the ones for USDT deals
+   * that should have held real value and did not. `custodied` is the
+   * honest replacement: it is false here because rupees cannot be held,
+   * and true only when the ledger actually took the value.
+   */
+  it('witnesses rather than escrows a corridor it cannot custody', async () => {
     expect(valueProtectionAvailable()).toBe(true);
-    const lock = await getValueProtectionAdapter().lock({
-      dealId: '11111111-2222-3333-4444-555555555555',
-      scenario: 'INR_TO_INR',
-      usdtMinor: null,
-      inrMinor: 100_000n,
-    });
-    expect(lock.simulated).toBe(true);
-    expect(lock.reference.startsWith('SBX-')).toBe(true);
+    const lock = await withTransaction((tx) =>
+      getValueProtectionAdapter().lock({
+        tx,
+        dealId: '11111111-2222-3333-4444-555555555555',
+        ownerId: '99999999-8888-7777-6666-555555555555',
+        commandId: '22222222-3333-4444-5555-666666666666',
+        scenario: 'INR_TO_INR',
+        usdtMinor: null,
+        inrMinor: 100_000n,
+      }),
+    );
+    expect(lock.ok).toBe(true);
+    if (!lock.ok) return;
+    expect(lock.value.custodied).toBe(false);
+    // Never a reference a reader could mistake for held funds.
+    expect(lock.value.reference.startsWith('WITNESS-')).toBe(true);
   });
 
   it('refuses to hand out any adapter in production', () => {

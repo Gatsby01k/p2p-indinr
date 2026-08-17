@@ -6,6 +6,8 @@ import {
   typicalResponseMinutes,
 } from '@/services';
 import { listDealsForUser } from '@/services';
+import { balancesFor, isSandboxDeployment } from '@/services';
+import { WalletCard } from '@/components/flows/WalletCard';
 import { formatMinor } from '@/lib/format';
 import { MAX_INR_MINOR } from '@/services';
 import { SCENARIO, type Scenario } from '@/lib/scenario';
@@ -47,11 +49,13 @@ export const dynamic = 'force-dynamic';
  */
 export default async function ProfilePage() {
   const { user, unread } = await getChrome();
-  const [profile, deals, methods, responseMinutes] = await Promise.all([
+  const [profile, deals, methods, responseMinutes, balances] = await Promise.all([
     getTrustProfile(user),
     listDealsForUser(user),
     listPaymentMethods(user),
     typicalResponseMinutes(user.userId),
+    // What the person can commit to a USDT deal, and what already is.
+    balancesFor(user.userId, 'USDT'),
   ]);
 
   const completed = deals.filter((d) => d.state === 'COMPLETED');
@@ -145,6 +149,13 @@ export default async function ProfilePage() {
             </div>
           ) : null}
         </Card>
+
+        {/* ---- What you can trade with ---------------------------- */}
+        <WalletCard
+          availableMinor={balances.availableMinor}
+          lockedMinor={balances.lockedMinor}
+          claimable={isSandboxDeployment()}
+        />
 
         {/* ---- The summary --------------------------------------- */}
         <Card className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">

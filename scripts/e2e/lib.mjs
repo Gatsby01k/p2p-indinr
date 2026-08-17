@@ -39,7 +39,8 @@ export const OUT = process.env.E2E_OUT ?? 'artifacts/e2e';
 export const RUN = process.env.E2E_RUN_ID ? `.${process.env.E2E_RUN_ID}` : '';
 
 /** A deal-room path carries a UUID, not a public link code. */
-export const DEAL_ROOM = /\/app\/deal\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+export const DEAL_ROOM =
+  /\/app\/deal\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 
 export const ACCOUNT = {
   payer: `payer${RUN}.e2e@example.in`,
@@ -78,7 +79,10 @@ export function record(area, name, ok, detail = '') {
  * re-running it: screenshot, DOM, URL, console and failed requests.
  */
 export async function captureFailure(page, label, extra = {}) {
-  const slug = label.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 60);
+  const slug = label
+    .replace(/[^a-z0-9]+/gi, '-')
+    .toLowerCase()
+    .slice(0, 60);
   const dir = join(OUT, 'failures');
   mkdirSync(dir, { recursive: true });
   try {
@@ -333,7 +337,10 @@ export async function verifyAccount(page) {
   for (let guard = 0; guard < 9; guard += 1) {
     const before = await pending.count();
     if (before === 0) break;
-    await pending.first().click({ timeout: 10_000 }).catch(() => {});
+    await pending
+      .first()
+      .click({ timeout: 10_000 })
+      .catch(() => {});
     await page
       .waitForFunction(
         (n) =>
@@ -381,11 +388,7 @@ export async function addUpiMethod(page, email) {
   if (/on file/i.test(await page.locator('body').innerText())) return false;
 
   const handle = `${email.split('@')[0].replace(/[^a-z0-9.]/g, '')}@sandboxupi`;
-  const opened = await clickUntil(
-    page,
-    'button:has-text("Add a payment method")',
-    'input#handle',
-  );
+  const opened = await clickUntil(page, 'button:has-text("Add a payment method")', 'input#handle');
   if (!opened) throw new Error('the add-payment-method sheet never opened');
 
   await typeInto(page, 'input#handle', handle);
@@ -393,6 +396,34 @@ export async function addUpiMethod(page, email) {
   await save.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => {});
   await save.click({ timeout: 10_000 });
   await page.waitForFunction(() => /on file/i.test(document.body.innerText), { timeout: 20_000 });
+  return true;
+}
+
+/**
+ * Take the sandbox test balance, through the button a person clicks.
+ *
+ * ⚠ REQUIRED BEFORE SELLING USDT. Joining a deal now moves the crypto
+ * side's balance into escrow, so an account at zero is refused — which is
+ * the behaviour these journeys exist to prove, and the reason the harness
+ * has to fund the same way a person does.
+ *
+ * Driven through the profile screen rather than seeded behind the app's
+ * back: a fixture that reaches past the interface would let the button
+ * rot unnoticed, and this is the only place it is exercised.
+ *
+ * Idempotent, like the action behind it — a second claim is refused by
+ * the ledger and reported, not silently doubled.
+ */
+export async function claimTestFunds(page) {
+  await page.goto(`${BASE}/app/profile`, { waitUntil: 'domcontentloaded' });
+  const button = page.locator('[data-testid="claim-test-funds"]').first();
+  if ((await button.count()) === 0) return false;
+  await button.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => {});
+  await button.click({ timeout: 10_000 });
+  // Waits on the committed outcome — a balance on screen — not on a spinner.
+  await page
+    .waitForFunction(() => /already taken|USDT/i.test(document.body.innerText), { timeout: 20_000 })
+    .catch(() => {});
   return true;
 }
 
@@ -418,7 +449,10 @@ export async function approvePendingVerifications(page, { reason } = {}) {
       delay: 4,
     });
     const before = await approve.count();
-    await approve.first().click({ timeout: 10_000 }).catch(() => {});
+    await approve
+      .first()
+      .click({ timeout: 10_000 })
+      .catch(() => {});
     await page
       .waitForFunction(
         (n) => document.querySelectorAll('[data-testid="verification-approve"]').length < n,
@@ -452,7 +486,11 @@ export async function signOut(page) {
  */
 export async function clickUntil(page, selector, expected, { attempts = 4, each = 6_000 } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    await page.locator(selector).first().click({ timeout: 10_000 }).catch(() => {});
+    await page
+      .locator(selector)
+      .first()
+      .click({ timeout: 10_000 })
+      .catch(() => {});
     const arrived = await page
       .waitForSelector(expected, { timeout: each })
       .then(() => true)
@@ -682,7 +720,11 @@ export async function claimPayment(page, { utr, note }) {
   });
   if (note) await typeInto(page, 'input[placeholder^="Anything"]', note);
 
-  const opened = await clickUntil(page, '[data-testid="claim-open"]', '[data-testid="claim-submit"]');
+  const opened = await clickUntil(
+    page,
+    '[data-testid="claim-open"]',
+    '[data-testid="claim-submit"]',
+  );
   if (!opened) throw new Error('the claim confirmation sheet never opened');
 
   await page.locator('[data-testid="claim-submit"]').first().click();
@@ -872,7 +914,10 @@ export async function waitForRoom(page, { state, role, timeout = 30_000 } = {}) 
   await page.locator(selector).first().waitFor({ state: 'visible', timeout });
   return page.evaluate(() => {
     const el = document.querySelector('[data-deal-room]');
-    return { state: el?.getAttribute('data-deal-state'), role: el?.getAttribute('data-viewer-role') };
+    return {
+      state: el?.getAttribute('data-deal-state'),
+      role: el?.getAttribute('data-viewer-role'),
+    };
   });
 }
 

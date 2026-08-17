@@ -79,6 +79,13 @@ export {
   scenarioUnavailableReason,
 } from '@/server/adapters/policy';
 export { valueProtectionAvailable } from '@/server/adapters/valueProtection';
+/*
+ * The USDT balance and the sandbox claim beside it. Selling USDT now
+ * takes the seller's balance into escrow, so a person has to be able to
+ * see what they hold and how to get some to try the corridor with.
+ */
+export { balancesFor, type Balances } from '@/server/ledger/valueProtection';
+export { claimTestFunds, type ClaimResult } from '@/server/sandbox/starterBalance';
 
 /* ---- Identity mutations reached from route handlers ---------------- */
 export { attachReferrer } from '@/server/sandbox/identity';
