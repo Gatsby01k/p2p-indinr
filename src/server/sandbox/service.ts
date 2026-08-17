@@ -2549,11 +2549,37 @@ export async function runLifecycleSweep(limit = 200): Promise<SweepResult> {
  * Payment addressing
  * ------------------------------------------------------------------ */
 
+/**
+ * Where the paying side sends the RUPEES.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  A WALLET CAN NEVER BE THE ANSWER, AND IT USED TO BE ABLE TO.      │
+ * │                                                                    │
+ * │  Every corridor has exactly one person-to-person leg and it is     │
+ * │  always fiat: buying USDT or selling it, somebody sends rupees to  │
+ * │  somebody's bank. The crypto leg does not travel between people    │
+ * │  at all — it moves inside the ledger, from the seller's balance    │
+ * │  into escrow and out to the buyer's.                               │
+ * │                                                                    │
+ * │  This query took the default method WHATEVER ITS KIND, and nothing │
+ * │  stops a person making their USDT wallet the default. The payer    │
+ * │  would then be shown a TRON address as the place to send rupees.   │
+ * │  That is not a display bug; a bank transfer aimed at a wallet      │
+ * │  address is money that does not arrive and cannot be recalled.     │
+ * │                                                                    │
+ * │  Filtered by KIND, not by ordering — a preference cannot be        │
+ * │  allowed to select an impossible destination.                      │
+ * └────────────────────────────────────────────────────────────────────┘
+ *
+ * Returns null when somebody has only a wallet on file, which the pay
+ * screen already handles: no instructions is the correct and safe answer
+ * to "where do I send this", and the deal simply waits.
+ */
 async function defaultMethodFor(userId: string): Promise<DealView['payTo']> {
   const { rows } = await getPool().query(
     `SELECT kind, label, handle, bank_name, ifsc
        FROM sandbox.payment_method
-      WHERE user_id = $1
+      WHERE user_id = $1 AND kind IN ('UPI','BANK')
       ORDER BY is_default DESC, created_at ASC
       LIMIT 1`,
     [userId],

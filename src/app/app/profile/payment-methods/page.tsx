@@ -54,8 +54,23 @@ export default async function PaymentMethodsPage() {
                 has no column that could store one.
               </p>
               <p className="mt-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-                Your default is the one shown on a counterparty&rsquo;s payment screen. A bank
-                account is stored masked to its last four digits before it is written.
+                Your default UPI or bank account is the one shown on a counterparty&rsquo;s payment
+                screen. A bank account is stored masked to its last four digits before it is
+                written.
+              </p>
+              {/*
+                Said here rather than left to be inferred. A wallet sitting
+                in the same list as a UPI reads as another way to be paid,
+                and it is not: USDT moves inside INRP2P between balances,
+                and this address is where it would leave to. Until a
+                withdrawal exists it does nothing at all, and implying
+                otherwise is the kind of quiet promise that costs trust
+                exactly when somebody is waiting for money.
+              */}
+              <p className="mt-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                A USDT wallet is <strong>not</strong> a way to be paid for a deal. Crypto settles
+                against your INRP2P balance, and this address is only where a withdrawal would send
+                it &mdash; which this sandbox build cannot do yet.
               </p>
             </Card>
           }
@@ -64,7 +79,7 @@ export default async function PaymentMethodsPage() {
             <EmptyState
               icon="wallet"
               title="Nobody can pay you yet"
-              body="Add a UPI ID or a bank account. Whichever you mark as default is what a counterparty sees on their payment screen."
+              body="Add a UPI ID or a bank account — every deal is settled in rupees between two people, so one of those is what a counterparty needs. Whichever you mark as default is what they see."
             />
           ) : (
             <ul className="space-y-3">

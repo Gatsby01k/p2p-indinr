@@ -425,6 +425,40 @@ describe('bank instructions follow the locked-value fact', () => {
     expect(view.payTo).not.toBeNull();
   });
 
+  /*
+   * ⚠ RUPEES MUST NEVER BE AIMED AT A WALLET ADDRESS.
+   *
+   * `defaultMethodFor` took the receiver's default method whatever its
+   * kind, and nothing stops somebody making their USDT wallet the
+   * default. The payer would then be told to send a bank transfer to a
+   * TRON address — money that does not arrive and cannot be recalled.
+   *
+   * Every corridor settles person-to-person in fiat; the crypto leg never
+   * travels between people at all, it moves inside the ledger. So a
+   * wallet is not a lower-priority answer here, it is an impossible one.
+   */
+  it('never offers a crypto wallet as somewhere to send rupees', async () => {
+    const { dealId } = await liveDeal();
+    const receiver = await getDeal(bob, dealId);
+    expect(receiver.viewerRole).toBe('CRYPTO_SIDE');
+
+    // Make the receiver's wallet their default, the way a person can.
+    await getPool().query(
+      `UPDATE sandbox.payment_method SET is_default = FALSE WHERE user_id = $1`,
+      [bob.userId],
+    );
+    await getPool().query(
+      `INSERT INTO sandbox.payment_method (user_id, kind, label, handle, is_default, verified)
+       VALUES ($1,'WALLET','My TRON wallet','TW9zbXk1a2V5d2FsbGV0YWRkcmVzczEyMw',TRUE,TRUE)`,
+      [bob.userId],
+    );
+
+    const payer = await getDeal(alice, dealId);
+    expect(payer.payTo?.kind).not.toBe('WALLET');
+    // A fiat method is still found, and it is the one the payer is shown.
+    expect(['UPI', 'BANK']).toContain(payer.payTo?.kind);
+  });
+
   it('never shows them to the receiving seat', async () => {
     const { dealId } = await liveDeal();
     const view = await getDeal(bob, dealId);
