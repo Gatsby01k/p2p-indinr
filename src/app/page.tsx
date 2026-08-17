@@ -7,7 +7,9 @@ import { DealRoomShowcase } from '@/components/landing/DealRoomShowcase';
 import { Hero } from '@/components/landing/Hero';
 import { LandingHeader } from '@/components/landing/LandingHeader';
 import { ProtectionRail } from '@/components/landing/ProtectionRail';
+import { RewardsSection } from '@/components/landing/RewardsSection';
 import { ShareAnywhere } from '@/components/landing/ShareAnywhere';
+import { TrustSection } from '@/components/landing/TrustSection';
 import { MINI_APP_BASE } from '@/lib/miniApp';
 
 /**
@@ -51,6 +53,10 @@ export default function LandingPage() {
         <DealEngine />
         <DealRoomShowcase />
         <ProtectionRail />
+
+        {/* ---- LANDING-03 ----------------------------------------- */}
+        <RewardsSection />
+        <TrustSection />
 
         {/* ---- Retained from the previous landing page ------------ */}
 
