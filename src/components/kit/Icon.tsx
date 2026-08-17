@@ -37,6 +37,8 @@ export type IconName =
   | 'upload'
   | 'download'
   | 'file'
+  | 'image'
+  | 'paperclip'
   | 'message'
   | 'clock'
   | 'alert'
@@ -99,6 +101,11 @@ const PATHS: Readonly<Record<IconName, string>> = {
   upload: 'M12 16V4.5m-4 4 4-4 4 4M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15',
   download: 'M12 4.5V16m-4-4 4 4 4-4M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15',
   file: 'M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5zm0 0V8a.5.5 0 0 0 .5.5h4.5',
+  /* Evidence is photographed far more often than it is typed. */
+  image:
+    'M4.5 4.5h15a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1zM3.5 16l4.6-4.1 3.4 3 3.6-3.3 5.4 4.9M9.2 9.1v.1',
+  paperclip:
+    'M18.6 11.4 12.3 17.7a4.1 4.1 0 0 1-5.8-5.8l7.2-7.2a2.7 2.7 0 0 1 3.8 3.8l-7.2 7.2a1.3 1.3 0 0 1-1.8-1.8l6.4-6.4',
   message:
     'M20.5 11.5c0 4-3.8 7.2-8.5 7.2-1 0-2-.15-2.9-.42L4 20l1.3-3.7A7 7 0 0 1 3.5 11.5c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2z',
   clock: 'M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0zM12 7.2V12l3.2 2',

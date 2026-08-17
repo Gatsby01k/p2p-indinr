@@ -161,6 +161,58 @@ export function StatusCluster({ className }: { className?: string }) {
 }
 
 /**
+ * `No order book` — rows of resting orders, struck out.
+ *
+ * Not in the product icon set on purpose: the product has never had an
+ * order book, so it has no icon for one. This exists solely to say what
+ * INRP2P is NOT, on the one surface where a visitor might assume it is an
+ * exchange.
+ */
+export function NoOrderBookGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={cn('h-[1.25em] w-[1.25em] shrink-0', className)}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      aria-hidden
+      focusable="false"
+    >
+      <path d="M4 6.5h13M4 11h9M4 15.5h11M4 20h7" />
+      <path d="M20.5 4 15 21" strokeWidth={1.9} />
+    </svg>
+  );
+}
+
+/**
+ * The delivered-and-read pair of ticks on an outgoing message.
+ *
+ * Every chat a person in India already uses draws this, so it needs no
+ * caption — but it is `aria-hidden` all the same, because the whole room
+ * is an illustration.
+ */
+export function ReadReceipt({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 12"
+      className={cn('h-3 w-[18px] shrink-0', className)}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.9}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      focusable="false"
+    >
+      <path d="m1.5 6.5 3 3 6-7" />
+      <path d="m8.5 9.5 6-7" />
+    </svg>
+  );
+}
+
+/**
  * The dashed connector between two layers of the demonstration.
  *
  * Drawn as an SVG rather than a border so the arrowhead and the dash

@@ -2,8 +2,11 @@ import Link from 'next/link';
 import { Calculator } from '@/components/kit/Calculator';
 import { Icon, type IconName } from '@/components/kit/Icon';
 import { ActionLink, Card, Label, Shell } from '@/components/kit/primitives';
+import { DealEngine } from '@/components/landing/DealEngine';
+import { DealRoomShowcase } from '@/components/landing/DealRoomShowcase';
 import { Hero } from '@/components/landing/Hero';
 import { LandingHeader } from '@/components/landing/LandingHeader';
+import { ProtectionRail } from '@/components/landing/ProtectionRail';
 import { ShareAnywhere } from '@/components/landing/ShareAnywhere';
 import { MINI_APP_BASE } from '@/lib/miniApp';
 
@@ -43,6 +46,11 @@ export default function LandingPage() {
       <main id="main" className="flex-1">
         <Hero miniAppUrl={MINI_APP_BASE} />
         <ShareAnywhere />
+
+        {/* ---- LANDING-02 ----------------------------------------- */}
+        <DealEngine />
+        <DealRoomShowcase />
+        <ProtectionRail />
 
         {/* ---- Retained from the previous landing page ------------ */}
 
