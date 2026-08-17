@@ -17,7 +17,10 @@ import { RewardReceipt } from './RewardReceipt';
  */
 export function RewardsSection() {
   return (
-    <section className="border-t border-[var(--color-line)] bg-[var(--color-canvas)]">
+    <section
+      id="rewards"
+      className="scroll-mt-24 border-t border-[var(--color-line)] bg-[var(--color-canvas)]"
+    >
       <LandingShell className="py-14 sm:py-20 lg:py-24">
         <p className="text-[length:var(--text-2xs)] font-bold uppercase tracking-[0.14em] text-[var(--color-brand)]">
           Rewards, not gimmicks.

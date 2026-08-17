@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { ChannelGlyph } from './Glyphs';
 
@@ -12,17 +11,28 @@ import { ChannelGlyph } from './Glyphs';
  * would claim the destination is ours.
  *
  * ┌────────────────────────────────────────────────────────────────────┐
- * │  WHAT HAPPENS WHEN NO MINI APP IS CONFIGURED.                      │
+ * │  WHEN NO MINI APP IS CONFIGURED, THIS GOES NOWHERE — ON PURPOSE.   │
  * │                                                                    │
- * │  `NEXT_PUBLIC_TELEGRAM_MINI_APP` is a per-deployment setting, and  │
- * │  a deployment without it has no Telegram address to send anyone    │
- * │  to. The control still renders — the page is a fixed composition   │
- * │  and a hole in it is not an improvement — but it leads to the web  │
- * │  entrance of the same product, and its ACCESSIBLE NAME says so.    │
- * │  A visible label that promises Telegram and a link that quietly    │
- * │  goes somewhere else is the thing being avoided here; a link that  │
- * │  goes somewhere real and explains itself is not.                   │
+ * │  It used to fall back to `/login`. That is a control labelled      │
+ * │  `Open Telegram` quietly delivering somebody to a sign-in form,    │
+ * │  and LANDING-04 rules it out in as many words: do not invent a     │
+ * │  URL, and do not silently redirect the Telegram CTA somewhere      │
+ * │  unrelated. So without `NEXT_PUBLIC_TELEGRAM_MINI_APP` the control │
+ * │  renders as what it is — present, visibly inactive, `aria-disabled`│
+ * │  and still reachable by keyboard, carrying the reason in its       │
+ * │  accessible name and its tooltip.                                  │
+ * │                                                                    │
+ * │  It stays FOCUSABLE rather than taking the `disabled` attribute:   │
+ * │  a control that vanishes from the tab order cannot tell anybody    │
+ * │  why it is unavailable, and the reason is the whole point.         │
+ * │                                                                    │
+ * │  Set the address and every one of these becomes an ordinary link,  │
+ * │  with no other change anywhere.                                    │
  * └────────────────────────────────────────────────────────────────────┘
+ *
+ * The address itself comes from `@/lib/miniApp`, which is the single typed
+ * place it is parsed and validated. Nothing here guesses a bot username,
+ * and the bot TOKEN never leaves the server.
  */
 export function TelegramAction({
   miniAppUrl,
@@ -33,14 +43,23 @@ export function TelegramAction({
   miniAppUrl: string | null;
   children: ReactNode;
   className?: string;
-  /** `solid` is the header's blue button; `outline` is the hero's secondary. */
-  variant?: 'solid' | 'outline';
+  /** `solid` is the blue button; `outline` and `onBrand` are its two hosts. */
+  variant?: 'solid' | 'outline' | 'onBrand';
 }) {
+  const available = miniAppUrl !== null;
+
   const shape = cn(
     'press inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--radius-md)] font-semibold whitespace-nowrap',
     variant === 'solid'
-      ? 'bg-[var(--tg)] text-white shadow-[0_1px_2px_rgb(21,111,163,0.18),0_6px_16px_-6px_rgb(21,111,163,0.38)] hover:bg-[var(--tg-hover)] active:bg-[var(--tg-press)]'
-      : 'border border-[var(--color-rule)] bg-[var(--color-paper)] text-[var(--color-ink)] hover:border-[var(--color-edge)] hover:bg-[var(--color-sunken)]',
+      ? 'bg-[var(--tg)] text-white shadow-[0_1px_2px_rgb(21,111,163,0.18),0_6px_16px_-6px_rgb(21,111,163,0.38)]'
+      : variant === 'onBrand'
+        ? 'bg-[var(--tg)] text-white shadow-[0_1px_2px_rgb(12,52,78,0.24)]'
+        : 'border border-[var(--color-rule)] bg-[var(--color-paper)] text-[var(--color-ink)]',
+    available &&
+      (variant === 'outline'
+        ? 'hover:border-[var(--color-edge)] hover:bg-[var(--color-sunken)]'
+        : 'hover:bg-[var(--tg-hover)] active:bg-[var(--tg-press)]'),
+    !available && 'cursor-not-allowed opacity-55',
     className,
   );
 
@@ -51,7 +70,7 @@ export function TelegramAction({
     />
   );
 
-  if (miniAppUrl) {
+  if (available) {
     return (
       <a href={miniAppUrl} target="_blank" rel="noopener noreferrer" className={shape}>
         {glyph}
@@ -61,18 +80,19 @@ export function TelegramAction({
   }
 
   return (
-    <Link
-      href="/login?next=%2Fapp"
-      prefetch={false}
+    <button
+      type="button"
+      aria-disabled="true"
+      title="Telegram is not connected on this deployment yet. Every deal also opens on the web."
       className={shape}
-      title="This deployment has no Telegram Mini App configured, so this opens INRP2P on the web."
     >
       {glyph}
       {children}
       <span className="sr-only">
         {' '}
-        — opens INRP2P on the web, because this deployment has no Telegram Mini App configured
+        — unavailable: Telegram is not connected on this deployment yet. Every deal also opens on
+        the web.
       </span>
-    </Link>
+    </button>
   );
 }

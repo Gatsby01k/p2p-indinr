@@ -128,3 +128,11 @@ export function createDealHref(key: CapabilityKey): string {
   const next = `/app/new?scenario=${CAPABILITIES[key].scenario}`;
   return `/login?next=${encodeURIComponent(next)}`;
 }
+
+/**
+ * The same route with nothing preselected.
+ *
+ * Used by the closing call to action, where the visitor has already been
+ * shown all three directions and should not have one chosen for them.
+ */
+export const CREATE_DEAL_HREF = `/login?next=${encodeURIComponent('/app/new')}`;

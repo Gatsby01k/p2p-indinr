@@ -67,7 +67,9 @@ export function BenefitBand() {
           <Party label="Counterparty" tone="info" />
         </div>
 
-        <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center">
+        {/* Side by side only from `lg`: at 768 the two-column band gave
+            this row 342px and the invite address took an ellipsis. */}
+        <div className="mt-6 flex flex-col gap-2 lg:flex-row lg:items-center">
           <span className="flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-sunken)] px-3 py-2.5">
             <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
               {REFERRAL_PREVIEW_URL}

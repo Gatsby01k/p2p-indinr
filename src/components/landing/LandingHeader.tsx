@@ -136,6 +136,26 @@ export function LandingHeader({ miniAppUrl }: { miniAppUrl: string | null }) {
                       </Link>
                     );
                   })}
+
+                  {/*
+                    The three above jump straight into creating one of the
+                    three deals. This last row goes to the section that
+                    explains all three, which is what `Product` in a nav
+                    is normally taken to mean.
+                  */}
+                  <Link
+                    href="#deal-engine"
+                    prefetch={false}
+                    onClick={() => setProductOpen(false)}
+                    className="press mt-1 flex items-center justify-between gap-3 rounded-[var(--radius-md)] border-t border-[var(--color-line)] px-3 py-2.5 text-[length:var(--text-sm)] font-semibold text-[var(--color-ink-2)] hover:bg-[var(--color-sunken)]"
+                  >
+                    The deal engine
+                    <Icon
+                      name="chevron-right"
+                      className="h-3.5 w-3.5 text-[var(--color-ink-4)]"
+                      strokeWidth={2.2}
+                    />
+                  </Link>
                 </div>
               ) : null}
             </li>
@@ -249,16 +269,16 @@ const NAV_LINK =
   'press inline-flex h-10 items-center rounded-[var(--radius-md)] px-3.5 text-[length:var(--text-md)] font-semibold text-[var(--color-ink-2)] transition-colors hover:bg-[var(--color-sunken)] hover:text-[var(--color-ink)] xl:px-4';
 
 /**
- * Where the remaining three go.
+ * Where the four go, now that all four sections exist.
  *
- * `#how-it-works` is the section this stage builds. `Rewards` and `Safety`
- * point at the REAL screens that already exist rather than at anchors for
- * sections that do not — a nav link to nothing is a broken link, and the
- * later landing stages can repoint these without anyone meeting a dead end
- * in the meantime.
+ * LANDING-01 pointed `Rewards` at `/app/rewards` and `Safety` at the old
+ * guarantees block, because neither section had been built yet. Both now
+ * exist on this page, so the nav does what a nav is for and moves the
+ * reader down it. Every target is a real element with a stable id and
+ * `scroll-mt-24`, which clears the sticky header.
  */
 const NAV_ITEMS: readonly { label: string; href: string }[] = [
   { label: 'How it works', href: '#how-it-works' },
-  { label: 'Rewards', href: '/app/rewards' },
-  { label: 'Safety', href: '#safety' },
+  { label: 'Rewards', href: '#rewards' },
+  { label: 'Safety', href: '#protection' },
 ];

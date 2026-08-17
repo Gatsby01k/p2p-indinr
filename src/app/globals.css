@@ -1175,6 +1175,20 @@
   color: var(--color-ink-5);
 }
 
+/* ⚠ THE RING HAS TO COME BACK FOR THE KEYBOARD.
+ *
+ * `outline: none` above kills the global `:focus-visible` ring, and this
+ * is the field somebody types an AMOUNT into — the one place on the page
+ * where "am I actually in this box?" has a cost. The blanket removal was
+ * hiding a WCAG 2.4.7 failure behind a borderless design; the outline is
+ * suppressed for pointer focus only, and restored the moment a keyboard
+ * is what moved focus here. */
+.amount-input:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 3px;
+  border-radius: var(--radius-xs);
+}
+
 /* Radio and checkbox rendered as the reference's card selectors. */
 .pick {
   position: relative;

@@ -65,7 +65,10 @@ export function DealEngine() {
   };
 
   return (
-    <section className="border-t border-[var(--color-line)] bg-[var(--color-canvas)]">
+    <section
+      id="deal-engine"
+      className="scroll-mt-24 border-t border-[var(--color-line)] bg-[var(--color-canvas)]"
+    >
       <LandingShell className="py-14 sm:py-20 lg:py-24">
         <p className="text-[length:var(--text-2xs)] font-bold uppercase tracking-[0.14em] text-[var(--color-brand)]">
           One engine. Three ways to move.
@@ -189,7 +192,16 @@ export function DealEngine() {
                 on the lock cell gave the two amount cells everything
                 left over and left ₹83,600 marooned in 300px of nothing.
               */}
-              <div className="grid overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] sm:grid-cols-[minmax(0,1fr)_minmax(0,0.82fr)_minmax(0,1fr)]">
+              {/*
+                ⚠ THREE ACROSS ONLY FROM `lg`. Between 640 and 1023 the
+                card is ~660px wide, which gives each amount cell 235px —
+                four pixels less than `1,000 USDT` plus its unit selector
+                needs, so the receive leg took an ellipsis. Stacking is
+                the right answer rather than shrinking the figure: the
+                amount is the one thing in this card that has to be
+                legible at a glance.
+              */}
+              <div className="grid overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] lg:grid-cols-[minmax(0,1fr)_minmax(0,0.82fr)_minmax(0,1fr)]">
                 <Leg
                   caption={active.payLabel}
                   amount={active.pay.amount}
@@ -198,7 +210,7 @@ export function DealEngine() {
                 />
 
                 {/* What is frozen the moment the deal is created. */}
-                <div className="flex flex-col items-center justify-center gap-1 border-t border-[var(--color-line)] px-5 py-4 text-center sm:border-l sm:border-t-0">
+                <div className="flex flex-col items-center justify-center gap-1 border-t border-[var(--color-line)] px-5 py-4 text-center lg:border-l lg:border-t-0">
                   <span className="flex items-center gap-1.5 text-[length:var(--text-xs)] font-semibold text-[var(--color-final)]">
                     <Icon name="lock" className="h-3.5 w-3.5" strokeWidth={2} />
                     {active.lockLabel}
@@ -216,7 +228,7 @@ export function DealEngine() {
                   amount={active.receive.amount}
                   unit={active.receive.unit}
                   modeKey={mode}
-                  className="border-t border-[var(--color-line)] sm:border-l sm:border-t-0"
+                  className="border-t border-[var(--color-line)] lg:border-l lg:border-t-0"
                 />
               </div>
 

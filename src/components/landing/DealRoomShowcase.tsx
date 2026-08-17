@@ -23,7 +23,7 @@ import { LandingShell } from './LandingShell';
  */
 export function DealRoomShowcase() {
   return (
-    <section className="bg-[var(--color-canvas)]">
+    <section id="deal-room" className="scroll-mt-24 bg-[var(--color-canvas)]">
       <LandingShell className="pb-14 sm:pb-20 lg:pb-24">
         <div className="overflow-hidden rounded-[var(--radius-2xl)] bg-[var(--color-nav)] p-5 sm:p-8 lg:p-10 min-[1120px]:p-12">
           <div className="grid gap-9 min-[1120px]:grid-cols-[minmax(0,20.5rem)_minmax(0,1fr)] min-[1120px]:items-center min-[1120px]:gap-12">

@@ -75,7 +75,14 @@ export function DealRoomDemo({ className }: { className?: string }) {
         </span>
       </div>
 
-      <div className="md:flex md:items-stretch">
+      {/*
+        ⚠ `lg`, NOT `md`. At 768px the split left the conversation 360px
+        beside a 280px rail, and `1,000 USDT`, `INR Payer`, `USDT Receiver`
+        and `payment-proof.jpg` all took an ellipsis. The rail is a fixed
+        width, so the breakpoint has to be where the REMAINDER is still
+        readable — 1024px, which leaves the transcript 600px.
+      */}
+      <div className="lg:flex lg:items-stretch">
         {/* ---- The conversation --------------------------------- */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/*
@@ -129,7 +136,7 @@ export function DealRoomDemo({ className }: { className?: string }) {
         </div>
 
         {/* ---- What is protected, and how far it has got --------- */}
-        <div className="shrink-0 space-y-4 border-t border-[var(--color-line)] bg-[var(--color-paper)] p-3.5 sm:p-4 md:w-[17.5rem] md:border-l md:border-t-0">
+        <div className="shrink-0 space-y-4 border-t border-[var(--color-line)] bg-[var(--color-paper)] p-3.5 sm:p-4 lg:w-[17.5rem] lg:border-l lg:border-t-0">
           <div>
             <p className="text-[length:var(--text-2xs)] font-semibold uppercase tracking-[0.07em] text-[var(--color-ink-4)]">
               Protected asset

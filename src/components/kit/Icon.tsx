@@ -62,6 +62,8 @@ export type IconName =
   | 'crown'
   | 'bars'
   | 'x-circle'
+  | 'globe'
+  | 'code'
   | 'wallet'
   | 'bank'
   | 'rupee'
@@ -145,6 +147,10 @@ const PATHS: Readonly<Record<IconName, string>> = {
   crown: 'M4.3 19.2h15.4M4.6 7.1l3.7 3.9L12 4.4l3.7 6.6 3.7-3.9-1.6 9.3H6.2z',
   bars: 'M5.2 20.4v-6.6M12 20.4V4.6M18.8 20.4v-9.6',
   'x-circle': 'M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0zM9.4 9.4l5.2 5.2M14.6 9.4l-5.2 5.2',
+  /* The web, and the short code that reaches it when a preview will not. */
+  globe:
+    'M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0zM3.9 9.3h16.2M3.9 14.7h16.2M12 3.5c2.1 2.4 3.2 5.4 3.2 8.5s-1.1 6.1-3.2 8.5c-2.1-2.4-3.2-5.4-3.2-8.5S9.9 5.9 12 3.5z',
+  code: 'M9 7.4 4.3 12 9 16.6M15 7.4 19.7 12 15 16.6M13.4 4.3l-2.8 15.4',
   users:
     'M15.5 20.5v-1.8a4 4 0 0 0-4-4h-4a4 4 0 0 0-4 4v1.8M13 7.2a3.7 3.7 0 1 1-7.4 0 3.7 3.7 0 0 1 7.4 0zM20.5 20.5v-1.8a4 4 0 0 0-3-3.87M16 3.7a4 4 0 0 1 0 7.75',
   wallet:
