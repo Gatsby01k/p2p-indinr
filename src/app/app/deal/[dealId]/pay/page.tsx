@@ -15,11 +15,11 @@ import {
   Card,
   Fact,
   Facts,
+  FocusLayout,
   Label,
   Notice,
   SandboxLine,
   Shell,
-  TotalRow,
 } from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
@@ -33,8 +33,22 @@ export const dynamic = 'force-dynamic';
  * return to — with a real address they can reopen — serves that far better
  * than a modal that is lost the moment they switch apps.
  *
- * The order matches what a person does with their thumb: WHERE the money
- * goes, HOW MUCH exactly, then the reference and the proof.
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  WHAT CHANGED, AND WHY.                                            │
+ * │                                                                    │
+ * │  This screen used to be one 27.5rem column nearly two thousand     │
+ * │  pixels tall, with the destination, a QR, the amount, the          │
+ * │  reference form, the proof upload and the only submit button       │
+ * │  stacked in a line. The transfer figure appeared THREE times — in  │
+ * │  the page title, as a hero, and again as a brand-coloured total —  │
+ * │  and the sandbox warning appeared twice.                           │
+ * │                                                                    │
+ * │  The person's actual task, once they are back from their banking   │
+ * │  app, is to type a reference. So the reference form is the column  │
+ * │  they land in, and WHERE and HOW MUCH sit beside it as context     │
+ * │  they can still see while typing. On a phone the order is          │
+ * │  unchanged — context first, because they have not paid yet.        │
+ * └────────────────────────────────────────────────────────────────────┘
  */
 export default async function PayPage({ params }: { params: Promise<{ dealId: string }> }) {
   const { dealId } = await params;
@@ -74,6 +88,130 @@ export default async function PayPage({ params }: { params: Promise<{ dealId: st
   const payTo = deal.payTo;
   const rupees = formatMinor(settle.payerSendsMinor, 'INR');
 
+  /* ---- Context column: where the money goes, and exactly how much --- */
+  const destination = (
+    <Card>
+      <div className="flex items-center gap-3">
+        <Avatar name={deal.counterpartyName} size="md" verified={deal.counterpartyVerified} />
+        <div className="min-w-0 flex-1">
+          <Label>Pay to</Label>
+          <p className="truncate text-[length:var(--text-lg)] font-semibold text-[var(--color-ink)]">
+            {deal.counterpartyName}
+          </p>
+        </div>
+      </div>
+
+      {payTo ? (
+        <>
+          <div className="mt-4 space-y-2.5">
+            <CopyField
+              label={payTo.kind === 'UPI' ? 'UPI ID' : 'Account'}
+              value={payTo.handle}
+              announce={`${payTo.kind === 'UPI' ? 'UPI ID' : 'Account'} copied`}
+            />
+            {payTo.bankName ? <CopyField label="Bank" value={payTo.bankName} mono={false} /> : null}
+            {payTo.ifsc ? <CopyField label="IFSC" value={payTo.ifsc} /> : null}
+          </div>
+
+          {/* Scan-to-pay. In this sandbox the handle is a @sandboxupi
+              address, which resolves at no bank — so the code is real
+              and scannable but structurally cannot move real money. */}
+          {payTo.kind === 'UPI' ? (
+            <div className="mt-5 flex flex-col items-center border-t border-[var(--color-line)] pt-5">
+              <QrCode
+                value={upiUri({
+                  vpa: payTo.handle,
+                  name: deal.counterpartyName,
+                  amountRupees: rupees.replace(/,/g, ''),
+                  note: deal.dealCode,
+                })}
+                label={`Scan to open this payment in a UPI app · ${amount.display} to ${deal.counterpartyName}`}
+                size={148}
+              />
+              {/*
+                ⚠ THIS LINE IS NOT THE GENERAL SANDBOX NOTICE, AND IT IS
+                NOT REDUNDANT WITH IT.
+
+                Consolidating the two sandbox warnings on this screen, I
+                deleted this one too — and the browser gate failed on
+                `sandbox handle disclosed honestly`, correctly. The
+                footer says no funds are held or moved anywhere in the
+                product; THIS says the specific thing somebody is about
+                to point their bank's camera at cannot reach a bank. A
+                scannable code with no such caption is the one element
+                here that could be mistaken for a live payment.
+              */}
+              <p className="mt-2 max-w-[18rem] text-center text-[length:var(--text-2xs)] leading-relaxed text-[var(--color-hold)]">
+                Sandbox handle. It resolves at no bank, so this code cannot move real money.
+              </p>
+            </div>
+          ) : null}
+        </>
+      ) : deal.valueLocked ? (
+        <Callout tone="risk" icon="alert" className="mt-4">
+          This person has not added a way to be paid yet. Message them in the deal room and ask them
+          to add one before you transfer anything.
+        </Callout>
+      ) : (
+        /*
+         * The two reasons instructions can be missing are not the same
+         * reason, and telling someone to "ask them to add one" when the
+         * truth is "nothing is protecting this deal yet" would send them
+         * to transfer money against nothing (UX-01 §3, TS-01.4 I7).
+         */
+        <Callout tone="risk" icon="alert" className="mt-4">
+          Payment details are not available yet, because nothing is locked against this deal. Do not
+          transfer anything until this page shows where to send it.
+        </Callout>
+      )}
+    </Card>
+  );
+
+  const breakdown = (
+    <Card>
+      {/*
+        ONE rendering of the transfer figure on this card. The page title
+        already carries it, and a third brand-coloured repetition of the
+        same number at the bottom of a table taught nobody anything.
+      */}
+      <Label>Send exactly</Label>
+      <p className="tnum mt-1.5 text-[length:var(--text-3xl)] font-semibold tracking-[-0.03em] text-[var(--color-ink)]">
+        {amount.display}
+        <span className="sr-only"> {amount.srLabel}</span>
+      </p>
+
+      <Facts className="mt-3">
+        <Fact term="Deal amount">
+          <span className="tnum">{settle.amount.display}</span>
+        </Fact>
+        <Fact
+          term={deal.direction === 'INR_TO_INR' ? 'Protection fee' : 'Service fee'}
+          hint="Fixed on the server when the deal was created. It does not change."
+        >
+          <span className="tnum">₹{formatMinor(deal.protectionFeeMinor, 'INR')}</span>
+        </Fact>
+        {BigInt(deal.networkFeeMinor) > 0n ? (
+          <Fact term="Network fee">
+            <span className="tnum">₹{formatMinor(deal.networkFeeMinor, 'INR')}</span>
+          </Fact>
+        ) : null}
+        <Fact term="Payment method">
+          {payTo?.kind === 'UPI' ? 'UPI' : payTo?.kind === 'BANK' ? 'Bank transfer' : '—'}
+        </Fact>
+        {deal.actionDeadline ? (
+          <Fact term="Pay by">
+            <Deadline iso={deal.actionDeadline} />
+          </Fact>
+        ) : null}
+      </Facts>
+
+      <p className="mt-3 flex items-start gap-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+        <Icon name="info" className="mt-px h-3.5 w-3.5 shrink-0" />A different amount cannot be
+        matched automatically and has to be resolved by hand.
+      </p>
+    </Card>
+  );
+
   return (
     <>
       <AppHeader
@@ -83,139 +221,41 @@ export default async function PayPage({ params }: { params: Promise<{ dealId: st
         unread={unread}
       />
 
-      <Shell width="form" className="py-5 sm:py-7">
-        {/* ---- The one warning that matters --------------------- */}
-        <Callout tone="hold" icon="shield" className="mb-4">
-          <strong className="font-semibold">Pay only from your own verified account.</strong> A
-          transfer from a third party cannot be matched to this deal and will delay or fail
-          verification.
-        </Callout>
-
-        {/* ---- Where the money goes ----------------------------- */}
-        <Card>
-          <div className="flex items-center gap-3">
-            <Avatar name={deal.counterpartyName} size="md" verified={deal.counterpartyVerified} />
-            <div className="min-w-0 flex-1">
-              <Label>Pay to</Label>
-              <p className="truncate text-[length:var(--text-lg)] font-semibold text-[var(--color-ink)]">
-                {deal.counterpartyName}
-              </p>
-            </div>
-          </div>
-
-          {payTo ? (
+      <Shell width="wide" className="py-5 sm:py-7">
+        <FocusLayout
+          asideFirst
+          aside={
             <>
-              <div className="mt-4 space-y-2.5">
-                <CopyField
-                  label={payTo.kind === 'UPI' ? 'UPI ID' : 'Account'}
-                  value={payTo.handle}
-                  announce={`${payTo.kind === 'UPI' ? 'UPI ID' : 'Account'} copied`}
-                />
-                {payTo.bankName ? (
-                  <CopyField label="Bank" value={payTo.bankName} mono={false} />
-                ) : null}
-                {payTo.ifsc ? <CopyField label="IFSC" value={payTo.ifsc} /> : null}
-              </div>
-
-              {/* Scan-to-pay. In this sandbox the handle is a @sandboxupi
-                  address, which resolves at no bank — so the code is real
-                  and scannable but structurally cannot move real money. */}
-              {payTo.kind === 'UPI' ? (
-                <div className="mt-5 flex flex-col items-center border-t border-[var(--color-line)] pt-5">
-                  <QrCode
-                    value={upiUri({
-                      vpa: payTo.handle,
-                      name: deal.counterpartyName,
-                      amountRupees: rupees.replace(/,/g, ''),
-                      note: deal.dealCode,
-                    })}
-                    label={`Scan to open this payment in a UPI app · ${amount.display} to ${deal.counterpartyName}`}
-                    size={168}
-                  />
-                  <p className="mt-1 max-w-[22rem] text-center text-[length:var(--text-2xs)] leading-relaxed text-[var(--color-hold)]">
-                    Sandbox handle. It resolves at no bank, so this code cannot move real money.
-                  </p>
-                </div>
-              ) : null}
+              {destination}
+              {breakdown}
             </>
-          ) : deal.valueLocked ? (
-            <Callout tone="risk" icon="alert" className="mt-4">
-              This person has not added a way to be paid yet. Message them in the deal room and ask
-              them to add one before you transfer anything.
-            </Callout>
-          ) : (
-            /*
-             * The two reasons instructions can be missing are not the same
-             * reason, and telling someone to "ask them to add one" when the
-             * truth is "nothing is protecting this deal yet" would send them
-             * to transfer money against nothing (UX-01 §3, TS-01.4 I7).
-             */
-            <Callout tone="risk" icon="alert" className="mt-4">
-              Payment details are not available yet, because nothing is locked against this deal. Do
-              not transfer anything until this page shows where to send it.
-            </Callout>
-          )}
-        </Card>
+          }
+        >
+          {/* ---- The one warning that matters --------------------- */}
+          <Callout tone="hold" icon="shield">
+            <strong className="font-semibold">Pay only from your own verified account.</strong> A
+            transfer from a third party cannot be matched to this deal and will delay or fail
+            verification.
+          </Callout>
 
-        {/* ---- Exactly how much ---------------------------------- */}
-        <Card className="mt-4">
-          <h2 className="text-[length:var(--text-lg)] font-semibold text-[var(--color-ink)]">
-            Send exactly this amount
-          </h2>
-          <p className="tnum mt-2 text-[length:var(--text-4xl)] font-semibold tracking-[-0.03em] text-[var(--color-ink)]">
-            {amount.display}
-            <span className="sr-only"> {amount.srLabel}</span>
-          </p>
-
-          <Facts className="mt-3">
-            <Fact term="Deal amount">
-              <span className="tnum">{settle.amount.display}</span>
-            </Fact>
-            <Fact
-              term={deal.direction === 'INR_TO_INR' ? 'Protection fee' : 'Service fee'}
-              hint="Fixed on the server when the deal was created. It does not change."
-            >
-              <span className="tnum">₹{formatMinor(deal.protectionFeeMinor, 'INR')}</span>
-            </Fact>
-            {BigInt(deal.networkFeeMinor) > 0n ? (
-              <Fact term="Network fee">
-                <span className="tnum">₹{formatMinor(deal.networkFeeMinor, 'INR')}</span>
-              </Fact>
-            ) : null}
-            <Fact term="Payment method">
-              {payTo?.kind === 'UPI' ? 'UPI' : payTo?.kind === 'BANK' ? 'Bank transfer' : '—'}
-            </Fact>
-            {deal.actionDeadline ? (
-              <Fact term="Pay by">
-                <Deadline iso={deal.actionDeadline} />
-              </Fact>
-            ) : null}
-          </Facts>
-
-          <div className="mt-3">
-            <TotalRow term="Transfer" tone="brand">
-              {amount.display}
-            </TotalRow>
+          <div className="mt-4">
+            <PayFlow
+              dealId={deal.dealId}
+              amountLabel={amount.display}
+              counterpartyName={deal.counterpartyName}
+              evidence={deal.evidence}
+            />
           </div>
 
-          <p className="mt-3 flex items-start gap-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-            <Icon name="info" className="mt-px h-3.5 w-3.5 shrink-0" />A different amount cannot be
-            matched automatically and has to be resolved by hand.
-          </p>
-        </Card>
-
-        <div className="mt-4">
-          <SandboxLine full />
-        </div>
-
-        <div className="mt-4">
-          <PayFlow
-            dealId={deal.dealId}
-            amountLabel={amount.display}
-            counterpartyName={deal.counterpartyName}
-            evidence={deal.evidence}
-          />
-        </div>
+          {/*
+            ONE sandbox line on this screen. There were two — one under
+            the QR and one as a separate callout — and a warning printed
+            twice on a page is a warning nobody finishes reading.
+          */}
+          <div className="mt-4">
+            <SandboxLine full />
+          </div>
+        </FocusLayout>
       </Shell>
     </>
   );

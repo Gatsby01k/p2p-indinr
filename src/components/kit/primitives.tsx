@@ -43,6 +43,72 @@ export function Shell({
 }
 
 /**
+ * A focused task, with its context beside it on a wide screen.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  DESKTOP IS NOT A PHONE WITH MARGINS.                              │
+ * │                                                                    │
+ * │  Eight authenticated routes rendered a 27.5rem column into a       │
+ * │  1040px content area — paying, disputing, verifying, enrolling a   │
+ * │  second factor, adding a way to be paid. Seventy per cent of the   │
+ * │  screen was empty, and the things a person needs while doing the   │
+ * │  task — what they are paying for, why it is safe, what happens if  │
+ * │  it goes wrong — sat below the fold underneath the form.           │
+ * │                                                                    │
+ * │  The answer is NOT to widen the form. A 27rem measure is right for │
+ * │  a column of fields and a ₹ figure; stretching it to 60rem makes   │
+ * │  both harder to read. It is to put the CONTEXT beside the task.    │
+ * │                                                                    │
+ * │  On a phone there is one column and the aside follows the task,    │
+ * │  because the task is why the person opened the screen. From `lg`   │
+ * │  the two sit side by side and the pair is centred, so the layout   │
+ * │  never drifts to one edge of a 1920px display.                     │
+ * │                                                                    │
+ * │  `asideFirst` puts the context above the task on a phone — used    │
+ * │  where the context IS the decision, as on a shared deal link,      │
+ * │  where somebody must see what they are joining before the button.  │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export function FocusLayout({
+  children,
+  aside,
+  asideFirst = false,
+  className,
+}: {
+  children: ReactNode;
+  aside?: ReactNode;
+  asideFirst?: boolean;
+  className?: string;
+}) {
+  if (!aside) {
+    return <div className={cn('mx-auto w-full max-w-[var(--w-form)]', className)}>{children}</div>;
+  }
+  return (
+    <div
+      className={cn(
+        'mx-auto grid w-full max-w-[var(--w-focus)] gap-5 lg:grid-cols-[minmax(0,var(--w-form))_minmax(0,20rem)] lg:items-start lg:gap-8',
+        className,
+      )}
+    >
+      <div className={cn('min-w-0', asideFirst && 'order-2 lg:order-1')}>{children}</div>
+      {/*
+        `lg:sticky` keeps the context in view while a long form scrolls,
+        and only from `lg`, where there is room for it to sit still
+        without covering anything.
+      */}
+      <aside
+        className={cn(
+          'min-w-0 space-y-4 lg:sticky lg:top-[calc(var(--h-topbar)+1.5rem)]',
+          asideFirst && 'order-1 lg:order-2',
+        )}
+      >
+        {aside}
+      </aside>
+    </div>
+  );
+}
+
+/**
  * The product's single surface.
  *
  * White on warm paper, hairline bordered, softly raised. `flush` removes the
@@ -138,16 +204,29 @@ export function SectionHead({
   count,
   accent = false,
   className,
+  /**
+   * The heading level.
+   *
+   * Not cosmetic: the accessibility gate refuses a document whose
+   * headings skip a level, and a section nested inside a card that
+   * already carries an `h2` needs an `h3`. The SIZE does not change with
+   * the level — a heading's rank is structure, and shrinking it would
+   * make the outline visible to a screen reader disagree with the one a
+   * sighted reader sees.
+   */
+  level = 2,
 }: {
   title: string;
   action?: { href: string; label: string };
   count?: number;
   accent?: boolean;
   className?: string;
+  level?: 2 | 3;
 }) {
+  const H = level === 2 ? 'h2' : 'h3';
   return (
     <div className={cn('flex items-baseline justify-between gap-3', className)}>
-      <h2
+      <H
         className={cn(
           'flex items-baseline gap-2 text-[length:var(--text-base)] font-semibold',
           accent ? 'text-[var(--color-brand-ink)]' : 'text-[var(--color-ink)]',
@@ -159,7 +238,7 @@ export function SectionHead({
             {count}
           </span>
         ) : null}
-      </h2>
+      </H>
       {action ? (
         /*
          * WCAG 2.2 AA 2.5.8: at least 24×24 CSS px.

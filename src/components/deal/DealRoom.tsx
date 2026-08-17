@@ -219,6 +219,25 @@ export function DealRoom({ deal }: { deal: DealView }) {
           <div className="border-t border-[var(--color-line)] px-4 py-4 sm:px-5">
             <Stepper steps={steps} />
           </div>
+
+          {/*
+            ⚠ ONE PROGRESS INDICATOR, NOT TWO.
+
+            The room used to draw the same five steps twice: this
+            horizontal stepper, and a vertical "Deal rail" card in the
+            middle column in a different visual language. Two drawings of
+            one fact is not reassurance, it is noise — and it pushed the
+            things that differ per state further down.
+
+            What the vertical version added was the plain-language
+            explanation of each step, so that is what survives: the
+            stepper for WHERE the deal is, and the rail underneath it for
+            WHAT EACH STEP MEANS, on the one surface, from `lg` where
+            there is room for it.
+          */}
+          <div className="hidden border-t border-[var(--color-line)] px-4 py-4 sm:px-5 lg:block">
+            <RailSteps steps={steps} />
+          </div>
         </Card>
 
         {/* ---- The record ------------------------------------------ */}
@@ -342,15 +361,21 @@ export function DealRoom({ deal }: { deal: DealView }) {
             </button>
           ) : null}
 
+          {/*
+            ⚠ NOT A DISABLED BUTTON.
+
+            The waiting side was shown a full-width outline button they
+            could never press. A control that exists only to be
+            unavailable occupies the primary action slot and teaches
+            nothing; what this side actually needs is to know that the
+            move is not theirs. It is a status line, and it is the same
+            words without pretending to be actionable.
+          */}
           {!deal.permitted.canClaim && !deal.permitted.canConfirm && !terminal ? (
-            <button
-              type="button"
-              disabled
-              className={cn(buttonClass('outline', 'lg', true), 'mt-4')}
-            >
-              <Icon name="clock" className="h-4 w-4" />
-              {isFiat ? 'Waiting for confirmation' : 'Waiting for payment'}
-            </button>
+            <p className="mt-4 flex items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-sunken)] px-3 py-3 text-[length:var(--text-sm)] font-medium text-[var(--color-ink-3)]">
+              <Icon name="clock" className="h-4 w-4 shrink-0" />
+              {isFiat ? 'Waiting for their confirmation' : 'Waiting for their payment'}
+            </p>
           ) : null}
 
           {deal.actionDeadline && !terminal ? (
@@ -390,16 +415,6 @@ export function DealRoom({ deal }: { deal: DealView }) {
           </Card>
         ) : null}
 
-        {/* ---- The vertical rail, desktop only --------------------- */}
-        <Card className="hidden lg:block">
-          <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
-            Deal rail
-          </h2>
-          <div className="mt-3">
-            <RailSteps steps={steps} />
-          </div>
-        </Card>
-
         {/* ---- Escape hatches ------------------------------------- */}
         {!terminal ? (
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -435,7 +450,14 @@ export function DealRoom({ deal }: { deal: DealView }) {
         <Card
           flush
           className={cn(
-            'flex flex-col overflow-hidden lg:h-[32rem]',
+            /*
+              `max-h`, not `h`. A fixed 32rem meant a deal with two
+              system notices in it rendered a 350-pixel hole above the
+              composer — the emptiest thing on the busiest screen. The
+              panel now takes the height it needs and stops growing at
+              the point where scrolling is the better answer.
+            */
+            'flex flex-col overflow-hidden lg:max-h-[32rem]',
             tab === 'chat' ? 'flex' : 'hidden',
             'lg:flex',
           )}
@@ -616,7 +638,14 @@ function Party({
     >
       <Avatar name={name} size="sm" verified={verified} />
       <div className="min-w-0">
-        <p className="truncate text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+        {/*
+          `break-words`, not `truncate`. "Payer Ux4vfhq E2e" became
+          "Payer Ux…" in a 20rem column — and the counterparty's name is
+          the one thing on this row a person checks before sending money
+          to them. A name that wraps to two lines is fine; a name that is
+          cut off is not.
+        */}
+        <p className="text-[length:var(--text-sm)] leading-tight font-semibold break-words text-[var(--color-ink)]">
           {name}
         </p>
         <p className="truncate text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">{role}</p>

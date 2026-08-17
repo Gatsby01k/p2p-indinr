@@ -32,6 +32,23 @@ const MODES: readonly { key: Mode; label: string; from: 'INR' | 'USDT'; to: 'INR
   { key: 'USDT_TO_INR', label: 'Sell USDT', from: 'USDT', to: 'INR' },
 ];
 
+/**
+ * `25000` → `25,000`, in the Indian grouping the rest of the product uses.
+ *
+ * Deliberately conservative: anything that is not a plain number is
+ * returned untouched, so a half-typed or invalid entry still shows
+ * exactly what the person typed and `amountProblem` still explains it.
+ * `formatMinor` is the authority on grouping everywhere else; this
+ * borrows it rather than reimplementing the rule.
+ */
+function groupDigits(value: string): string {
+  const trimmed = value.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return value;
+  const [whole, fraction] = trimmed.split('.');
+  const grouped = Number(whole).toLocaleString('en-IN');
+  return fraction === undefined ? grouped : `${grouped}.${fraction}`;
+}
+
 export function Calculator({ autoFocus = false }: { autoFocus?: boolean }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('INR_TO_INR');
@@ -142,6 +159,19 @@ export function Calculator({ autoFocus = false }: { autoFocus?: boolean }) {
               id="calc-amount"
               value={raw}
               onChange={(e) => setRaw(e.target.value)}
+              /*
+                ⚠ GROUPED ON BLUR, NOT WHILE TYPING.
+
+                The typed figure sat raw — `25000` — directly above a
+                formatted result reading `₹25,000.00`, so the single most
+                important element on the landing page rendered the same
+                quantity two different ways. Grouping it as the person
+                types means fighting the caret on every keystroke and
+                breaks editing in the middle of a number, which is worse.
+                Grouping when they finish costs nothing and makes the two
+                figures read as one system.
+              */
+              onBlur={() => setRaw((current) => groupDigits(current))}
               inputMode="decimal"
               autoComplete="off"
               autoFocus={autoFocus}

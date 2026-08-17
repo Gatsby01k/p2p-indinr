@@ -18,6 +18,7 @@ import {
   Card,
   Fact,
   Facts,
+  FocusLayout,
   SectionHead,
   Shell,
   buttonClass,
@@ -92,110 +93,121 @@ export default async function SecurityPage({
         unread={unread}
       />
 
-      <Shell width="form" className="py-5 sm:py-7">
-        <Callout tone="hold" icon="alert">
-          <strong className="font-semibold">This sandbox authenticates nobody.</strong> Any email
-          address signs in and no password is stored, checked or accepted anywhere. Never reuse a
-          real credential here, and never treat this account as protecting anything.
-        </Callout>
+      <Shell width="wide" className="py-5 sm:py-7">
+        {/*
+          The TASK is the second factor; everything else on this page is
+          context for it. On a phone the task comes first because it is
+          why anybody opens Security; from `lg` the session facts and the
+          guarantees sit beside it instead of a thousand pixels below.
+        */}
+        <FocusLayout
+          aside={
+            <>
+              <Card>
+                <SectionHead title="This session" level={3} />
+                <Facts className="mt-3">
+                  <Fact term="Signed in as">{accountHandle(profile)}</Fact>
+                  <Fact term="Sign-in method">
+                    {profile.telegramUsername ? 'Telegram' : 'Email address'}
+                  </Fact>
+                  <Fact term="Account type">{user.isOperator ? 'Operator' : 'Trader'}</Fact>
+                  <Fact term="Session">Signed cookie, 8 hours</Fact>
+                  <Fact term="Cookie">
+                    {/*
+                      Stated exactly, because it differs by how you signed in. A
+                      Mini App is hosted in a cross-site iframe on Telegram Web
+                      and Desktop, and only a SameSite=None cookie is sent from
+                      one — so a Telegram session is issued that way and an
+                      ordinary web session is not.
+                    */}
+                    HTTP-only, SameSite={profile.telegramUsername ? 'None · Secure' : 'Lax'}
+                  </Fact>
+                </Facts>
+                <p className="mt-3 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                  The session cookie is signed, so it cannot be edited to become another user or an
+                  operator. That signature is what the authorization tests depend on — it is a real
+                  control, unlike the sign-in itself.
+                </p>
+                {profile.telegramUsername ? (
+                  <p className="mt-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                    Your Telegram identity was proven by a signature Telegram computed with this
+                    bot&rsquo;s token, checked on our server. That part is a genuine control —
+                    unlike the email sign-in, it cannot be typed in by hand.
+                  </p>
+                ) : null}
+                <form action={signOutAction} className="mt-4">
+                  <button type="submit" className={buttonClass('outline', 'md', true)}>
+                    <Icon name="logout" className="h-4 w-4" />
+                    Sign out
+                  </button>
+                </form>
+              </Card>
 
-        <section className="mt-5">
-          <SectionHead title="Authenticator app" />
-          {/* Status in words, since SectionHead carries no hint slot. */}
-          <p className="mt-1 text-[length:var(--text-xs)] text-[var(--color-ink-2)]">
-            {enrolled
-              ? satisfied
-                ? 'Enrolled · answered on this device'
-                : 'Enrolled · not yet answered on this device'
-              : 'Not enrolled'}
-          </p>
-          <div className="mt-3">
-            <MfaEnrolment enrolled={enrolled} />
-          </div>
+              <Card>
+                <SectionHead title="How INRP2P protects you" level={3} />
+                <ul className="mt-3 space-y-3">
+                  {GUARANTEES.map((g) => (
+                    <li key={g.title} className="flex gap-2.5">
+                      <Icon
+                        name="shield-check"
+                        className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-final)]"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                          {g.title}
+                        </p>
+                        <p className="mt-0.5 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                          {g.body}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
 
-          {/*
-           * The challenge appears only when there is a factor to answer
-           * and this session has not answered it. Offering it otherwise
-           * would be a box that does nothing.
-           */}
-          {enrolled && !satisfied ? (
-            <div className="mt-3">
-              <MfaChallenge next={next} />
-            </div>
-          ) : null}
-        </section>
+              <Callout tone="risk" icon="lock">
+                <strong className="font-semibold">
+                  INRP2P never asks for a PIN or a password.
+                </strong>{' '}
+                No screen in this product has a field for one. A message, call or page asking for
+                your UPI PIN, card number or banking password is not from us, whatever it looks
+                like.
+              </Callout>
+            </>
+          }
+        >
+          <Callout tone="hold" icon="alert">
+            <strong className="font-semibold">This sandbox authenticates nobody.</strong> Any email
+            address signs in and no password is stored, checked or accepted anywhere. Never reuse a
+            real credential here, and never treat this account as protecting anything.
+          </Callout>
 
-        <section className="mt-6">
-          <SectionHead title="This session" />
-          <Card className="mt-3">
-            <Facts>
-              <Fact term="Signed in as">{accountHandle(profile)}</Fact>
-              <Fact term="Sign-in method">
-                {profile.telegramUsername ? 'Telegram' : 'Email address'}
-              </Fact>
-              <Fact term="Account type">{user.isOperator ? 'Operator' : 'Trader'}</Fact>
-              <Fact term="Session">Signed cookie, 8 hours</Fact>
-              <Fact term="Cookie">
-                {/*
-                  Stated exactly, because it differs by how you signed in. A
-                  Mini App is hosted in a cross-site iframe on Telegram Web
-                  and Desktop, and only a SameSite=None cookie is sent from
-                  one — so a Telegram session is issued that way and an
-                  ordinary web session is not.
-                */}
-                HTTP-only, SameSite={profile.telegramUsername ? 'None · Secure' : 'Lax'}
-              </Fact>
-            </Facts>
-            <p className="mt-3 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-              The session cookie is signed, so it cannot be edited to become another user or an
-              operator. That signature is what the authorization tests depend on — it is a real
-              control, unlike the sign-in itself.
+          <section className="mt-5">
+            <SectionHead title="Authenticator app" />
+            {/* Status in words, since SectionHead carries no hint slot. */}
+            <p className="mt-1 text-[length:var(--text-xs)] text-[var(--color-ink-2)]">
+              {enrolled
+                ? satisfied
+                  ? 'Enrolled · answered on this device'
+                  : 'Enrolled · not yet answered on this device'
+                : 'Not enrolled'}
             </p>
-            {profile.telegramUsername ? (
-              <p className="mt-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-                Your Telegram identity was proven by a signature Telegram computed with this
-                bot&rsquo;s token, checked on our server. That part is a genuine control — unlike
-                the email sign-in, it cannot be typed in by hand.
-              </p>
+            <div className="mt-3">
+              <MfaEnrolment enrolled={enrolled} />
+            </div>
+
+            {/*
+             * The challenge appears only when there is a factor to answer
+             * and this session has not answered it. Offering it otherwise
+             * would be a box that does nothing.
+             */}
+            {enrolled && !satisfied ? (
+              <div className="mt-3">
+                <MfaChallenge next={next} />
+              </div>
             ) : null}
-            <form action={signOutAction} className="mt-4">
-              <button type="submit" className={buttonClass('outline', 'md', true)}>
-                <Icon name="logout" className="h-4 w-4" />
-                Sign out
-              </button>
-            </form>
-          </Card>
-        </section>
-
-        <section className="mt-6">
-          <SectionHead title="How INRP2P protects you" />
-          <Card className="mt-3">
-            <ul className="space-y-3">
-              {GUARANTEES.map((g) => (
-                <li key={g.title} className="flex gap-2.5">
-                  <Icon
-                    name="shield-check"
-                    className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-final)]"
-                  />
-                  <div className="min-w-0">
-                    <p className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
-                      {g.title}
-                    </p>
-                    <p className="mt-0.5 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-                      {g.body}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </section>
-
-        <Callout tone="risk" icon="lock" className="mt-6">
-          <strong className="font-semibold">INRP2P never asks for a PIN or a password.</strong> No
-          screen in this product has a field for one. A message, call or page asking for your UPI
-          PIN, card number or banking password is not from us, whatever it looks like.
-        </Callout>
+          </section>
+        </FocusLayout>
       </Shell>
     </ToastProvider>
   );

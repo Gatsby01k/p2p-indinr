@@ -340,3 +340,91 @@ export function previewHeadline(preview: LinkPreview): string {
     ? `${usdt.display} → ${inr.display}`
     : `${inr.display} → ${usdt.display}`;
 }
+
+/* ------------------------------------------------------------------ *
+ * The audit trail, in words a person uses
+ * ------------------------------------------------------------------ */
+
+/**
+ * What an audited action is called on screen.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THE OPERATOR CASE VIEW WAS PRINTING DATABASE ENUMS.               │
+ * │                                                                    │
+ * │  It rendered `entry.action.replace(/_/g,' ').toLowerCase()` and    │
+ * │  `entry.toState.toLowerCase()`, so an operator read                │
+ * │                                                                    │
+ * │      link join                                                     │
+ * │      Seller E2e → fiat_pending                                     │
+ * │                                                                    │
+ * │  That is the schema leaking into the product. It is also the one   │
+ * │  screen where precision matters most — an audit trail is read      │
+ * │  during a dispute, and "fiat_pending" is not a thing anybody can   │
+ * │  repeat to a customer.                                             │
+ * │                                                                    │
+ * │  An UNKNOWN action still renders, tidied rather than hidden: a     │
+ * │  trail that silently dropped an event it did not recognise would   │
+ * │  be worse than an ugly one.                                        │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+const AUDIT_ACTION: Readonly<Record<string, string>> = {
+  QUOTE_ISSUE: 'Quote issued',
+  LINK_CREATE: 'Deal link created',
+  LINK_JOIN: 'Counterparty joined',
+  LINK_CLOSE: 'Link withdrawn',
+  PAYMENT_CLAIM: 'Payment marked sent',
+  CONFIRM_RECEIPT: 'Receipt confirmed',
+  DEAL_CANCEL: 'Deal cancelled',
+  DEAL_EXPIRE: 'Payment window closed',
+  DISPUTE_RAISE: 'Problem reported',
+  DISPUTE_RULE: 'Operator ruling',
+  OPERATOR_CASE_OPEN: 'Case opened by an operator',
+  EVIDENCE_ATTACH: 'Evidence attached',
+  MESSAGE_POST: 'Message posted',
+  VALUE_LOCK: 'Value protected',
+  VALUE_RELEASE: 'Value released',
+  VALUE_REFUND: 'Value refunded',
+  ROLE_GRANT: 'Role granted',
+  ROLE_REVOKE: 'Role revoked',
+  VERIFICATION_SUBMIT: 'Verification submitted',
+  VERIFICATION_DECIDE: 'Verification decided',
+  MFA_ENROL_BEGIN: 'Authenticator enrolment started',
+  MFA_ENROL_CONFIRM: 'Authenticator confirmed',
+  MFA_VERIFY: 'Second factor answered',
+  AUTH_SIGN_IN: 'Signed in',
+  AUTH_CHALLENGE_ISSUE: 'Sign-in code issued',
+  AUTH_CHALLENGE_REDEEM: 'Sign-in code used',
+};
+
+export function auditActionLabel(action: string): string {
+  const known = AUDIT_ACTION[action];
+  if (known) return known;
+  // Unrecognised, but never dropped and never shown as a raw enum.
+  const words = action.replace(/_/g, ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * What a state an audit entry moved TO is called on screen.
+ *
+ * Deal states reuse `DEAL_STATE`, so the trail and the badge on the same
+ * page cannot disagree about what `FIAT_CLAIMED` is called.
+ */
+export function auditStateLabel(state: string): string {
+  const deal = DEAL_STATE[state as DealState];
+  if (deal) return deal.label;
+  const other: Readonly<Record<string, string>> = {
+    OPEN: 'Open',
+    ISSUED: 'Issued',
+    CONSUMED: 'Taken',
+    SUBMITTED: 'Submitted',
+    APPROVED: 'Approved',
+    REJECTED: 'Not approved',
+    OPERATOR: 'Operator',
+    REVIEWER: 'Reviewer',
+    ADMIN: 'Administrator',
+  };
+  if (other[state]) return other[state]!;
+  const words = state.replace(/_/g, ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}

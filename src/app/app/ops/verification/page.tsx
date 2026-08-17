@@ -4,7 +4,15 @@ import { Icon, type IconName } from '@/components/kit/Icon';
 import { Ago } from '@/components/kit/Time';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { VerificationReview } from '@/components/flows/VerificationReview';
-import { Card, EmptyState, Label, Notice, Shell, Status } from '@/components/kit/primitives';
+import {
+  Callout,
+  Card,
+  EmptyState,
+  Label,
+  Notice,
+  Shell,
+  Status,
+} from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,6 +118,7 @@ export default async function VerificationQueuePage() {
   // The permission was already checked above; a rejection here would mean
   // the two disagreed, which is worth saying rather than rendering empty.
   const rows = queue.ok ? queue.value : [];
+  const ownCases = rows.filter((r) => r.isOwnCase).length;
 
   return (
     <ToastProvider>
@@ -127,6 +136,23 @@ export default async function VerificationQueuePage() {
           yourself.
         </p>
 
+        {/*
+          ⚠ SAY IT ONCE.
+
+          Every card used to carry the same "this is your own case"
+          warning verbatim. A reviewer with three of their own cases read
+          the identical paragraph three times, which is how a caution
+          stops being read at all. It is stated once, above the queue,
+          and each affected card is simply marked.
+        */}
+        {ownCases > 0 ? (
+          <Callout tone="hold" icon="alert" className="mt-4">
+            {ownCases === rows.length
+              ? 'Every case waiting is one of your own. A reviewer cannot decide a case about themselves — another reviewer has to pick these up.'
+              : `${ownCases} of these ${rows.length} cases ${ownCases === 1 ? 'is' : 'are'} your own and cannot be decided by you.`}
+          </Callout>
+        ) : null}
+
         {rows.length === 0 ? (
           <EmptyState
             className="mt-5"
@@ -136,7 +162,10 @@ export default async function VerificationQueuePage() {
             action={{ href: '/app/ops', label: 'Back to the Deal Desk' }}
           />
         ) : (
-          <ul className="mt-5 grid gap-3 lg:grid-cols-2" data-testid="verification-queue">
+          <ul
+            className="mt-5 grid items-stretch gap-3 lg:grid-cols-2"
+            data-testid="verification-queue"
+          >
             {rows.map((row) => {
               const kind = KIND[row.kind] ?? {
                 label: row.kind,
@@ -144,8 +173,8 @@ export default async function VerificationQueuePage() {
                 icon: 'shield' as IconName,
               };
               return (
-                <li key={row.caseId}>
-                  <Card>
+                <li key={row.caseId} className="h-full">
+                  <Card className="flex h-full flex-col">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-start gap-3">
                         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-sunken)] text-[var(--color-ink-3)]">

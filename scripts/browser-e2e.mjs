@@ -184,11 +184,19 @@ console.log('\n0 · standing verification reviewer');
     await verifyAccount(handle.page);
     await handle.page.goto(`${BASE}/app/ops/verification`, { waitUntil: 'domcontentloaded' });
     await handle.page.waitForSelector('[data-testid="verification-queue"]', { timeout: 20_000 });
-    const own = await handle.page.locator('li:has-text("Reviewer")').first().innerText();
+    /*
+     * Stronger than matching the sentence: the card must be MARKED as
+     * the reviewer's own AND must offer no approve control. Copy can be
+     * reworded; the absence of the button is the property that matters.
+     */
+    const ownCard = handle.page.locator('li:has-text("Reviewer")').first();
+    const marked = /your own case/i.test(await ownCard.innerText());
+    const controls = await ownCard.locator('[data-testid="verification-approve"]').count();
     record(
       'review',
       'a reviewer is offered no control over their own case',
-      /cannot decide a case about themselves/i.test(own),
+      marked && controls === 0,
+      `marked=${marked} approveControls=${controls}`,
     );
     await handle.page.screenshot({ path: join(OUT, '15-verification-queue.png'), fullPage: true });
   } catch (error) {
@@ -697,7 +705,17 @@ console.log('\n8 · responsive');
   ];
   const owner = await context('responsive', { as: ACCOUNT.payer });
 
-  for (const width of [360, 375, 390, 430, 1280, 1440, 1920]) {
+  /*
+   * ⚠ 768 AND 1024 ARE IN THE LIST NOW.
+   *
+   * They were the two widths nobody tested and the two where this
+   * layout actually changes: 768 is where the desktop rail and the
+   * multi-column compositions begin to apply, and 1024 is the small
+   * laptop the operator desk has to fit in. Everything below them was a
+   * phone and everything above was comfortable, so the gate was testing
+   * either side of the interesting part.
+   */
+  for (const width of [360, 375, 390, 430, 768, 1024, 1280, 1440, 1920]) {
     const page = await owner.ctx.newPage();
     instrument(page, owner.bucket);
     await page.setViewportSize({ width, height: 900 });

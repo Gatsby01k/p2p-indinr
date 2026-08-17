@@ -21,6 +21,7 @@ import {
   Card,
   Fact,
   Facts,
+  FocusLayout,
   Label,
   Notice,
   SandboxChip,
@@ -246,12 +247,19 @@ export default async function DealLinkPage({ params }: Params) {
   const commitment = isPayer ? settle.payerSends.display : (sending ?? settle.amount.display);
 
   return (
-    <Frame>
+    <Frame aside={<WhyItIsSafe joinable={preview.joinable} />}>
       <article className="animate-rise">
         <Card flush className={preview.joinable ? '' : 'opacity-95'}>
           <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--color-line)] px-4 py-3.5 sm:px-5">
+            {/*
+              The eyebrow said "Protected deal" and the badge beside it
+              said "Open · Protected". One of them was redundant, and the
+              one that carries the LIFECYCLE is the one worth keeping —
+              a stranger needs to know whether this link is still live
+              far more than they need the word twice.
+            */}
             <div className="min-w-0 flex-1 basis-full sm:basis-auto">
-              <Label>Protected deal</Label>
+              <Label>{scenario.title}</Label>
               <h1 className="mt-0.5 truncate text-[length:var(--text-lg)] font-semibold tracking-[-0.02em] text-[var(--color-ink)]">
                 {preview.title?.trim() || scenario.title}
               </h1>
@@ -358,9 +366,17 @@ export default async function DealLinkPage({ params }: Params) {
         </Card>
       </article>
 
-      {/* What protection means, for someone meeting the product here. */}
-      {preview.joinable ? (
-        <Card className="mt-3">
+      <SandboxLine className="mt-3 lg:hidden" full />
+    </Frame>
+  );
+}
+
+/** The trust column beside a joinable link. */
+function WhyItIsSafe({ joinable }: { joinable: boolean }) {
+  return (
+    <>
+      {joinable ? (
+        <Card>
           <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
             What happens next
           </h2>
@@ -391,13 +407,13 @@ export default async function DealLinkPage({ params }: Params) {
         </Card>
       ) : null}
 
-      <SandboxLine className="mt-3" full />
-      <p className="mt-4 text-center text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
+      <SandboxLine className="hidden lg:block" full />
+      <p className="text-center text-[length:var(--text-xs)] text-[var(--color-ink-3)]">
         <Link href="/" className="font-medium underline underline-offset-4">
           What is INRP2P?
         </Link>
       </p>
-    </Frame>
+    </>
   );
 }
 
@@ -453,13 +469,39 @@ function TermsCard({
   );
 }
 
-function Frame({ children }: { children: React.ReactNode }) {
+/**
+ * The frame a shared link is opened in.
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THIS IS THE PRODUCT'S FRONT DOOR.                                 │
+ * │                                                                    │
+ * │  It is the one screen a stranger meets first, forwarded into a     │
+ * │  WhatsApp or Telegram thread by somebody they know. It used to     │
+ * │  render a 27.5rem column into a 1280px window with the terms       │
+ * │  above the fold and every reason to TRUST them below it — so the   │
+ * │  decision to join was asked before the grounds for making it were  │
+ * │  visible.                                                          │
+ * │                                                                    │
+ * │  From `lg` the reasons sit beside the deal. On a phone they follow │
+ * │  it, because on a phone scrolling is the natural next move and     │
+ * │  the terms must still come first.                                  │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+function Frame({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
   return (
     <ToastProvider>
       <div className="flex min-h-dvh flex-col">
         <TopBar suffix="DealSafe India" right={<SandboxChip />} />
-        <main id="main" className="flex-1 py-5 sm:py-8">
-          <Shell width="form">{children}</Shell>
+        {/*
+          Centred vertically from `lg`. This is the one screen a stranger
+          meets first; top-aligning a 600px composition in a 900px window
+          left a third of the page empty below it and made the product
+          look unfinished before anybody had read a word.
+        */}
+        <main id="main" className="flex-1 py-5 sm:py-8 lg:flex lg:items-center">
+          <Shell width="wide">
+            <FocusLayout aside={aside}>{children}</FocusLayout>
+          </Shell>
         </main>
       </div>
     </ToastProvider>

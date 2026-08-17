@@ -109,10 +109,18 @@ export default async function HomePage() {
           </section>
         ) : null}
 
-        {/* ---- The rail ---------------------------------------------- */}
+        {/* ---- The deals themselves ---------------------------------- */}
         <section className="mt-8">
+          {/*
+            "Deal rail" is the SYSTEM's name for the lifecycle metaphor —
+            it belongs inside a deal, where the rail is actually drawn.
+            As the heading over somebody's list of deals it named an
+            internal concept rather than the thing on the screen, and on
+            an empty account it labelled a card that contained no rail at
+            all.
+          */}
           <SectionHead
-            title="Deal rail"
+            title={deals.length > 0 ? 'Your deals' : 'Get started'}
             action={deals.length > 0 ? { href: '/app/deals', label: 'View all' } : undefined}
           />
           {deals.length === 0 ? (

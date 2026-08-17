@@ -9,7 +9,15 @@ import { Icon, type IconName } from '@/components/kit/Icon';
 import { Ago } from '@/components/kit/Time';
 import { ToastProvider } from '@/components/kit/Feedback';
 import { ActionButton } from '@/components/flows/ActionButton';
-import { Callout, Card, Meter, SandboxLine, Shell, Status } from '@/components/kit/primitives';
+import {
+  Callout,
+  Card,
+  FocusLayout,
+  Meter,
+  SandboxLine,
+  Shell,
+  Status,
+} from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,124 +110,137 @@ export default async function VerificationPage() {
         unread={unread}
       />
 
-      <Shell width="form" className="py-5 sm:py-7">
-        <Card>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
-              Verification progress
-            </span>
-            <span className="tnum text-[length:var(--text-sm)] text-[var(--color-ink-3)]">
-              {doneCount}/{steps.length}
-            </span>
-          </div>
-          <Meter
-            className="mt-3"
-            percent={(doneCount / steps.length) * 100}
-            tone={doneCount === steps.length ? 'final' : 'brand'}
-            label="Verification progress"
-          />
-          <p className="mt-3 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-            Each completed step adds 100 SafePoints and raises what you can transact. The current
-            ceiling is ₹{formatMinor(MAX_INR_MINOR.toString(), 'INR')} per deal.
-          </p>
-        </Card>
+      <Shell width="wide" className="py-5 sm:py-7">
+        {/*
+          The STEPS are the task; the progress meter, the caveat and the
+          sandbox line are context about them. Side by side from `lg`
+          instead of a 27.5rem ribbon down the middle of a laptop.
+        */}
+        <FocusLayout
+          aside={
+            <>
+              <Card>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+                    Verification progress
+                  </span>
+                  <span className="tnum text-[length:var(--text-sm)] text-[var(--color-ink-3)]">
+                    {doneCount}/{steps.length}
+                  </span>
+                </div>
+                <Meter
+                  className="mt-3"
+                  percent={(doneCount / steps.length) * 100}
+                  tone={doneCount === steps.length ? 'final' : 'brand'}
+                  label="Verification progress"
+                />
+                <p className="mt-3 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+                  Each completed step adds 100 SafePoints and raises what you can transact. The
+                  current ceiling is ₹{formatMinor(MAX_INR_MINOR.toString(), 'INR')} per deal.
+                </p>
+              </Card>
 
-        <Callout tone="hold" icon="alert" className="mt-4">
-          <strong className="font-semibold">Nothing here checks a real identity.</strong> This is a
-          sandbox: no document is read, no bank is contacted and no provider is called. Completing a
-          step records that you walked through it, so the rest of the product works.
-        </Callout>
+              <Callout tone="hold" icon="alert">
+                <strong className="font-semibold">Nothing here checks a real identity.</strong> This
+                is a sandbox: no document is read, no bank is contacted and no provider is called.
+                Completing a step records that you walked through it, so the rest of the product
+                works.
+              </Callout>
 
-        <ul className="mt-4 space-y-3">
-          {steps.map((step) => {
-            const open = step.done ? null : openFor(step.kind);
-            const rejected = step.done || open ? null : rejectedFor(step.kind);
-            return (
-              <li key={step.key}>
-                <Card>
-                  <div className="flex items-start gap-3">
-                    <span
-                      className={
-                        step.done
-                          ? 'grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-final-tint)] text-[var(--color-final)]'
-                          : 'grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-sunken)] text-[var(--color-ink-3)]'
-                      }
-                    >
-                      <Icon
-                        name={step.done ? 'check' : step.icon}
-                        className="h-[18px] w-[18px]"
-                        strokeWidth={step.done ? 2.6 : 1.7}
-                      />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
-                          {step.title}
-                        </h2>
-                        {step.done ? (
-                          <Status tone="final" size="sm">
-                            Verified
-                          </Status>
-                        ) : open ? (
-                          <Status tone="hold" size="sm">
-                            In review
-                          </Status>
-                        ) : rejected ? (
-                          <Status tone="risk" size="sm">
-                            Not approved
-                          </Status>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
-                        {step.body}
-                      </p>
-                      <p className="mt-1.5 text-[length:var(--text-2xs)] font-medium text-[var(--color-ink-4)]">
-                        {step.unlocks}
-                      </p>
+              <SandboxLine full />
+            </>
+          }
+        >
+          <ul className="space-y-3">
+            {steps.map((step) => {
+              const open = step.done ? null : openFor(step.kind);
+              const rejected = step.done || open ? null : rejectedFor(step.kind);
+              return (
+                <li key={step.key}>
+                  <Card>
+                    <div className="flex items-start gap-3">
+                      <span
+                        className={
+                          step.done
+                            ? 'grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-final-tint)] text-[var(--color-final)]'
+                            : 'grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--color-sunken)] text-[var(--color-ink-3)]'
+                        }
+                      >
+                        <Icon
+                          name={step.done ? 'check' : step.icon}
+                          className="h-[18px] w-[18px]"
+                          strokeWidth={step.done ? 2.6 : 1.7}
+                        />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+                            {step.title}
+                          </h2>
+                          {step.done ? (
+                            <Status tone="final" size="sm">
+                              Verified
+                            </Status>
+                          ) : open ? (
+                            <Status tone="hold" size="sm">
+                              In review
+                            </Status>
+                          ) : rejected ? (
+                            <Status tone="risk" size="sm">
+                              Not approved
+                            </Status>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
+                          {step.body}
+                        </p>
+                        <p className="mt-1.5 text-[length:var(--text-2xs)] font-medium text-[var(--color-ink-4)]">
+                          {step.unlocks}
+                        </p>
 
-                      {/*
+                        {/*
                       Three states, three different things to say. Offering
                       "Complete this step" again while a case is open is the
                       button that made people press it repeatedly and get
                       nowhere: a second submission joins the first, by
                       design, so pressing it changes nothing at all.
                     */}
-                      {step.done ? null : open ? (
-                        <p
-                          className="mt-3 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]"
-                          data-testid={`verification-pending-${step.key}`}
-                        >
-                          Submitted <Ago iso={open.submittedAt} /> and waiting on a reviewer. Nobody
-                          can approve their own verification, so this is decided by someone else.
-                          Pressing submit again would join the same case.
-                        </p>
-                      ) : (
-                        <div className="mt-3">
-                          {rejected ? (
-                            <p className="mb-2 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
-                              A reviewer did not approve the last submission. You can submit again.
-                            </p>
-                          ) : null}
-                          <ActionButton
-                            action={verifyStepAction.bind(null, step.key)}
-                            success={`${step.title} submitted for review`}
-                            icon="shield-check"
-                            variant="primary"
-                            size="md"
+                        {step.done ? null : open ? (
+                          <p
+                            className="mt-3 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]"
+                            data-testid={`verification-pending-${step.key}`}
                           >
-                            {rejected ? 'Submit again' : 'Submit this step'}
-                          </ActionButton>
-                        </div>
-                      )}
+                            Submitted <Ago iso={open.submittedAt} /> and waiting on a reviewer.
+                            Nobody can approve their own verification, so this is decided by someone
+                            else. Pressing submit again would join the same case.
+                          </p>
+                        ) : (
+                          <div className="mt-3">
+                            {rejected ? (
+                              <p className="mb-2 text-[length:var(--text-sm)] leading-relaxed text-[var(--color-ink-2)]">
+                                A reviewer did not approve the last submission. You can submit
+                                again.
+                              </p>
+                            ) : null}
+                            <ActionButton
+                              action={verifyStepAction.bind(null, step.key)}
+                              success={`${step.title} submitted for review`}
+                              icon="shield-check"
+                              variant="primary"
+                              size="md"
+                            >
+                              {rejected ? 'Submit again' : 'Submit this step'}
+                            </ActionButton>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
-
-        <SandboxLine className="mt-5" full />
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        </FocusLayout>
       </Shell>
     </ToastProvider>
   );

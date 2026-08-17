@@ -58,6 +58,28 @@ const DATABASE_URL =
   process.env.DATABASE_URL ||
   'postgres://inrp2p_sandbox:sandbox-local-only@127.0.0.1:55433/inrp2p_sandbox';
 
+/**
+ * Say which database is about to be changed, every time.
+ *
+ * This script grants operator authority. It resolves `DATABASE_URL` from
+ * the environment and then from `.env.local`, so it is entirely possible
+ * to believe you are provisioning a local sandbox while pointed at a
+ * hosted one — that happened during this stage, and the only thing that
+ * stopped it was the account not existing on the far side. The HOST is
+ * printed; the credential never is.
+ */
+function announceTarget() {
+  try {
+    const url = new URL(DATABASE_URL);
+    const local = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+    console.error(
+      `${local ? 'local' : '⚠ REMOTE'} database: ${url.hostname}${url.port ? `:${url.port}` : ''}${url.pathname}`,
+    );
+  } catch {
+    console.error('database: (unparseable DATABASE_URL)');
+  }
+}
+
 function isRemote(url) {
   try {
     const h = new URL(url).hostname;
@@ -70,6 +92,7 @@ function isRemote(url) {
 const ROLES = new Set(['OPERATOR', 'REVIEWER', 'ADMIN']);
 
 async function main() {
+  announceTarget();
   const [command, ...rest] = process.argv.slice(2);
   const client = new pg.Client(
     isRemote(DATABASE_URL)

@@ -44,12 +44,17 @@ export function VerificationReview({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  /*
+   * The page states the rule once, above the queue. Here the card only
+   * needs to be marked as one of the affected ones — repeating the whole
+   * sentence per card is what made a queue of three read like a scolding.
+   */
   if (isOwnCase) {
     return (
-      <Callout tone="hold" icon="alert" className="mt-3">
-        This is your own case. A reviewer cannot decide a case about themselves — another reviewer
-        has to pick this one up.
-      </Callout>
+      <p className="mt-3 flex items-center gap-1.5 text-[length:var(--text-xs)] font-medium text-[var(--color-hold)]">
+        <Icon name="alert" className="h-3.5 w-3.5 shrink-0" />
+        Your own case — another reviewer decides this one
+      </p>
     );
   }
 

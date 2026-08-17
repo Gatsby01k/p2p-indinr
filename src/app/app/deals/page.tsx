@@ -3,19 +3,11 @@ import { listDealsForUser } from '@/services';
 import { getChrome } from '@/services';
 import { formatMinor } from '@/lib/format';
 import { DEAL_STATE } from '@/lib/dealPresenter';
-import { SCENARIO, type Scenario } from '@/lib/scenario';
 import type { DealView } from '@/lib/sandboxContract';
 import { cn } from '@/lib/cn';
 import { AppHeader } from '@/components/kit/AppChrome';
 import { DealCard, DealRow } from '@/components/deal/DealCard';
-import {
-  ActionLink,
-  Card,
-  EmptyState,
-  SectionHead,
-  Shell,
-  StatTile,
-} from '@/components/kit/primitives';
+import { ActionLink, Card, EmptyState, Shell } from '@/components/kit/primitives';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,17 +84,25 @@ export default async function DealsPage({
       />
 
       <Shell width="wide" className="py-5 sm:py-7">
-        {/* ---- What this list adds up to ----------------------------- */}
-        {deals.length > 0 ? (
-          <Card className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatTile value={deals.length} label="Deals" />
-            <StatTile
-              value={needsYou.length}
-              label="Waiting on you"
-              tone={needsYou.length > 0 ? 'brand' : 'ink'}
-            />
-            <StatTile value={completed.length} label="Completed" tone="final" />
-            <StatTile value={`₹${formatMinor(volume.toString(), 'INR')}`} label="Settled volume" />
+        {/*
+          ⚠ THE COUNTS WERE STATED THREE TIMES.
+
+          The page subtitle said "2 total · 1 waiting on you", this strip
+          said Deals / Waiting on you / Completed, and the filter chips
+          below said All 2 · Needs you 1 · Completed 1. Three renderings
+          of one set of numbers is not emphasis, it is three chances to
+          disagree. The chips are the ones that also DO something, so
+          they keep the counts, and the only figure none of them carries
+          — what has actually settled — stays.
+        */}
+        {completed.length > 0 ? (
+          <Card className="flex items-baseline justify-between gap-3">
+            <span className="text-[length:var(--text-sm)] text-[var(--color-ink-2)]">
+              Settled through INRP2P
+            </span>
+            <span className="tnum text-[length:var(--text-xl)] font-semibold text-[var(--color-ink)]">
+              ₹{formatMinor(volume.toString(), 'INR')}
+            </span>
           </Card>
         ) : null}
 
@@ -194,35 +194,13 @@ export default async function DealsPage({
           )}
         </section>
 
-        {/* ---- What each scenario means, once ------------------------ */}
-        {deals.length > 0 ? (
-          <section className="mt-8">
-            <SectionHead title="Deal types" />
-            <ul className="mt-3 grid gap-3 sm:grid-cols-3">
-              {(Object.keys(SCENARIO) as Scenario[]).map((key) => {
-                const meta = SCENARIO[key];
-                const count = deals.filter((d) => d.direction === key).length;
-                return (
-                  <li key={key}>
-                    <Card className="h-full">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
-                          {meta.title}
-                        </span>
-                        <span className="tnum text-[length:var(--text-xs)] text-[var(--color-ink-4)]">
-                          {count}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
-                        {meta.blurb}
-                      </p>
-                    </Card>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ) : null}
+        {/*
+          The "Deal types" grid that used to sit here showed three cards
+          with a count each — usually two zeros — under a list whose every
+          row already names its type. It was filler, and on a page about
+          somebody's money filler is the thing that makes it feel like a
+          demo. Removed rather than restyled.
+        */}
       </Shell>
 
       {/* Mobile: the create action stays in thumb reach, above the tabs. */}

@@ -252,7 +252,18 @@ export default async function OpsPage({
 
             <Card className="mt-5 hidden lg:block" flush>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[64rem] border-collapse text-[length:var(--text-sm)]">
+                {/*
+                  ⚠ 64rem DID NOT FIT.
+
+                  At 1280 — the commonest desktop width — the rail takes
+                  240px and this table was 1024px wide inside a 1040px
+                  content area with padding. It overflowed by a few
+                  pixels and `overflow-x-auto` cut the RIGHT-HAND column,
+                  which is Next action: the one an operator reaches for.
+                  A horizontal scrollbar is still there for a genuinely
+                  narrow window; it is no longer the normal case.
+                */}
+                <table className="w-full min-w-[56rem] border-collapse text-[length:var(--text-sm)]">
                   <caption className="sr-only">
                     Deals awaiting an operator, escalations first then oldest. Showing {rows.length}{' '}
                     of {queue.total}, page {queue.page}.
@@ -376,13 +387,22 @@ function PageLink({
   );
 }
 
-function nextAction(row: OperatorRow): { label: string; tone: 'risk' | 'brand' | 'idle' } {
+/**
+ * What this row wants from an operator.
+ *
+ * ⚠ ONLY AN ESCALATION IS COLOURED.
+ *
+ * Age already carries the "this is going stale" signal, in saffron, on
+ * every row that qualifies. Colouring the action as well meant a busy
+ * desk showed two orange marks per row across fifty rows — at which
+ * point saffron stops meaning "look here" and becomes the background.
+ * A dispute is the only thing on this desk that cannot resolve without
+ * a person, so it keeps red and everything else reads as ink.
+ */
+function nextAction(row: OperatorRow): { label: string; tone: 'risk' | 'idle' } {
   if (row.disputed) return { label: 'Review case', tone: 'risk' };
   if (row.waitingMinutes >= AT_RISK_MINUTES) {
-    return {
-      label: row.state === 'FIAT_PENDING' ? 'Chase payer' : 'Chase receiver',
-      tone: 'brand',
-    };
+    return { label: row.state === 'FIAT_PENDING' ? 'Chase payer' : 'Chase receiver', tone: 'idle' };
   }
   return { label: 'Monitor', tone: 'idle' };
 }
@@ -477,8 +497,7 @@ function QueueRow({ row }: { row: OperatorRow }) {
           className={cn(
             'inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-[length:var(--text-xs)] font-semibold',
             action.tone === 'risk' && 'bg-[var(--color-risk-tint)] text-[var(--color-risk)]',
-            action.tone === 'brand' && 'bg-[var(--color-brand-tint)] text-[var(--color-brand-ink)]',
-            action.tone === 'idle' && 'text-[var(--color-ink-3)]',
+            action.tone === 'idle' && 'text-[var(--color-ink-2)]',
           )}
         >
           {action.label}
@@ -522,11 +541,7 @@ function CaseCard({ row }: { row: OperatorRow }) {
         <span
           className={cn(
             'text-[length:var(--text-xs)] font-semibold',
-            action.tone === 'risk'
-              ? 'text-[var(--color-risk)]'
-              : action.tone === 'brand'
-                ? 'text-[var(--color-brand)]'
-                : 'text-[var(--color-ink-3)]',
+            action.tone === 'risk' ? 'text-[var(--color-risk)]' : 'text-[var(--color-ink-3)]',
           )}
         >
           {action.label}

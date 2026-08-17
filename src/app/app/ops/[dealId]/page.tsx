@@ -5,7 +5,7 @@ import { getChrome } from '@/services';
 import { SandboxFailure } from '@/lib/sandboxContract';
 import { DISPUTE_REASON_COPY } from '@/lib/sandboxContract';
 import { formatMinor } from '@/lib/format';
-import { DEAL_STATE } from '@/lib/dealPresenter';
+import { DEAL_STATE, auditActionLabel, auditStateLabel } from '@/lib/dealPresenter';
 import { SCENARIO } from '@/lib/scenario';
 import { cn } from '@/lib/cn';
 import { AppHeader } from '@/components/kit/AppChrome';
@@ -205,9 +205,19 @@ export default async function OperatorCasePage({
                 </Callout>
               </Card>
             ) : (
-              <Card tone="sunken">
-                <p className="text-[length:var(--text-sm)] text-[var(--color-ink-3)]">
-                  No payment has been claimed on this deal.
+              /*
+                Titled like every other card on this page. An untitled
+                grey box reads as something that failed to load rather
+                than as a fact about the deal — and on a case view, "no
+                payment has been claimed" IS a fact an operator needs.
+              */
+              <Card>
+                <h2 className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
+                  Payment claim
+                </h2>
+                <p className="mt-1 text-[length:var(--text-sm)] text-[var(--color-ink-3)]">
+                  Nothing has been claimed on this deal. The paying side has not yet marked a
+                  transfer, so there is no reference to check.
                 </p>
               </Card>
             )}
@@ -366,17 +376,22 @@ export default async function OperatorCasePage({
                       )}
                     />
                     <div className="min-w-0 flex-1">
+                      {/*
+                        Words, not enums. This trail is read during a
+                        dispute and quoted to a customer; `fiat_pending`
+                        is not something anybody can repeat.
+                      */}
                       <p className="text-[length:var(--text-xs)] font-semibold text-[var(--color-ink)]">
-                        {entry.action.replace(/_/g, ' ').toLowerCase()}
+                        {auditActionLabel(entry.action)}
                         {entry.outcome !== 'OK' ? (
                           <span className="ml-1.5 font-normal text-[var(--color-risk)]">
-                            {entry.outcome.replace(/_/g, ' ').toLowerCase()}
+                            refused · {entry.outcome.replace(/_/g, ' ').toLowerCase()}
                           </span>
                         ) : null}
                       </p>
                       <p className="mt-0.5 text-[length:var(--text-2xs)] text-[var(--color-ink-3)]">
-                        {entry.actorName ?? 'system'}
-                        {entry.toState ? ` → ${entry.toState.toLowerCase()}` : ''} ·{' '}
+                        {entry.actorName ?? 'System'}
+                        {entry.toState ? ` · ${auditStateLabel(entry.toState)}` : ''} ·{' '}
                         <Ago iso={entry.at} />
                       </p>
                     </div>

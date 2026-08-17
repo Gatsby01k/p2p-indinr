@@ -145,6 +145,11 @@
   /* ---- Layout ------------------------------------------------------- */
   --w-prose: 34rem;
   --w-form: 27.5rem;
+  /* A focused task plus its context, side by side. Wide enough for a
+     27.5rem form and a 20rem aside with an 8-unit gutter, and no wider —
+     a task that drifts to the edges of a 1920px display is harder to
+     use, not more impressive. */
+  --w-focus: 51rem;
   --w-content: 64rem;
   --w-wide: 80rem;
   --w-ops: 104rem;

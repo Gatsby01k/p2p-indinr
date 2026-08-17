@@ -8,7 +8,7 @@ import { cn } from '@/lib/cn';
 import { Icon } from '@/components/kit/Icon';
 import { Ago } from '@/components/kit/Time';
 import { useToast } from '@/components/kit/Feedback';
-import { Callout, EmptyState, buttonClass } from '@/components/kit/primitives';
+import { Callout, buttonClass } from '@/components/kit/primitives';
 
 /**
  * Evidence — the proof trail for a deal.
@@ -90,12 +90,22 @@ export function EvidencePanel({
 
   return (
     <div className={cn('space-y-3', className)}>
+      {/*
+        ⚠ ONE DASHED BOX, NOT TWO.
+
+        This panel drew a full `EmptyState` — a 200px dashed card with a
+        centred icon and a four-line paragraph — and then the attach
+        control drew a SECOND dashed box directly beneath it. Two empty
+        containers stacked is not an invitation, it is a hole in the
+        page, and in the deal room it pushed the conversation out of
+        view. The sentence that matters survives as one line above the
+        control that acts on it.
+      */}
       {evidence.length === 0 && !compact ? (
-        <EmptyState
-          icon="file"
-          title="No evidence attached"
-          body="Attach the payment receipt, a screenshot or anything else that shows what happened. Both sides can see it, and it forms part of the record if a problem is reported."
-        />
+        <p className="text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-3)]">
+          Nothing attached yet. A receipt or screenshot here is visible to both sides and becomes
+          part of the record if a problem is ever reported.
+        </p>
       ) : null}
 
       {evidence.length > 0 ? (

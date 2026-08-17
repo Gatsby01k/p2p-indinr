@@ -76,7 +76,15 @@ export function ChatPanel({
   return (
     <div className={cn('flex min-h-0 flex-col', className)}>
       <div
-        className="min-h-[14rem] flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-5"
+        /*
+          A floor of 14rem left a deal with three system notices showing
+          a 220px void above the composer. The thread now takes the
+          height it needs and only starts scrolling once it is genuinely
+          long — `max-h` on a phone, and the column's own height from
+          `lg`, where the room is three columns and the panel should fill
+          its share rather than stretch the page.
+        */
+        className="max-h-[26rem] flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-5 lg:max-h-none"
         role="log"
         aria-label="Deal messages"
         aria-live="polite"

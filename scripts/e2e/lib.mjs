@@ -202,7 +202,18 @@ export async function typeInto(page, selector, value, { enables } = {}) {
     await field.pressSequentially(String(value), { delay: 12 });
     await field.blur();
 
-    if ((await field.inputValue()) !== String(value)) {
+    /*
+     * ⚠ COMPARE THE VALUE, NOT THE FORMATTING.
+     *
+     * The amount field groups its digits when it loses focus, so typing
+     * `83000` correctly leaves `83,000` behind. A strict equality check
+     * read that as "the value did not stick" and retried until it gave
+     * up — the harness failing on the product working. Grouping
+     * separators are stripped from both sides before comparing, which is
+     * exactly what the parser does with them too.
+     */
+    const settled = (await field.inputValue()).replace(/[\s,_]/g, '');
+    if (settled !== String(value).replace(/[\s,_]/g, '')) {
       await wait(400);
       continue;
     }
