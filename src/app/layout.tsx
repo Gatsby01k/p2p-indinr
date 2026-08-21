@@ -29,16 +29,19 @@ export const metadata: Metadata = {
 };
 
 /**
- * `themeColor` follows the scheme, so the browser chrome on Android and the
- * iOS status bar match the page rather than framing it in the wrong ground.
- * `viewportFit: cover` is what lets the tab bar sit under the home indicator
- * while `pb-safe` keeps its contents clear of it.
+ * `themeColor` is ONE colour, because the page is now one palette.
+ *
+ * ⚠ It used to be a pair keyed on `prefers-color-scheme`, which was right
+ * while the page followed the scheme too. With `data-theme="light"` pinned
+ * on <html> it would be actively wrong: a phone in dark mode would paint
+ * the Android chrome and the iOS status bar `#100e0c` above an ivory page
+ * — the seam the pairing existed to prevent, now caused by it.
+ *
+ * `viewportFit: cover` is what lets the tab bar sit under the home
+ * indicator while `pb-safe` keeps its contents clear of it.
  */
 export const viewport: Viewport = {
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f7f5f2' },
-    { media: '(prefers-color-scheme: dark)', color: '#100e0c' },
-  ],
+  themeColor: '#f7f5f2',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
@@ -55,6 +58,29 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     /*
+     * ┌──────────────────────────────────────────────────────────────┐
+     * │  `data-theme="light"` — THE BRAND IS PINNED, NOT THEMED.      │
+     * │                                                              │
+     * │  `TelegramProvider` already did exactly this, and gives the   │
+     * │  reason: a person whose client was in dark mode got a         │
+     * │  near-black INRP2P, "which is not a variant of this product,  │
+     * │  it is a different-looking product". DealSafe is designed on  │
+     * │  warm paper — the saffron action colour, the tinted status    │
+     * │  pills and the amount typography were all judged against it.  │
+     * │                                                              │
+     * │  That argument never only applied inside Telegram. A phone    │
+     * │  browser in dark mode reached the same near-black page, the   │
+     * │  public landing included, and the Mini App mock-up drawn in   │
+     * │  the hero — a picture of a white Telegram screen — went dark  │
+     * │  along with it. The media query in `globals.css` is written   │
+     * │  as `:root:not([data-theme='light'])` precisely so this       │
+     * │  attribute can settle it; nothing had ever set it.            │
+     * │                                                              │
+     * │  The ~120 lines of `--dk-*` tokens stay where they are. They  │
+     * │  cost nothing while dormant, and removing the attribute is    │
+     * │  the whole of the way back.                                   │
+     * └──────────────────────────────────────────────────────────────┘
+     *
      * `suppressHydrationWarning` on <html>, and ONLY here.
      *
      * Telegram's SDK loads `beforeInteractive` and writes
@@ -69,7 +95,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
      * root element, so a genuine mismatch anywhere inside the app is
      * still reported.
      */
-    <html lang="en-IN" suppressHydrationWarning>
+    <html lang="en-IN" data-theme="light" suppressHydrationWarning>
       <head>
         {/*
           Telegram's SDK, loaded before hydration so `window.Telegram` is
