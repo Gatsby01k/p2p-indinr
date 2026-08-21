@@ -83,6 +83,29 @@ function haveBinary(name) {
   }
 }
 
+/**
+ * Present is not enough: `pg_dump` refuses any server NEWER than its own
+ * major. ubuntu-latest ships postgresql-client 16 on the PATH while the
+ * embedded server is PostgreSQL 18, and that pairing dies with "server
+ * version mismatch" — which surfaced the first time CI reached this step.
+ * So the choice of mode asks the server its major and takes the real
+ * `pg_dump` only when the client on the PATH can actually dump it.
+ */
+async function pgDumpUsable() {
+  if (!haveBinary('pg_dump') || !haveBinary('pg_restore')) return false;
+  const out = execFileSync('pg_dump', ['--version'], { encoding: 'utf8' });
+  const clientMajor = Number(out.match(/(\d+)/)?.[1] ?? 0);
+  const probe = new Client({ connectionString: SOURCE_URL });
+  try {
+    await probe.connect();
+    const { rows } = await probe.query('SHOW server_version_num');
+    const serverMajor = Math.floor(Number(rows[0].server_version_num) / 10_000);
+    return clientMajor >= serverMajor;
+  } finally {
+    await probe.end().catch(() => {});
+  }
+}
+
 function parse(url) {
   const u = new URL(url);
   return {
@@ -112,7 +135,7 @@ async function main() {
   const started = Date.now();
   const source = parse(SOURCE_URL);
   const workDir = mkdtempSync(join(tmpdir(), 'inrp2p-drill-'));
-  const mode = haveBinary('pg_dump') && haveBinary('pg_restore') ? 'pg_dump' : 'logical';
+  const mode = (await pgDumpUsable()) ? 'pg_dump' : 'logical';
 
   let manifest;
 
