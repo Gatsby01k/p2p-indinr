@@ -118,7 +118,14 @@ export function loadConfig(): AppConfig {
     // long before it helps throughput.
     poolMax: intFrom('DATABASE_POOL_MAX', 10, 1, 50),
     statementTimeoutMs: intFrom('DATABASE_STATEMENT_TIMEOUT_MS', 15_000, 1_000, 120_000),
-    appVersion: process.env.APP_VERSION ?? 'dev',
+    /*
+     * An explicit APP_VERSION wins; on Vercel the platform-stamped commit
+     * SHA identifies the deployment when nobody set one. Without the
+     * fallback, production liveness reported "dev" and the one question a
+     * deploy verification asks — is the running build the one we verified?
+     * — could not be answered from the health endpoint.
+     */
+    appVersion: process.env.APP_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ?? 'dev',
     expectedSchemaVersion: EXPECTED_SCHEMA_VERSION,
     presentSecrets: present,
     missingMandatory: missing,

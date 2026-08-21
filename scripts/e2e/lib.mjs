@@ -269,16 +269,29 @@ const signInCodes = (email) => {
  */
 export async function signIn(page, email) {
   await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+  return completeSignIn(page, email);
+}
+
+/**
+ * Drive the sign-in form already on screen, without navigating first.
+ *
+ * The calculator handoff arrives at `/login?next=…` carrying a
+ * destination; a helper that starts with its own `goto` would throw that
+ * away, which is exactly the state the journey exists to protect.
+ */
+export async function completeSignIn(page, email) {
   // Hydration must finish before typing, or the value never reaches React.
-  await page.waitForSelector('button:has-text("Email me a code")', { timeout: 20_000 });
+  // "Continue" is the email stage's only button; the rail's "Continue
+  // securely" is a list item, not a control.
+  await page.waitForSelector('button:has-text("Continue")', { timeout: 20_000 });
   await typeInto(page, 'input[type=email]', email, {
-    enables: 'button:has-text("Email me a code")',
+    enables: 'button:has-text("Continue")',
   });
   const before = signInCodes(email).length;
-  await page.click('button:has-text("Email me a code")');
+  await page.click('button:has-text("Continue")');
 
   try {
-    await page.waitForSelector('input[placeholder="12345678"]', { timeout: 12_000 });
+    await page.waitForSelector('input[name="code"]', { timeout: 12_000 });
   } catch {
     const text = await page.locator('body').innerText();
     throw new Error(
@@ -294,10 +307,17 @@ export async function signIn(page, email) {
     throw new Error(`no NEW sign-in code logged for ${email}`);
   }
 
-  await typeInto(page, 'input[placeholder="12345678"]', code, {
-    enables: 'button:has-text("Sign in")',
-  });
-  await page.click('button:has-text("Sign in")');
+  /*
+   * The eighth digit SUBMITS — CodeField's onComplete calls the verify
+   * action, so there is no button press between a complete code and the
+   * navigation. `typeInto` is not used here: its post-type bookkeeping
+   * (blur, re-read, compare) races the navigation that a correct code
+   * has already started, and hydration is proven by this point — the
+   * email stage's controlled input and enabled button required it.
+   */
+  const codeField = page.locator('input[name="code"]');
+  await codeField.click();
+  await codeField.pressSequentially(code, { delay: 25 });
   // The committed outcome: no longer on /login.
   await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 });
   return code;

@@ -41,7 +41,7 @@ export function ProtectionSystem() {
               </p>
               <Link
                 href="#faq"
-                className="press mt-6 inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-sm)] font-semibold text-[var(--color-brand)] underline-offset-4 hover:underline"
+                className="press mt-6 inline-flex min-h-6 items-center gap-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-sm)] font-semibold text-[var(--color-brand)] underline-offset-4 hover:underline"
               >
                 See how protection works
                 <Icon name="chevron-right" className="h-4 w-4" strokeWidth={2.2} />

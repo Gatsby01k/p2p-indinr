@@ -119,7 +119,21 @@ function clientConfig(url) {
     : { connectionString: url };
 }
 
-const NATIVE = path.join(ROOT, 'node_modules', '@embedded-postgres', 'darwin-arm64', 'native');
+/*
+ * The platform package that `npm ci` actually installed HERE.
+ *
+ * `embedded-postgres` ships one `@embedded-postgres/<platform>-<arch>`
+ * package per platform and npm installs exactly one of them. A path
+ * written for one platform is a path that exists on no other — it was
+ * hardcoded to `darwin-arm64` once, and every CI job that needed a
+ * database failed on `ubuntu-latest` at this line while the same
+ * commands passed on the laptop that wrote it. The mapping below is
+ * the upstream package's own (`embedded-postgres/dist/binary.js`):
+ * `win32` publishes as `windows`, every other name is `process.platform`
+ * and `process.arch` verbatim.
+ */
+const PLATFORM_PKG = `${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch}`;
+const NATIVE = path.join(ROOT, 'node_modules', '@embedded-postgres', PLATFORM_PKG, 'native');
 const BIN = path.join(NATIVE, 'bin');
 
 function bin(name) {
