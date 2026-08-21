@@ -1474,3 +1474,1108 @@ html[data-tg='1'] [data-tabbar] {
     position: static;
   }
 }
+
+/* ==================================================================== *
+ * AUTHENTICATION · the protected-access surface
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  EVERY SELECTOR BELOW IS SCOPED UNDER `[data-auth]`.               │
+ * │                                                                    │
+ * │  This is one route. Nothing here may reach the landing page, the   │
+ * │  deal room or the app chrome, so the whole block sits behind the   │
+ * │  attribute the sign-in page puts on its own root and nothing else  │
+ * │  in the product carries.                                           │
+ * └────────────────────────────────────────────────────────────────────┘
+ *
+ * The motion budget, stated once and matched by `SignInExperience`:
+ *   field focus          170ms
+ *   form state change    320ms
+ *   rail drawing         650ms
+ *   signal travel        780ms (after a 100ms lead-in)
+ *   success confirmation 480ms
+ * One easing system: `--ease-out` for everything that arrives.
+ * ==================================================================== */
+
+[data-auth] {
+  /* Mint. The confirmed terminal state of THIS rail and nothing else —
+     the settlement green is reserved for a released deal, and signing in
+     is not a financial event. Chosen for legibility on `--color-nav`:
+     7.9:1, where `--color-final` would be 2.1:1 and unreadable. */
+  --auth-mint: #4ec98d;
+  --auth-mint-dim: #2f7d58;
+
+  /* Where a node sits inside its column — the start of the step's label,
+     so the dot reads as belonging to the words above it. */
+  --auth-node-x: 0.3125rem;
+
+  --auth-draw: 650ms;
+  --auth-signal: 780ms;
+  --auth-signal-lead: 100ms;
+  --auth-node-settle: 600ms;
+
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  background: var(--color-canvas);
+}
+
+@media (min-width: 640px) {
+  [data-auth] {
+    --auth-node-x: 2.15rem;
+  }
+}
+
+/* ---- Header --------------------------------------------------------- */
+
+[data-auth] .auth-header {
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-canvas);
+}
+
+[data-auth] .auth-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+}
+
+[data-auth] .auth-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: var(--radius-sm);
+}
+
+[data-auth] .auth-brand-mark {
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  color: var(--color-brand);
+}
+
+[data-auth] .auth-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+[data-auth] .auth-brand-name {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  color: var(--color-ink);
+}
+
+[data-auth] .auth-brand-suffix {
+  margin-top: 0.3rem;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-ink-3);
+}
+
+[data-auth] .auth-back {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  padding: 0 0.25rem;
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--color-ink-2);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+[data-auth] .auth-back:hover {
+  color: var(--color-ink);
+}
+
+/* ---- The split ------------------------------------------------------ */
+
+[data-auth] .auth-main {
+  flex: 1 1 auto;
+  display: flex;
+}
+
+[data-auth] .auth-split {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr;
+}
+
+/*
+  56/44 FROM `lg`, AND NOT BEFORE.
+
+  The editorial column needs about 30rem for `Your history.` to hold its
+  line at display size, and the form needs 27rem before the eight code
+  cells start crowding. Below the sum of those the page is one column:
+  the dark panel becomes a shorter upper section and the form follows it,
+  which is a better layout than a squeezed version of this one.
+*/
+@media (min-width: 1024px) {
+  [data-auth] .auth-split {
+    grid-template-columns: 56fr 44fr;
+  }
+}
+
+/* ---- The editorial panel -------------------------------------------- */
+
+[data-auth] .auth-editorial {
+  display: flex;
+  background: var(--color-nav);
+  padding: 2.75rem 1.25rem 3rem;
+}
+
+[data-auth] .auth-editorial-inner {
+  display: flex;
+  width: 100%;
+  max-width: 40rem;
+  flex-direction: column;
+}
+
+[data-auth] .auth-editorial-eyebrow {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-brand);
+}
+
+[data-auth] .auth-editorial-title {
+  margin-top: 1.5rem;
+  font-size: clamp(2.5rem, 7.2vw, 4.25rem);
+  font-weight: 700;
+  line-height: 1.04;
+  /* The line breaks are the design, stated as three spans. `balance`
+     from the base stylesheet would rewrite them. */
+  text-wrap: wrap;
+  letter-spacing: -0.045em;
+  color: var(--color-nav-ink);
+}
+
+[data-auth] .auth-editorial-sub {
+  margin-top: 1.75rem;
+  max-width: 32rem;
+  font-size: var(--text-lg);
+  line-height: 1.55;
+  color: var(--color-nav-ink-2);
+}
+
+[data-auth] .auth-editorial-rail {
+  margin-top: 2.75rem;
+}
+
+[data-auth] .auth-editorial-foot {
+  margin-top: 2.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--color-nav-ink-2);
+}
+
+[data-auth] .auth-editorial-foot-icon {
+  height: 1.25rem;
+  width: 1.25rem;
+  flex-shrink: 0;
+  color: var(--color-nav-ink-3);
+}
+
+@media (min-width: 640px) {
+  [data-auth] .auth-editorial {
+    padding: 3.5rem 2.5rem 4rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-auth] .auth-editorial {
+    align-items: center;
+    padding: 4rem 3rem;
+  }
+  [data-auth] .auth-editorial-inner {
+    max-width: 39rem;
+  }
+  [data-auth] .auth-editorial-title {
+    font-size: clamp(2.75rem, 4.75vw, 4.5rem);
+  }
+  [data-auth] .auth-editorial-rail {
+    margin-top: 4rem;
+  }
+  [data-auth] .auth-editorial-foot {
+    margin-top: 5.5rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  [data-auth] .auth-editorial {
+    padding-inline: 5.75rem;
+  }
+}
+
+/* ---- The rail ------------------------------------------------------- */
+
+[data-auth] .auth-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  transition: color var(--dur-base) var(--ease-out) var(--auth-node-settle);
+}
+
+[data-auth] .auth-step-ordinal {
+  font-weight: 700;
+  color: var(--color-nav-ink-3);
+  transition: color var(--dur-base) var(--ease-out) var(--auth-node-settle);
+}
+
+[data-auth] .auth-step-label {
+  color: var(--color-nav-ink-3);
+  transition: color var(--dur-base) var(--ease-out) var(--auth-node-settle);
+}
+
+[data-auth] .auth-step[data-state='active'] .auth-step-ordinal {
+  color: var(--color-brand);
+}
+
+[data-auth] .auth-step[data-state='active'] .auth-step-label,
+[data-auth] .auth-step[data-state='done'] .auth-step-label {
+  color: var(--color-nav-ink);
+}
+
+[data-auth] .auth-step[data-state='done'] .auth-step-ordinal {
+  color: var(--color-nav-ink-2);
+}
+
+[data-auth] .auth-step[data-state='confirmed'] .auth-step-ordinal,
+[data-auth] .auth-step[data-state='confirmed'] .auth-step-label {
+  color: var(--auth-mint);
+}
+
+/* A step is a readout, not a control — so hover is a small contrast
+   change and nothing more. There is no `:focus` rule because there is
+   nothing here to focus: the only way forward is through the server. */
+[data-auth] .auth-step:hover .auth-step-label {
+  color: var(--color-nav-ink);
+}
+
+@media (min-width: 640px) {
+  [data-auth] .auth-step {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0;
+  }
+  [data-auth] .auth-step-ordinal {
+    width: 2.15rem;
+    flex-shrink: 0;
+  }
+}
+
+[data-auth] .auth-track {
+  position: relative;
+  margin-top: 1.1rem;
+  height: 0.625rem;
+}
+
+[data-auth] .auth-track-base,
+[data-auth] .auth-track-lead {
+  position: absolute;
+  top: 50%;
+  height: 1.5px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+
+[data-auth] .auth-track-base {
+  left: 0;
+  right: 0;
+  background: var(--color-nav-3);
+}
+
+[data-auth] .auth-track-lead {
+  left: 0;
+  width: calc(var(--auth-node-x) + 0.7rem);
+  background: var(--color-brand);
+}
+
+[data-auth] .auth-track-run {
+  position: absolute;
+  top: 50%;
+  left: var(--auth-node-x);
+  width: 66.6667%;
+  height: 1.5px;
+  transform: translateY(-50%);
+}
+
+[data-auth] .auth-track-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(var(--rail-fill, 0));
+  border-radius: 999px;
+  background: var(--color-brand);
+  transition: transform var(--auth-draw) var(--ease-out);
+}
+
+[data-auth] .auth-split[data-stage='granted'] .auth-track-fill {
+  background: linear-gradient(90deg, var(--color-brand) 55%, var(--auth-mint) 100%);
+}
+
+/* The signal. One journey per confirmed hand-off, then the element is
+   removed — an animation that cannot repeat because it stops existing. */
+[data-auth] .auth-track-sled {
+  position: absolute;
+  top: 50%;
+  left: var(--auth-node-x);
+  width: 66.6667%;
+  height: 0;
+  animation: auth-travel var(--auth-signal) var(--ease-out) var(--auth-signal-lead) both;
+}
+
+@keyframes auth-travel {
+  from {
+    transform: translateX(var(--from, 0%));
+  }
+  to {
+    transform: translateX(var(--to, 100%));
+  }
+}
+
+[data-auth] .auth-signal {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 7px;
+  width: 7px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--color-brand);
+}
+
+/* A short wake behind the dot, so the direction is legible at speed.
+   A drawn shape, not a glow: no blur, no shadow, no shimmer. */
+[data-auth] .auth-signal::before {
+  content: '';
+  position: absolute;
+  right: 50%;
+  top: 50%;
+  height: 1.5px;
+  width: 1.5rem;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--color-brand));
+}
+
+[data-auth] .auth-node {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--i) * 33.3333% + var(--auth-node-x));
+  height: 0.625rem;
+  width: 0.625rem;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  border: 1.5px solid var(--color-nav-3);
+  background: var(--color-nav);
+  transition:
+    border-color var(--dur-base) var(--ease-out) var(--auth-node-settle),
+    background-color var(--dur-base) var(--ease-out) var(--auth-node-settle);
+}
+
+[data-auth] .auth-node[data-state='active'],
+[data-auth] .auth-node[data-state='done'] {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+}
+
+[data-auth] .auth-node[data-state='confirmed'] {
+  border-color: var(--auth-mint);
+  background: var(--auth-mint);
+}
+
+/* ---- The working column --------------------------------------------- */
+
+[data-auth] .auth-work {
+  display: flex;
+  background: var(--color-canvas);
+  padding: 2.5rem 1.25rem 3rem;
+}
+
+[data-auth] .auth-work-inner {
+  width: 100%;
+  max-width: 36rem;
+}
+
+@media (min-width: 640px) {
+  [data-auth] .auth-work {
+    padding: 3.5rem 2.5rem 4rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-auth] .auth-work {
+    align-items: center;
+    border-left: 1px solid var(--color-line);
+    padding: 4rem 3rem;
+  }
+  [data-auth] .auth-work-inner {
+    /* Both states fit inside this, so neither the footer nor the panel
+       beside it moves when the form changes. */
+    min-height: 33rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  [data-auth] .auth-work {
+    padding-inline: 3.75rem;
+  }
+}
+
+[data-auth] .auth-form {
+  animation: auth-form-in 320ms var(--ease-out) 60ms both;
+}
+
+@keyframes auth-form-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[data-auth] .auth-eyebrow {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-brand);
+}
+
+[data-auth] .auth-title {
+  margin-top: 1.25rem;
+  font-size: clamp(1.9rem, 4.6vw, 3.125rem);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.04em;
+  color: var(--color-ink);
+}
+
+[data-auth] .auth-sub {
+  margin-top: 0.9rem;
+  max-width: 34rem;
+  font-size: var(--text-lg);
+  line-height: 1.5;
+  color: var(--color-ink-2);
+}
+
+[data-auth] .auth-sub-strong {
+  font-weight: 600;
+  color: var(--color-ink);
+  word-break: break-word;
+}
+
+[data-auth] .auth-label {
+  display: block;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+[data-auth] .auth-input {
+  margin-top: 0.6rem;
+  /* The same reservation, for `Continue`. See `.auth-code`. */
+  scroll-margin-block: 1.5rem 8rem;
+  width: 100%;
+  min-height: 3.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-rule);
+  background: var(--color-paper);
+  padding: 0 1.05rem;
+  font-size: 1rem;
+  color: var(--color-ink);
+  transition:
+    border-color 170ms var(--ease-out),
+    box-shadow 170ms var(--ease-out);
+}
+
+[data-auth] .auth-input::placeholder {
+  color: var(--color-ink-4);
+}
+
+[data-auth] .auth-input:hover:not(:disabled) {
+  border-color: var(--color-edge);
+}
+
+[data-auth] .auth-input[aria-invalid='true'] {
+  border-color: var(--color-risk);
+}
+
+/*
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  `:focus:not(:disabled)` — AND THE `:not()` IS LOAD-BEARING.       │
+ * │                                                                    │
+ * │  `.auth-input:hover:not(:disabled)` above scores (0,4,0) and the   │
+ * │  plain `.auth-input:focus` scores (0,3,0), so HOVER BEAT FOCUS:    │
+ * │  clicking into the field left the pointer over it, the border      │
+ * │  stayed `--color-edge`, and the only thing marking focus was the   │
+ * │  halo — `#fef2ec` on a `#f7f5f2` ground, which is 1.03:1 and to    │
+ * │  a person is simply not there. Caught by sampling the rendered     │
+ * │  pixels; `getComputedStyle` reported the rule as applied.          │
+ * │                                                                    │
+ * │  The inset ring is the second half of the fix. WCAG 2.2 SC 2.4.11  │
+ * │  wants an indicator at least 2px thick at 3:1; a 1px border is     │
+ * │  thinner than that even once it is the right colour. Inset plus    │
+ * │  border reads as a 2px vermilion edge (3.6:1 against the canvas)   │
+ * │  and costs no layout, so nothing reflows on focus.                 │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+[data-auth] .auth-input:focus:not(:disabled) {
+  outline: none;
+  border-color: var(--color-brand);
+  box-shadow:
+    inset 0 0 0 1px var(--color-brand),
+    0 0 0 3px var(--color-brand-tint);
+}
+
+[data-auth] .auth-input[aria-invalid='true']:focus:not(:disabled) {
+  border-color: var(--color-risk);
+  box-shadow:
+    inset 0 0 0 1px var(--color-risk),
+    0 0 0 3px var(--color-risk-tint);
+}
+
+[data-auth] .auth-input:disabled {
+  background: var(--color-sunken);
+  color: var(--color-ink-3);
+  cursor: not-allowed;
+}
+
+/* ---- The primary action --------------------------------------------- */
+
+[data-auth] .auth-submit {
+  position: relative;
+  margin-top: 1.1rem;
+  display: flex;
+  width: 100%;
+  min-height: 3.6rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--color-brand);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: #fff;
+  box-shadow: var(--shadow-brand);
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+[data-auth] .auth-submit:hover:not(:disabled) {
+  background: var(--color-brand-hover);
+}
+
+[data-auth] .auth-submit:active:not(:disabled) {
+  background: var(--color-brand-press);
+}
+
+/*
+  DISABLED IS A NEUTRAL, NOT A FADED ORANGE.
+
+  A washed-out vermilion reads as a brand colour someone got wrong, and
+  at 40% opacity its label falls to about 2:1 against the button. This is
+  warm graphite on warm stone: unmistakably inert, and still legible at
+  4.6:1 — which is what a person squinting at a form they cannot submit
+  actually needs.
+*/
+[data-auth] .auth-submit:disabled {
+  background: var(--color-inset);
+  border-color: var(--color-rule);
+  color: var(--color-ink-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Work, shown inside the button's own edge — the label never moves and
+   the box never resizes. Stops the moment the request resolves. */
+[data-auth] .auth-submit-work {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-ink) 12%, transparent);
+}
+
+[data-auth] .auth-submit-work::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  width: 38%;
+  border-radius: 999px;
+  background: color-mix(in srgb, #fff 78%, transparent);
+  animation: auth-work-sweep 1.05s var(--ease-in-out) infinite;
+}
+
+@keyframes auth-work-sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+/* ---- Supporting copy ------------------------------------------------- */
+
+[data-auth] .auth-helper {
+  margin-top: 1.1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--color-ink-3);
+}
+
+[data-auth] .auth-helper-icon {
+  margin-top: 0.1rem;
+  height: 1.15rem;
+  width: 1.15rem;
+  flex-shrink: 0;
+  color: var(--color-ink-4);
+}
+
+[data-auth] .auth-hint {
+  margin-top: 0.75rem;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--color-ink-3);
+}
+
+[data-auth] .auth-error {
+  margin-top: 0.7rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--color-ink-2);
+}
+
+[data-auth] .auth-error-icon {
+  margin-top: 0.1rem;
+  height: 1.05rem;
+  width: 1.05rem;
+  flex-shrink: 0;
+  color: var(--color-risk);
+}
+
+[data-auth] .auth-error-reason {
+  font-weight: 600;
+  color: var(--color-risk);
+}
+
+[data-auth] .auth-secondary {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+[data-auth] .auth-secondary-rule {
+  height: 0.85rem;
+  width: 1px;
+  background: var(--color-rule);
+}
+
+[data-auth] .auth-quiet {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-ink-2);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+[data-auth] .auth-quiet:hover:not(:disabled) {
+  color: var(--color-brand);
+}
+
+[data-auth] .auth-quiet:disabled {
+  color: var(--color-ink-4);
+  cursor: not-allowed;
+}
+
+[data-auth] .auth-notice {
+  margin-top: 1.75rem;
+  border-top: 1px solid var(--color-line);
+  padding-top: 1.25rem;
+}
+
+[data-auth] .auth-notice-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+[data-auth] .auth-notice-line {
+  margin-top: 0.3rem;
+  font-size: var(--text-md);
+  color: var(--color-ink-3);
+}
+
+[data-auth] .auth-newhere {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  border-top: 1px solid var(--color-line);
+  padding-top: 1.25rem;
+}
+
+[data-auth] .auth-newhere-label {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+[data-auth] .auth-newhere-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-brand);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+[data-auth] .auth-newhere-link:hover {
+  color: var(--color-brand-hover);
+}
+
+/* ---- The code field -------------------------------------------------- */
+
+[data-auth] .auth-code {
+  position: relative;
+  margin-top: 0.6rem;
+  /*
+   * ROOM RESERVED BELOW THE FIELD, FOR THE THING THAT SUBMITS IT.
+   *
+   * When a soft keyboard opens, the browser scrolls the focused field
+   * into view — and "into view" means the minimum scroll, which parks
+   * it hard against the bottom edge and leaves `Verify code` just off
+   * screen. Measured on a 390px phone with the keyboard up: the field
+   * and its button need 169px together and had 420px to live in, so
+   * nothing was too big; the scroll simply stopped too early.
+   *
+   * `scroll-margin` is the declarative fix: it tells every scroll —
+   * the browser's own focus scroll included — to leave this much
+   * underneath. Nothing here calls `scrollIntoView` and fights it.
+   *
+   * ⚠ It is declared on `.auth-code-input` below, NOT here. This
+   * wrapper never takes focus; the transparent input inside it does,
+   * and a scroll margin on an ancestor of the scrolled element does
+   * nothing at all — which is exactly how the first attempt at this
+   * fix changed no pixel and reported success.
+   */
+}
+
+[data-auth] .auth-code-cells {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.375rem;
+}
+
+[data-auth] .auth-code-cell {
+  display: flex;
+  min-width: 0;
+  height: 3.6rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-rule);
+  background: var(--color-paper);
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+  transition:
+    border-color 170ms var(--ease-out),
+    box-shadow 170ms var(--ease-out),
+    background-color 170ms var(--ease-out);
+}
+
+[data-auth] .auth-code-cell[data-set] {
+  border-color: var(--color-edge);
+}
+
+/*
+  THE REAL INPUT, LYING ON TOP OF THE CELLS.
+
+  Transparent text and caret, because the digits the person sees are
+  painted into the cells from state — but it is a real, focusable,
+  full-size input, so paste, backspace, arrow keys, autofill and a screen
+  reader all meet one ordinary field instead of eight impostors.
+*/
+[data-auth] .auth-code-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  /* See `.auth-code` — the room reserved for `Verify code`. */
+  scroll-margin-block: 1.5rem 9rem;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  letter-spacing: 0.5em;
+  text-align: center;
+  outline: none;
+}
+
+/* The focus ring belongs on the cell the caret is in — the input itself
+   is invisible, so a ring on it would appear around nothing. */
+[data-auth] .auth-code-input:focus-visible + .auth-code-cells .auth-code-cell[data-live],
+[data-auth] .auth-code-input:focus + .auth-code-cells .auth-code-cell[data-live] {
+  border-color: var(--color-brand);
+  box-shadow:
+    inset 0 0 0 1px var(--color-brand),
+    0 0 0 3px var(--color-brand-tint);
+}
+
+[data-auth] .auth-code-invalid .auth-code-cell {
+  border-color: var(--color-risk);
+}
+
+[data-auth]
+  .auth-code-invalid
+  .auth-code-input:focus
+  + .auth-code-cells
+  .auth-code-cell[data-live] {
+  box-shadow: 0 0 0 3px var(--color-risk-tint);
+}
+
+[data-auth] .auth-code-off .auth-code-cell {
+  background: var(--color-sunken);
+  color: var(--color-ink-3);
+}
+
+/* Below `sm` eight cells and their gaps stop fitting a 390px screen, so
+   the gap tightens and the cells lose their radius-driven padding rather
+   than the digits losing their size. */
+@media (max-width: 400px) {
+  [data-auth] .auth-code-cells {
+    gap: 0.25rem;
+  }
+  [data-auth] .auth-code-cell {
+    height: 3.1rem;
+    font-size: 1rem;
+  }
+}
+
+/*
+ * SHORT VIEWPORTS — A RAISED KEYBOARD IS THE COMMON CASE, NOT AN EDGE ONE.
+ *
+ * With the keyboard up a 844px phone is about 420px tall, and at the
+ * original rhythm `Verify code` sat below the fold while the field it
+ * belongs to was scrolled into view: the person could see what to fill
+ * in and not the thing that submits it. The spacing tightens rather
+ * than anything shrinking, so nothing becomes harder to read or to hit.
+ */
+@media (max-height: 560px) {
+  [data-auth] .auth-work {
+    padding-block: 1.5rem 2rem;
+  }
+  [data-auth] .auth-title {
+    margin-top: 0.75rem;
+    font-size: clamp(1.55rem, 4.6vw, 2rem);
+  }
+  [data-auth] .auth-sub {
+    margin-top: 0.5rem;
+    font-size: var(--text-md);
+  }
+  [data-auth] .auth-form > div:first-of-type,
+  [data-auth] .auth-code {
+    margin-top: 1rem;
+  }
+  [data-auth] .auth-hint {
+    margin-top: 0.5rem;
+  }
+  [data-auth] .auth-submit {
+    margin-top: 0.75rem;
+  }
+  [data-auth] .auth-secondary {
+    margin-top: 0.75rem;
+  }
+  [data-auth] .auth-notice,
+  [data-auth] .auth-newhere {
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+  }
+}
+
+/* ---- Access confirmed ------------------------------------------------ */
+
+[data-auth] .auth-granted {
+  margin-top: 2rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--auth-mint-dim) 34%, transparent);
+  background: color-mix(in srgb, var(--auth-mint) 12%, var(--color-paper));
+  padding: 1.1rem 1.15rem;
+  animation: auth-form-in 480ms var(--ease-out) 120ms both;
+}
+
+[data-auth] .auth-granted-mark {
+  display: grid;
+  height: 2.25rem;
+  width: 2.25rem;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--auth-mint-dim);
+  color: #fff;
+}
+
+[data-auth] .auth-granted-title {
+  display: block;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+[data-auth] .auth-granted-line {
+  margin-top: 0.2rem;
+  display: block;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--color-ink-2);
+}
+
+/* ---- Footer ---------------------------------------------------------- */
+
+[data-auth] .auth-footer {
+  border-top: 1px solid var(--color-line);
+  background: var(--color-canvas);
+}
+
+[data-auth] .auth-footer-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+}
+
+[data-auth] .auth-footer-mark {
+  font-size: var(--text-md);
+  color: var(--color-ink-3);
+}
+
+[data-auth] .auth-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+[data-auth] .auth-footer-link {
+  display: inline-flex;
+  min-height: 1.5rem;
+  align-items: center;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-md);
+  color: var(--color-ink-2);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+[data-auth] a.auth-footer-link:hover {
+  color: var(--color-ink);
+}
+
+[data-auth] .auth-footer-link-off {
+  color: var(--color-ink-4);
+  cursor: default;
+}
+
+@media (min-width: 640px) {
+  [data-auth] .auth-header-inner,
+  [data-auth] .auth-footer-inner {
+    padding-inline: 2.5rem;
+  }
+  [data-auth] .auth-footer-inner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 1440px) {
+  [data-auth] .auth-header-inner,
+  [data-auth] .auth-footer-inner {
+    padding-inline: 3.75rem;
+  }
+}
+
+/* ---- Focus, everywhere ----------------------------------------------- */
+
+[data-auth] a:focus-visible,
+[data-auth] button:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 3px;
+  border-radius: var(--radius-xs);
+}
+
+[data-auth] .auth-editorial a:focus-visible {
+  outline-color: var(--color-nav-ink);
+}
+
+/* ==================================================================== *
+ * Reduced motion.
+ *
+ * The base stylesheet already collapses every duration, but NOT the
+ * delays — so without this the rail would still wait 600ms in silence
+ * before changing colour, and the signal would flash at its destination
+ * instead of never appearing. Every state below is reached instantly and
+ * every one of them is still legible.
+ * ==================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-auth] .auth-track-sled,
+  [data-auth] .auth-submit-work {
+    display: none;
+  }
+
+  [data-auth] .auth-step,
+  [data-auth] .auth-step-ordinal,
+  [data-auth] .auth-step-label,
+  [data-auth] .auth-node,
+  [data-auth] .auth-track-fill,
+  [data-auth] .auth-input,
+  [data-auth] .auth-code-cell {
+    transition-delay: 0ms !important;
+  }
+
+  [data-auth] .auth-form,
+  [data-auth] .auth-granted {
+    animation: none;
+  }
+}
