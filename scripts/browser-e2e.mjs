@@ -52,6 +52,7 @@ import {
   confirmReceipt,
   createDeal,
   enrolAndSatisfyMfa,
+  completeSignIn,
   establishReviewer,
   grantRole,
   instrument,
@@ -198,14 +199,29 @@ console.log('\n0 · standing verification reviewer');
      * the reviewer's own AND must offer no approve control. Copy can be
      * reworded; the absence of the button is the property that matters.
      */
-    const ownCard = handle.page.locator('li:has-text("Reviewer")').first();
-    const marked = /your own case/i.test(await ownCard.innerText());
-    const controls = await ownCard.locator('[data-testid="verification-approve"]').count();
+    /*
+     * ⚠ ADDRESS THE CARDS BY THE REVIEWER'S OWN EMAIL, not by the word
+     * "Reviewer" — every actor in the gate is DISPLAYED as "Reviewer …",
+     * so `li:has-text("Reviewer")` matches the whole queue and `.first()`
+     * lands on whichever case happens to be oldest, including another
+     * reviewer's perfectly decidable one. Each card prints the subject's
+     * address local part, which only the subject's own cards carry.
+     */
+    const ownLocal = ACCOUNT.reviewer.split('@')[0];
+    const ownCards = handle.page.locator(`li:has-text("${ownLocal}")`);
+    const ownCount = await ownCards.count();
+    let allMarked = ownCount > 0;
+    let ownControls = 0;
+    for (let i = 0; i < ownCount; i += 1) {
+      const card = ownCards.nth(i);
+      if (!/your own case/i.test(await card.innerText())) allMarked = false;
+      ownControls += await card.locator('[data-testid="verification-approve"]').count();
+    }
     record(
       'review',
       'a reviewer is offered no control over their own case',
-      marked && controls === 0,
-      `marked=${marked} approveControls=${controls}`,
+      allMarked && ownControls === 0,
+      `ownCards=${ownCount} allMarked=${allMarked} approveControls=${ownControls}`,
     );
     await handle.page.screenshot({ path: join(OUT, '15-verification-queue.png'), fullPage: true });
   } catch (error) {
@@ -228,17 +244,27 @@ console.log('\n1 · authentication');
     const probe = `probe-${Date.now()}@example.in`;
     await h.page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
     await noDevArtefacts(h.page, 'login');
-    await typeInto(h.page, 'input[type=email]', probe);
-    await h.page.click('button:has-text("Email me a code")');
-    await h.page.waitForSelector('input[placeholder="12345678"]', { timeout: 20_000 });
+    await typeInto(h.page, 'input[type=email]', probe, {
+      enables: 'button:has-text("Continue")',
+    });
+    await h.page.click('button:has-text("Continue")');
+    await h.page.waitForSelector('input[name="code"]', { timeout: 20_000 });
+    /*
+     * The status line is the same sentence for every address — registered
+     * or not — so the screen cannot be used to learn which addresses have
+     * accounts. The refusal below is likewise one sentence for wrong,
+     * expired, spent and unknown codes.
+     */
     record(
       'auth',
       'anti-enumeration copy for an unknown address',
-      /If .* is registered/i.test(await h.page.locator('body').innerText()),
+      /Enter the eight digits sent to/i.test(await h.page.locator('body').innerText()),
     );
 
-    await typeInto(h.page, 'input[placeholder="12345678"]', '00000000');
-    await h.page.click('button:has-text("Sign in")');
+    // The eighth digit auto-submits (CodeField.onComplete) — no button.
+    const wrongCode = h.page.locator('input[name="code"]');
+    await wrongCode.click();
+    await wrongCode.pressSequentially('00000000', { delay: 25 });
     await h.page.waitForSelector('text=/not valid/i', { timeout: 20_000 });
     record('auth', 'a wrong code is refused', true);
 
@@ -312,9 +338,28 @@ console.log('\n2 · calculator handoff');
 
     await h.page.locator('button[type=submit]').first().click();
     await h.page.waitForURL(/\/login/, { timeout: 25_000 });
-    await h.page.waitForSelector('text=/Carried from the calculator/i', { timeout: 20_000 });
-    const carried = await h.page.locator('body').innerText();
-    record('quote', 'amount carried exactly across auth', carried.includes('83,000'), '₹83,000.00');
+    /*
+     * AUTH-UI-01 carries only the DESTINATION across authentication: the
+     * sign-in screen no longer restates the quote, because an indicative
+     * rate restated after a delay is a stale price presented as current.
+     * The contract to hold is therefore at the far side — finishing the
+     * sign-in must land on the protected form with the corridor and
+     * amount exactly as the calculator sent them.
+     */
+    await completeSignIn(h.page, `quote-${Date.now()}@example.in`);
+    await h.page.waitForURL(/\/app\/new/, { timeout: 25_000 });
+    const dest = new URL(h.page.url());
+    record(
+      'quote',
+      'the calculator destination survives authentication',
+      dest.searchParams.get('scenario') === 'INR_TO_USDT' &&
+        dest.searchParams.get('amount') === '83000',
+      dest.pathname + dest.search,
+    );
+    const carried = (
+      await h.page.locator('input[placeholder="0"]').first().inputValue()
+    ).replace(/,/g, '');
+    record('quote', 'amount carried exactly across auth', carried === '83000', `form shows ${carried}`);
     await h.page.screenshot({ path: join(OUT, '03-handoff.png') });
   } catch (error) {
     record('quote', 'calculator handoff', false, String(error).slice(0, 150));
