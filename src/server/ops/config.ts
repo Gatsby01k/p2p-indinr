@@ -125,10 +125,7 @@ export function loadConfig(): AppConfig {
      * deploy verification asks — is the running build the one we verified?
      * — could not be answered from the health endpoint.
      */
-    appVersion:
-      process.env.APP_VERSION ??
-      process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ??
-      'dev',
+    appVersion: process.env.APP_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ?? 'dev',
     expectedSchemaVersion: EXPECTED_SCHEMA_VERSION,
     presentSecrets: present,
     missingMandatory: missing,
