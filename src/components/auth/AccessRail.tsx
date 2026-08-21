@@ -76,10 +76,30 @@ export interface RailTravel {
 export function AccessRail({
   stage,
   travel,
+  demo = false,
   className,
 }: {
   stage: AccessStage;
   travel: RailTravel | null;
+  /**
+   * Play the journey on a loop, before anybody has done anything.
+   *
+   * ┌────────────────────────────────────────────────────────────────┐
+   * │  A DEMONSTRATION, AND IT HAS TO STAY READABLE AS ONE.          │
+   * │                                                                │
+   * │  It runs ONLY at `stage === 'email'`, and only until the       │
+   * │  person touches the form — after that the rail is a readout of │
+   * │  a real authentication again and never loops. That boundary is │
+   * │  the whole safety of the idea: a rail that kept cycling to     │
+   * │  `Continue securely` beside a filled-in code field would be    │
+   * │  animating a claim about the person's session.                 │
+   * │                                                                │
+   * │  The `data-state` attributes below are NOT touched by it. The  │
+   * │  loop is painted over them in CSS, so what a screen reader is  │
+   * │  told, and what the component believes, stay true throughout.  │
+   * └────────────────────────────────────────────────────────────────┘
+   */
+  demo?: boolean;
   className?: string;
 }) {
   const states = statesFor(stage);
@@ -87,6 +107,7 @@ export function AccessRail({
   return (
     <div
       data-auth-rail
+      data-demo={demo ? '' : undefined}
       className={cn('select-none', className)}
       style={{ '--rail-fill': FILL[stage] } as React.CSSProperties}
     >
@@ -122,6 +143,12 @@ export function AccessRail({
           <span className="auth-track-fill" />
         </span>
 
+        {demo ? (
+          <span className="auth-track-sled auth-track-sled-demo">
+            <span className="auth-signal" />
+          </span>
+        ) : null}
+
         {travel ? (
           <span
             key={travel.id}
@@ -141,6 +168,7 @@ export function AccessRail({
           <span
             key={i}
             data-state={state}
+            data-node={i + 1}
             className="auth-node"
             style={{ '--i': i } as React.CSSProperties}
           />

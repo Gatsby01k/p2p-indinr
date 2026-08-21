@@ -143,6 +143,22 @@ export function SignInExperience({ next, invite }: { next: string; invite: strin
   /** Guards the one-shot hand-off timers against a unmount mid-flight. */
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
+  /*
+   * THE DEMONSTRATION, AND THE ONE-WAY DOOR THAT ENDS IT.
+   *
+   * `demoSpent` is a ref, not state, and it is never set back. Coming
+   * back to the address by way of `Use a different email` must NOT
+   * restart the loop: by then the person is mid-authentication, and a
+   * rail cycling to `Continue securely` beside their half-finished
+   * sign-in would be animating a claim about their session.
+   */
+  const demoSpent = useRef(false);
+  const [demo, setDemo] = useState(false);
+  const endDemo = useCallback(() => {
+    demoSpent.current = true;
+    setDemo(false);
+  }, []);
+
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
     const query = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -151,6 +167,21 @@ export function SignInExperience({ next, invite }: { next: string; invite: strin
     query.addEventListener('change', onChange);
     return () => query.removeEventListener('change', onChange);
   }, []);
+
+  /*
+   * ⚠ ASSIGNED, NOT SWITCHED ON.
+   *
+   * The early-return version of this had a hole: `reduced` starts false
+   * because `matchMedia` cannot be read during a server render, so the
+   * demonstration turned itself on, and when the media query resolved a
+   * moment later the guard simply returned — leaving it running for
+   * exactly the person who asked for no motion. Recomputing the whole
+   * answer means the later truth can switch it back off. Both effects
+   * commit before paint, so nothing flashes.
+   */
+  useEffect(() => {
+    setDemo(!reduced && !demoSpent.current && stage === 'email');
+  }, [reduced, stage]);
 
   useEffect(
     () => () => {
@@ -184,6 +215,7 @@ export function SignInExperience({ next, invite }: { next: string; invite: strin
   const request = (mode: 'first' | 'resend') =>
     startTransition(async () => {
       setRefusal(null);
+      endDemo();
       setStatus(mode === 'first' ? 'Sending your sign-in code…' : 'Sending a new code…');
 
       let result: { ok: boolean; code?: string; message?: string } | undefined;
@@ -327,7 +359,7 @@ export function SignInExperience({ next, invite }: { next: string; invite: strin
           </h2>
           <p className="auth-editorial-sub">One email. One-time code. Back where you left off.</p>
 
-          <AccessRail stage={stage} travel={travel} className="auth-editorial-rail" />
+          <AccessRail stage={stage} travel={travel} demo={demo} className="auth-editorial-rail" />
 
           <p className="auth-editorial-foot">
             <Icon name="lock" className="auth-editorial-foot-icon" strokeWidth={1.8} />
@@ -379,6 +411,7 @@ export function SignInExperience({ next, invite }: { next: string; invite: strin
               pending={pending}
               error={emailError}
               emailRef={emailRef}
+              onEngage={endDemo}
               onSubmit={() => request('first')}
             />
           )}
@@ -399,6 +432,7 @@ function EmailStage({
   pending,
   error,
   emailRef,
+  onEngage,
   onSubmit,
 }: {
   email: string;
@@ -407,6 +441,8 @@ function EmailStage({
   pending: boolean;
   error: Refusal | null;
   emailRef: React.RefObject<HTMLInputElement | null>;
+  /** Reaching for the field ends the demonstration, for good. */
+  onEngage: () => void;
   onSubmit: () => void;
 }) {
   return (
@@ -440,7 +476,11 @@ function EmailStage({
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? 'auth-email-error' : undefined}
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          onFocus={onEngage}
+          onChange={(event) => {
+            onEngage();
+            setEmail(event.target.value);
+          }}
           placeholder="you@example.in"
           className="auth-input"
         />

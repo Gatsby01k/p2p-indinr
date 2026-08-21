@@ -437,11 +437,69 @@ describe('state 3 · continue securely', () => {
 });
 
 /* ================================================================== *
+ * The demonstration loop
+ * ================================================================== */
+
+describe('the rail demonstrating itself', () => {
+  const rail = () => document.querySelector('[data-auth-rail]');
+  const looping = () => rail()?.hasAttribute('data-demo') ?? false;
+
+  it('plays on an untouched form', () => {
+    setup();
+    expect(looping()).toBe(true);
+    expect(document.querySelector('.auth-track-sled-demo')).toBeTruthy();
+  });
+
+  it('never claims a step the person has not reached', () => {
+    /*
+     * The loop is painted over `data-state` in CSS and must not change
+     * it. What the markup says, and what a screen reader is told, stay
+     * true for every second the animation runs.
+     */
+    setup();
+    expect(looping()).toBe(true);
+    expect(railStates()).toEqual(['active', 'idle', 'idle']);
+    expect(nodeStates()).toEqual(['active', 'idle', 'idle']);
+  });
+
+  it('stops the moment somebody reaches for the field', async () => {
+    const { user } = setup();
+    expect(looping()).toBe(true);
+    await user.click(screen.getByLabelText('Email address'));
+    expect(looping()).toBe(false);
+    expect(document.querySelector('.auth-track-sled-demo')).toBeNull();
+  });
+
+  it('stays stopped after coming back to a different email', async () => {
+    /*
+     * The one-way door. Somebody mid-authentication must never see a
+     * rail cycling to `Continue securely` beside their own half-done
+     * sign-in — that would be animating a claim about their session.
+     */
+    const { user } = await reachCodeStage();
+    await user.click(screen.getByRole('button', { name: 'Use a different email' }));
+    await screen.findByRole('heading', { name: 'Sign in to INRP2P' });
+    expect(looping(), 'the demonstration must not restart').toBe(false);
+  });
+
+  it('is not running once the code has been asked for', async () => {
+    await reachCodeStage();
+    expect(looping()).toBe(false);
+  });
+});
+
+/* ================================================================== *
  * Reduced motion
  * ================================================================== */
 
 describe('prefers-reduced-motion', () => {
   beforeEach(() => stubMotion(true));
+
+  it('never starts the demonstration at all', () => {
+    setup();
+    expect(document.querySelector('[data-auth-rail]')?.hasAttribute('data-demo')).toBe(false);
+    expect(document.querySelector('.auth-track-sled-demo')).toBeNull();
+  });
 
   it('never puts a travelling signal on the rail', async () => {
     verifySignInCodeAction.mockResolvedValue({ ok: true });

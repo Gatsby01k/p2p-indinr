@@ -1753,12 +1753,16 @@ html[data-tg='1'] [data-tabbar] {
   color: var(--auth-mint);
 }
 
-/* A step is a readout, not a control — so hover is a small contrast
-   change and nothing more. There is no `:focus` rule because there is
-   nothing here to focus: the only way forward is through the server. */
-[data-auth] .auth-step:hover .auth-step-label {
-  color: var(--color-nav-ink);
-}
+/*
+ * NO HOVER RULE, DELIBERATELY.
+ *
+ * There was one — a small contrast lift on the label. It read as an
+ * affordance on something that is not a control: the pointer changed
+ * the step under it, so the step looked clickable, and clicking it
+ * does nothing because the only way forward is through the server.
+ * There is no `:focus` rule either, and for the same reason: there is
+ * nothing here to focus.
+ */
 
 @media (min-width: 640px) {
   [data-auth] .auth-step {
@@ -1892,6 +1896,131 @@ html[data-tg='1'] [data-tabbar] {
 [data-auth] .auth-node[data-state='confirmed'] {
   border-color: var(--auth-mint);
   background: var(--auth-mint);
+}
+
+/* ==================================================================== *
+ * The rail, demonstrating itself
+ *
+ * ┌────────────────────────────────────────────────────────────────────┐
+ * │  THE ONE LOOPING ANIMATION IN THIS PRODUCT, AND ITS FENCE.         │
+ * │                                                                    │
+ * │  Everything else on this screen moves once, on a confirmed server  │
+ * │  response. This cycles — because a rail standing still says        │
+ * │  nothing about the journey it is drawn to describe, and the first  │
+ * │  viewport is the only place there is nothing truer to show.        │
+ * │                                                                    │
+ * │  It is fenced by `[data-demo]`, which `SignInExperience` removes   │
+ * │  the moment somebody reaches for the address field and never puts  │
+ * │  back. So the loop can only ever play against an untouched form.   │
+ * │                                                                    │
+ * │  It paints OVER `data-state` rather than changing it: the markup,  │
+ * │  the accessible names and the component's own idea of the stage    │
+ * │  stay true for every second the loop runs.                         │
+ * └────────────────────────────────────────────────────────────────────┘
+ *
+ * One cycle is 5.6s: draw and travel for 2s, hold for 1.2s, fade for
+ * 0.7s, then 1.7s of rest. The rest is the point — a mark that moves
+ * continuously in the corner of the eye is a mark somebody has to work
+ * to ignore while typing an address.
+ * ==================================================================== */
+
+[data-auth] [data-auth-rail][data-demo] .auth-track-fill {
+  animation: auth-demo-fill 5.6s var(--ease-out) infinite;
+}
+
+@keyframes auth-demo-fill {
+  0%,
+  5% {
+    opacity: 1;
+    transform: scaleX(0);
+  }
+  40%,
+  62% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  74% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+  /* Rewound while invisible, so nothing is ever seen running backwards. */
+  75%,
+  100% {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+}
+
+/* The signal, on the same clock. `100%` of the sled is node 01 → node 03. */
+[data-auth] .auth-track-sled-demo {
+  animation: auth-demo-travel 5.6s var(--ease-out) infinite;
+}
+
+@keyframes auth-demo-travel {
+  0%,
+  5% {
+    opacity: 1;
+    transform: translateX(0%);
+  }
+  40% {
+    opacity: 1;
+    transform: translateX(100%);
+  }
+  43%,
+  100% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+/*
+ * The nodes light AS THE SIGNAL REACHES THEM, not on a rhythm of their
+ * own — node 02 at the midpoint of the travel, node 03 on arrival. Node
+ * 01 is left alone: it is the step the person is actually on, and it is
+ * already lit for a true reason.
+ */
+[data-auth] [data-auth-rail][data-demo] .auth-node[data-node='2'] {
+  animation: auth-demo-node-2 5.6s var(--ease-out) infinite;
+}
+
+[data-auth] [data-auth-rail][data-demo] .auth-node[data-node='3'] {
+  animation: auth-demo-node-3 5.6s var(--ease-out) infinite;
+}
+
+@keyframes auth-demo-node-2 {
+  0%,
+  21% {
+    border-color: var(--color-nav-3);
+    background-color: var(--color-nav);
+  }
+  25%,
+  62% {
+    border-color: var(--color-brand);
+    background-color: var(--color-brand);
+  }
+  76%,
+  100% {
+    border-color: var(--color-nav-3);
+    background-color: var(--color-nav);
+  }
+}
+
+@keyframes auth-demo-node-3 {
+  0%,
+  38% {
+    border-color: var(--color-nav-3);
+    background-color: var(--color-nav);
+  }
+  43%,
+  62% {
+    border-color: var(--auth-mint);
+    background-color: var(--auth-mint);
+  }
+  76%,
+  100% {
+    border-color: var(--color-nav-3);
+    background-color: var(--color-nav);
+  }
 }
 
 /* ---- The working column --------------------------------------------- */
@@ -2562,6 +2691,20 @@ html[data-tg='1'] [data-tabbar] {
   [data-auth] .auth-track-sled,
   [data-auth] .auth-submit-work {
     display: none;
+  }
+
+  /*
+   * The demonstration is not slowed down here, it is CANCELLED. The
+   * global `animation-duration: 0.01ms` would otherwise leave it
+   * flickering through a whole cycle every 5.6 seconds, which is worse
+   * than the motion it was meant to remove. `SignInExperience` also
+   * refuses to switch it on; this is the belt to that pair of braces.
+   */
+  [data-auth] [data-auth-rail][data-demo] .auth-track-fill,
+  [data-auth] .auth-track-sled-demo,
+  [data-auth] [data-auth-rail][data-demo] .auth-node[data-node='2'],
+  [data-auth] [data-auth-rail][data-demo] .auth-node[data-node='3'] {
+    animation: none !important;
   }
 
   [data-auth] .auth-step,
