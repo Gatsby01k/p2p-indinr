@@ -6,7 +6,9 @@ import { SignInExperience } from '@/components/auth/SignInExperience';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Sign in · INRP2P',
+  // The layout template appends "· INRP2P"; repeating it here rendered
+  // the tab as "Sign in · INRP2P · INRP2P".
+  title: 'Sign in',
   description: 'Passwordless sign-in. One email, one one-time code, no password stored.',
   robots: { index: false, follow: false },
 };
